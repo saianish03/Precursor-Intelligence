@@ -1,2 +1,3 @@
-# Survey-Horizon
-MLOps Project - Nursing Homes Risk Assessment - End to End
+# Precursor Intelligence
+
+An end-to-end MLOps application - Nursing Homes Risk Assessment for the Insurance Industry
