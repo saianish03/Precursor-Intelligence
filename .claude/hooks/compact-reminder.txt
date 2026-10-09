@@ -1,0 +1,7 @@
+Project reminders after compaction (Precursor Intelligence):
+- uv only (uv sync --frozen, uv run ...); never pip.
+- Point-in-time: features from vintage t (+ t-6, t-12) only; labels strictly after cutoff; star ratings never features.
+- CCN is 6-character text. Scope: 2021-2026 vintages, prediction months from 2023-01.
+- Agents are read-only and must cite tool evidence. No secrets anywhere.
+- terraform apply/destroy only runs in CI. Every BigQuery query sets maximum_bytes_billed.
+- One issue -> one branch (type/issue-<n>-name) -> one PR with "Closes #<n>". Run /pr-ready before opening it.

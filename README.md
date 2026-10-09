@@ -38,6 +38,11 @@ Precursor-Intelligence/
 
 Each top-level folder has its own README describing what belongs there.
 
+## Claude Code
+
+The shared Claude Code setup (`CLAUDE.md`, `.claude/`) is committed. To set it up on your laptop, follow
+[claude.setup.md](claude.setup.md).
+
 ## Branching
 
 | Branch | Purpose | Who pushes |

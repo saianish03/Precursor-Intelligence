@@ -1,0 +1,34 @@
+name: claude-config-check
+# Validates the shared Claude Code configuration on every PR that touches it.
+on:
+  pull_request:
+    paths:
+      - "CLAUDE.md"
+      - ".claude/**"
+      - ".mcp.json"
+      - "scripts/setup-claude.sh"
+      - "scripts/check-claude-config.py"
+      - ".gitignore"
+      - ".github/workflows/claude-config-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Claude Code config
+        run: python3 scripts/check-claude-config.py
+      - name: Shell syntax
+        run: bash -n scripts/setup-claude.sh && bash -n .claude/hooks/format-python.sh
+      - name: Hook smoke test
+        run: |
+          set +e
+          echo '{"tool_input":{"file_path":".env","content":"x"}}' | .claude/hooks/guard-secrets.py; rc=$?
+          [ "$rc" -eq 2 ] || { echo "guard-secrets should block .env (got $rc)"; exit 1; }
+          echo '{"tool_input":{"file_path":"src/a.py","new_string":"x = 1"}}' | .claude/hooks/guard-secrets.py; rc=$?
+          [ "$rc" -eq 0 ] || { echo "guard-secrets should allow clean edits (got $rc)"; exit 1; }
+          echo "hooks OK"

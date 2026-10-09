@@ -45,3 +45,8 @@ crash.log
 .idea/
 .vscode/
 ~$*
+
+# --- Claude Code: personal files (the shared config in CLAUDE.md and .claude/ is committed) ---
+.claude/settings.local.json
+CLAUDE.local.md
+.claude/agent-memory-local/
