@@ -1,0 +1,68 @@
+name: CI
+
+# Runs on every pull request into dev (feature work) and main (releases).
+# Make the "ci-ok" check required in the branch rulesets: a PR can then merge only when lint and tests pass.
+on:
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: lint + tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Check out the merge commit
+        uses: actions/checkout@v4
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install the package with dev tools
+        run: |
+          uv venv
+          uv pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: uv run ruff check src tests
+
+      - name: Unit tests (offline; live CMS tests are excluded)
+        run: |
+          set +e
+          uv run pytest -q
+          code=$?
+          if [ "$code" -eq 5 ]; then
+            echo "::notice::No tests were collected; treating as success."
+            exit 0
+          fi
+          exit $code
+
+  # Single stable check name to require in the branch rulesets (independent of the Python matrix).
+  ci-ok:
+    name: ci-ok
+    needs: [tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All required jobs passed
+        run: |
+          if [ "${{ needs.tests.result }}" != "success" ]; then
+            echo "tests job result: ${{ needs.tests.result }}"
+            exit 1
+          fi
