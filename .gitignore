@@ -1,0 +1,47 @@
+# --- data & outputs (never commit data; local cache mirrors the GCS layout) ---
+data/*
+!data/README.md
+logs/
+mlruns/
+*.parquet
+*.zip
+
+# --- secrets & local env ---
+.env
+.env.*
+!.env.example
+*.pem
+*-key.json
+credentials*.json
+service-account*.json
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# --- notebooks ---
+.ipynb_checkpoints/
+
+# --- terraform ---
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# --- OS / editors ---
+.DS_Store
+.idea/
+.vscode/
+~$*
