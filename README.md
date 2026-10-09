@@ -63,10 +63,11 @@ Each top-level folder has its own README describing what belongs there.
 
 ### 2. Before you push, check locally (CI runs the same commands)
 ```bash
-uv venv && uv pip install -e ".[dev]"     # or: pip install -e ".[dev]"
-ruff check src tests                      # lint must pass
-pytest                                    # offline tests must pass (live CMS tests are skipped)
+uv sync --all-extras                      # exact versions from uv.lock, plus dev tools (uv only, never pip)
+uv run ruff check src tests               # lint must pass
+uv run pytest                             # offline tests must pass (live CMS tests are skipped)
 ```
+- **macOS only:** LightGBM needs OpenMP: `brew install libomp` once per laptop.
 - **Bring in the latest `dev`** (`git pull origin dev`, or rebase) and resolve conflicts locally before opening the PR.
 
 ### 3. Code and tests
@@ -74,7 +75,7 @@ pytest                                    # offline tests must pass (live CMS te
 - **Unit tests must not call the network or cloud services.** Mark live tests with `@pytest.mark.network`.
 - **Add only required code for the feature, or only tiny fixes** (a few rows). Never put real downloaded data in the repo.
 - **No hard-coded paths, buckets or credentials.** Read them from `configs/` and environment variables.
-- **New dependencies go into the right group in `pyproject.toml`** (`gcp`, `training`, `backend`, …). Say why in the PR.
+- **New dependencies go into the right extra with `uv add --optional <extra> <package>`** (`pipeline`, `ml`, `agents`, `api`, `ui`, `mlflow-server`; tools: `uv add --group dev <package>`). Never type versions by hand; commit the updated `uv.lock`. Say why in the PR.
 
 ### 4. Never commit
 - data files (`data/`, CSV / Parquet / zip downloads), logs, model artefacts;
