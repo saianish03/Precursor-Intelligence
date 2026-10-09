@@ -1,0 +1,31 @@
+survey_type_map (survey_dates.Type of Survey):
+  Health Standard: HEALTH_STANDARD
+  Health Complaint: HEALTH_COMPLAINT
+  Infection Control: INFECTION_CONTROL
+  Fire Safety Standard: FIRE_STANDARD
+  Fire Safety Complaint: FIRE_COMPLAINT
+health_citations_survey_type_rule: 'Survey Type is always ''Health''. Derive from flags: is_standard->HEALTH_STANDARD, is_complaint->HEALTH_COMPLAINT,
+  is_infection_control->INFECTION_CONTROL (a citation can carry several flags; keep the three booleans).'
+special_focus_status_map:
+  SFF: SFF
+  SFF Candidate: SFF_CANDIDATE
+  <null>: NONE
+sprinkler_status_map:
+  'Yes': 'YES'
+  Partial: PARTIAL
+  'No': 'NO'
+  Data Not Available: <null> + flag
+resident_family_council_map:
+  Resident: RESIDENT
+  Family: FAMILY
+  Both: BOTH
+  None/<null>: NONE
+ownership_group_rule:
+  For profit - *: for_profit
+  Non profit - *: non_profit
+  Government - *: government
+yes_no_map:
+  Y: true
+  N: false
+  'Yes': true
+  'No': false

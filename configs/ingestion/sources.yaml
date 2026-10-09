@@ -1,0 +1,75 @@
+# What to download and the rules the download must obey.
+# Backend choice (where things are stored) lives in configs/env/<env>.yaml, not here.
+
+source:
+  name: cms_pdc_nursing_homes
+  base_url: https://data.cms.gov            # https only; enforced at load time
+  api_prefix: /provider-data/api/1
+  theme_slug: nursing-homes
+  endpoints:
+    # Undocumented JSON endpoints used by the "Archived data" page (found in /provider-data/js/index.js)
+    archive: /archive/aggregate/theme/{theme}/relative
+    current: /archive/aggregate/current/theme/all/relative
+    # Documented metastore endpoint, used for release metadata (modified / released / nextUpdateDate)
+    metastore_item: /metastore/schemas/dataset/items/{dataset_id}?show-reference-ids=false
+  # Only catalog URLs matching this relative-path pattern may ever be downloaded.
+  allowed_download_path_regex: '^/provider-data/sites/default/files/dataset-archives/[A-Za-z0-9_.\-/]+\.zip$'
+
+scope:
+  include_types: [theme, current]          # annual_theme bundles are nested copies of the monthly zips
+  min_zip_date: "2021-01-01"               # the 2021-01-27 zip is the first holding a 2021-01 vintage
+  max_zip_date: null
+  vintage_start: "2021-01"                 # first data month in scope (guide §0.5)
+
+# The 7 in-scope tables (guide §1). Patterns are matched against the member's base name and must
+# cover all three archive layouts: L1 legacy (*_Download.csv), L2 (NH_<T>_<MonYYYY>.csv),
+# L3 (<datasetId>_<YYYY-MM-DD>_NH_<T>_<MonYYYY>.csv).
+tables:
+  provider_info:
+    dataset_id: 4pq5-n9py
+    patterns: ['(?i)(^|_)NH_ProviderInfo_[A-Za-z]{3}\d{4}\.csv$', '(?i)^ProviderInfo_Download\.csv$']
+  health_citations:
+    dataset_id: r5ix-sfxw
+    patterns: ['(?i)(^|_)NH_HealthCitations_[A-Za-z]{3}\d{4}\.csv$', '(?i)^HealthDeficiencies_Download\.csv$']
+  survey_dates:
+    dataset_id: svdt-c123
+    patterns: ['(?i)(^|_)NH_SurveyDates_[A-Za-z]{3}\d{4}\.csv$']
+  penalties:
+    dataset_id: g6vv-u9sr
+    patterns: ['(?i)(^|_)NH_Penalties_[A-Za-z]{3}\d{4}\.csv$', '(?i)^Penalties_Download\.csv$']
+  mds_qm:
+    dataset_id: djen-97ju
+    patterns: ['(?i)(^|_)NH_QualityMsr_MDS_[A-Za-z]{3}\d{4}\.csv$', '(?i)^QualityMsrMDS_Download\.csv$']
+  claims_qm:
+    dataset_id: ijh5-nb2v
+    patterns: ['(?i)(^|_)NH_QualityMsr_Claims_[A-Za-z]{3}\d{4}\.csv$', '(?i)^QualityMsrClaims_Download\.csv$']
+  citation_lookup:
+    dataset_id: tagd-9999
+    patterns: ['(?i)(^|_)NH_CitationDescriptions_[A-Za-z]{3}\d{4}\.csv$']
+    has_processing_date: false             # this file never carries a Processing Date column
+
+extract:
+  only_in_scope: true                      # other members are inventoried from the zip directory only
+
+http:
+  user_agent: "PrecursorIntelligence-ingest/0.1 (academic MLOps project)"
+  connect_timeout_s: 10
+  read_timeout_s: 120
+  max_retries: 5
+  backoff_initial_s: 2
+  backoff_max_s: 60
+  max_parallel_downloads: 3
+  chunk_bytes: 8388608                     # 8 MiB
+  max_redirects: 3
+
+security:
+  verify_tls: true                         # setting false fails config validation
+  max_download_bytes: 2147483648           # 2 GiB hard cap per zip
+  allowed_content_types: [application/zip, application/x-zip-compressed]
+  zip:
+    max_members: 500
+    max_total_uncompressed_bytes: 5368709120   # 5 GiB
+    max_compression_ratio: 100.0
+    ratio_check_min_bytes: 10485760            # only apply the ratio rule to members > 10 MiB
+    allowed_extensions: [.csv, .json, .pdf, .xlsx, .txt]
+    max_nested_depth: 0                        # nested zips (annual bundles) are not extracted

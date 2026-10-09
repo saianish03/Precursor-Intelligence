@@ -1,0 +1,230 @@
+table,raw_header,first_vintage,last_vintage,n_vintages,in_all_vintages
+citation_lookup,Deficiency Category,2021-01,2026-08,61,True
+citation_lookup,Deficiency Description,2021-01,2026-08,61,True
+citation_lookup,Deficiency Prefix,2021-01,2026-08,61,True
+citation_lookup,Deficiency Prefix and Number,2021-01,2026-08,61,True
+citation_lookup,Deficiency Tag Number,2021-01,2026-08,61,True
+claims_qm,Adjusted Score,2021-01,2026-08,61,True
+claims_qm,Expected Score,2021-01,2026-08,61,True
+claims_qm,Federal Provider Number,2021-01,2023-05,27,False
+claims_qm,Footnote for Score,2021-01,2026-08,61,True
+claims_qm,Location,2021-01,2026-08,61,True
+claims_qm,Measure Code,2021-01,2026-08,61,True
+claims_qm,Measure Description,2021-01,2026-08,61,True
+claims_qm,Measure Period,2021-01,2026-08,61,True
+claims_qm,Observed Score,2021-01,2026-08,61,True
+claims_qm,Processing Date,2021-01,2026-08,61,True
+claims_qm,Provider Address,2021-01,2026-08,61,True
+claims_qm,Provider City,2021-01,2023-05,27,False
+claims_qm,Provider Name,2021-01,2026-08,61,True
+claims_qm,Provider State,2021-01,2023-05,27,False
+claims_qm,Provider Zip Code,2021-01,2023-05,27,False
+claims_qm,Resident type,2021-01,2026-08,61,True
+claims_qm,Used in Quality Measure Five Star Rating,2021-01,2026-08,61,True
+claims_qm,CMS Certification Number (CCN),2023-06,2026-08,34,False
+claims_qm,City/Town,2023-06,2026-08,34,False
+claims_qm,State,2023-06,2026-08,34,False
+claims_qm,ZIP Code,2023-06,2026-08,34,False
+health_citations,Complaint Deficiency,2021-01,2026-08,61,True
+health_citations,Correction Date,2021-01,2026-08,61,True
+health_citations,Deficiency Category,2021-01,2026-08,61,True
+health_citations,Deficiency Corrected,2021-01,2026-08,61,True
+health_citations,Deficiency Description,2021-01,2026-08,61,True
+health_citations,Deficiency Prefix,2021-01,2026-08,61,True
+health_citations,Deficiency Tag Number,2021-01,2026-08,61,True
+health_citations,Federal Provider Number,2021-01,2023-05,27,False
+health_citations,Infection Control Inspection Deficiency,2021-01,2026-08,61,True
+health_citations,Inspection Cycle,2021-01,2026-08,61,True
+health_citations,Location,2021-01,2026-08,61,True
+health_citations,Processing Date,2021-01,2026-08,61,True
+health_citations,Provider Address,2021-01,2026-08,61,True
+health_citations,Provider City,2021-01,2023-05,27,False
+health_citations,Provider Name,2021-01,2026-08,61,True
+health_citations,Provider State,2021-01,2023-05,27,False
+health_citations,Provider Zip Code,2021-01,2023-05,27,False
+health_citations,Scope Severity Code,2021-01,2026-08,61,True
+health_citations,Standard Deficiency,2021-01,2026-08,61,True
+health_citations,Survey Date,2021-01,2026-08,61,True
+health_citations,Survey Type,2021-01,2026-08,61,True
+health_citations,Citation under IDR,2023-01,2026-08,39,False
+health_citations,Citation under IIDR,2023-01,2026-08,39,False
+health_citations,CMS Certification Number (CCN),2023-06,2026-08,34,False
+health_citations,City/Town,2023-06,2026-08,34,False
+health_citations,State,2023-06,2026-08,34,False
+health_citations,ZIP Code,2023-06,2026-08,34,False
+mds_qm,Federal Provider Number,2021-01,2023-05,27,False
+mds_qm,Footnote for Four Quarter Average Score,2021-01,2026-08,61,True
+mds_qm,Footnote for Q1 Measure Score,2021-01,2026-08,61,True
+mds_qm,Footnote for Q2 Measure Score,2021-01,2026-08,61,True
+mds_qm,Footnote for Q3 Measure Score,2021-01,2026-08,61,True
+mds_qm,Footnote for Q4 Measure Score,2021-01,2026-08,61,True
+mds_qm,Four Quarter Average Score,2021-01,2026-08,61,True
+mds_qm,Location,2021-01,2026-08,61,True
+mds_qm,Measure Code,2021-01,2026-08,61,True
+mds_qm,Measure Description,2021-01,2026-08,61,True
+mds_qm,Measure Period,2021-01,2026-08,61,True
+mds_qm,Processing Date,2021-01,2026-08,61,True
+mds_qm,Provider Address,2021-01,2026-08,61,True
+mds_qm,Provider City,2021-01,2023-05,27,False
+mds_qm,Provider Name,2021-01,2026-08,61,True
+mds_qm,Provider State,2021-01,2023-05,27,False
+mds_qm,Provider Zip Code,2021-01,2023-05,27,False
+mds_qm,Q1 Measure Score,2021-01,2026-08,61,True
+mds_qm,Q2 Measure Score,2021-01,2026-08,61,True
+mds_qm,Q3 Measure Score,2021-01,2026-08,61,True
+mds_qm,Q4 Measure Score,2021-01,2026-08,61,True
+mds_qm,Resident type,2021-01,2026-08,61,True
+mds_qm,Used in Quality Measure Five Star Rating,2021-01,2026-08,61,True
+mds_qm,CMS Certification Number (CCN),2023-06,2026-08,34,False
+mds_qm,City/Town,2023-06,2026-08,34,False
+mds_qm,State,2023-06,2026-08,34,False
+mds_qm,ZIP Code,2023-06,2026-08,34,False
+penalties,Federal Provider Number,2021-01,2023-05,27,False
+penalties,Fine Amount,2021-01,2026-08,61,True
+penalties,Location,2021-01,2026-08,61,True
+penalties,Payment Denial Length in Days,2021-01,2026-08,61,True
+penalties,Payment Denial Start Date,2021-01,2026-08,61,True
+penalties,Penalty Date,2021-01,2026-08,61,True
+penalties,Penalty Type,2021-01,2026-08,61,True
+penalties,Processing Date,2021-01,2026-08,61,True
+penalties,Provider Address,2021-01,2026-08,61,True
+penalties,Provider City,2021-01,2023-05,27,False
+penalties,Provider Name,2021-01,2026-08,61,True
+penalties,Provider State,2021-01,2023-05,27,False
+penalties,Provider Zip Code,2021-01,2023-05,27,False
+penalties,CMS Certification Number (CCN),2023-06,2026-08,34,False
+penalties,City/Town,2023-06,2026-08,34,False
+penalties,State,2023-06,2026-08,34,False
+penalties,ZIP Code,2023-06,2026-08,34,False
+penalties,Fine ID,2026-06,2026-08,3,False
+provider_info,Abuse Icon,2021-01,2026-08,61,True
+provider_info,Adjusted LPN Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Adjusted Nurse Aide Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Adjusted RN Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Adjusted Total Nurse Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Automatic Sprinkler Systems in All Required Areas,2021-01,2026-08,61,True
+provider_info,Average Number of Residents per Day,2021-01,2026-08,61,True
+provider_info,Average Number of Residents per Day Footnote,2021-01,2026-08,61,True
+provider_info,Case-Mix LPN Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Case-Mix Nurse Aide Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Case-Mix RN Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Case-Mix Total Nurse Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Continuing Care Retirement Community,2021-01,2026-08,61,True
+provider_info,Date First Approved to Provide Medicare and Medicaid Services,2021-01,2026-08,61,True
+provider_info,Federal Provider Number,2021-01,2023-05,27,False
+provider_info,Health Inspection Rating,2021-01,2026-08,61,True
+provider_info,Health Inspection Rating Footnote,2021-01,2026-08,61,True
+provider_info,Legal Business Name,2021-01,2026-08,61,True
+provider_info,Location,2021-01,2026-08,61,True
+provider_info,Long-Stay QM Rating,2021-01,2026-08,61,True
+provider_info,Long-Stay QM Rating Footnote,2021-01,2026-08,61,True
+provider_info,Most Recent Health Inspection More Than 2 Years Ago,2021-01,2026-08,61,True
+provider_info,Number of Certified Beds,2021-01,2026-08,61,True
+provider_info,Number of Citations from Infection Control Inspections,2021-01,2026-08,61,True
+provider_info,Number of Facility Reported Incidents,2021-01,2025-12,54,False
+provider_info,Number of Fines,2021-01,2026-08,61,True
+provider_info,Number of Payment Denials,2021-01,2026-08,61,True
+provider_info,Number of Substantiated Complaints,2021-01,2025-12,54,False
+provider_info,Overall Rating,2021-01,2026-08,61,True
+provider_info,Overall Rating Footnote,2021-01,2026-08,61,True
+provider_info,Ownership Type,2021-01,2026-08,61,True
+provider_info,Physical Therapist Staffing Footnote,2021-01,2026-08,61,True
+provider_info,Processing Date,2021-01,2026-08,61,True
+provider_info,Provider Address,2021-01,2026-08,61,True
+provider_info,Provider Changed Ownership in Last 12 Months,2021-01,2026-08,61,True
+provider_info,Provider City,2021-01,2023-05,27,False
+provider_info,Provider County Name,2021-01,2023-05,27,False
+provider_info,Provider Name,2021-01,2026-08,61,True
+provider_info,Provider Phone Number,2021-01,2023-05,27,False
+provider_info,Provider Resides in Hospital,2021-01,2026-08,61,True
+provider_info,Provider SSA County Code,2021-01,2026-08,61,True
+provider_info,Provider State,2021-01,2023-05,27,False
+provider_info,Provider Type,2021-01,2026-08,61,True
+provider_info,Provider Zip Code,2021-01,2023-05,27,False
+provider_info,QM Rating,2021-01,2026-08,61,True
+provider_info,QM Rating Footnote,2021-01,2026-08,61,True
+provider_info,RN Staffing Rating,2021-01,2022-06,17,False
+provider_info,RN Staffing Rating Footnote,2021-01,2022-06,17,False
+provider_info,Rating Cycle 1 Health Deficiency Score,2021-01,2026-08,61,True
+provider_info,Rating Cycle 1 Health Revisit Score,2021-01,2026-08,61,True
+provider_info,Rating Cycle 1 Number of Complaint Health Deficiencies,2021-01,2026-08,61,True
+provider_info,Rating Cycle 1 Number of Health Revisits,2021-01,2026-08,61,True
+provider_info,Rating Cycle 1 Number of Standard Health Deficiencies,2021-01,2026-08,61,True
+provider_info,Rating Cycle 1 Standard Survey Health Date,2021-01,2026-08,61,True
+provider_info,Rating Cycle 1 Total Health Score,2021-01,2026-08,61,True
+provider_info,Rating Cycle 1 Total Number of Health Deficiencies,2021-01,2026-08,61,True
+provider_info,Rating Cycle 2 Health Deficiency Score,2021-01,2025-06,49,False
+provider_info,Rating Cycle 2 Health Revisit Score,2021-01,2025-06,49,False
+provider_info,Rating Cycle 2 Number of Complaint Health Deficiencies,2021-01,2025-06,49,False
+provider_info,Rating Cycle 2 Number of Health Revisits,2021-01,2025-06,49,False
+provider_info,Rating Cycle 2 Number of Standard Health Deficiencies,2021-01,2026-08,61,True
+provider_info,Rating Cycle 2 Standard Health Survey Date,2021-01,2026-08,61,True
+provider_info,Rating Cycle 2 Total Health Score,2021-01,2025-06,49,False
+provider_info,Rating Cycle 2 Total Number of Health Deficiencies,2021-01,2025-06,49,False
+provider_info,Rating Cycle 3 Health Deficiency Score,2021-01,2025-06,49,False
+provider_info,Rating Cycle 3 Health Revisit Score,2021-01,2025-06,49,False
+provider_info,Rating Cycle 3 Number of Complaint Health Deficiencies,2021-01,2025-06,49,False
+provider_info,Rating Cycle 3 Number of Health Revisits,2021-01,2025-06,49,False
+provider_info,Rating Cycle 3 Number of Standard Health Deficiencies,2021-01,2025-06,49,False
+provider_info,Rating Cycle 3 Standard Health Survey Date,2021-01,2025-06,49,False
+provider_info,Rating Cycle 3 Total Health Score,2021-01,2025-06,49,False
+provider_info,Rating Cycle 3 Total Number of Health Deficiencies,2021-01,2025-06,49,False
+provider_info,Reported LPN Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Reported Licensed Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Reported Nurse Aide Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Reported Physical Therapist Staffing Hours per Resident Per Day,2021-01,2026-08,61,True
+provider_info,Reported RN Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Reported Staffing Footnote,2021-01,2026-08,61,True
+provider_info,Reported Total Nurse Staffing Hours per Resident per Day,2021-01,2026-08,61,True
+provider_info,Short-Stay QM Rating,2021-01,2026-08,61,True
+provider_info,Short-Stay QM Rating Footnote,2021-01,2026-08,61,True
+provider_info,Special Focus Status,2021-01,2026-08,61,True
+provider_info,Staffing Rating,2021-01,2026-08,61,True
+provider_info,Staffing Rating Footnote,2021-01,2026-08,61,True
+provider_info,Total Amount of Fines in Dollars,2021-01,2026-08,61,True
+provider_info,Total Number of Penalties,2021-01,2026-08,61,True
+provider_info,Total Weighted Health Survey Score,2021-01,2026-08,61,True
+provider_info,With a Resident and Family Council,2021-01,2026-08,61,True
+provider_info,Administrator turnover footnote,2022-01,2026-08,50,False
+provider_info,Number of administrators who have left the nursing home,2022-01,2026-08,50,False
+provider_info,Registered Nurse hours per resident per day on the weekend,2022-01,2026-08,50,False
+provider_info,Registered Nurse turnover,2022-01,2026-08,50,False
+provider_info,Registered Nurse turnover footnote,2022-01,2026-08,50,False
+provider_info,Total number of nurse staff hours per resident per day on the weekend,2022-01,2026-08,50,False
+provider_info,Total nursing staff turnover,2022-01,2026-08,50,False
+provider_info,Total nursing staff turnover footnote,2022-01,2026-08,50,False
+provider_info,Adjusted Weekend Total Nurse Staffing Hours per Resident per Day,2022-08,2026-08,43,False
+provider_info,Affiliated Entity ID,2023-06,2025-06,22,False
+provider_info,Affiliated Entity Name,2023-06,2025-06,22,False
+provider_info,CMS Certification Number (CCN),2023-06,2026-08,34,False
+provider_info,City/Town,2023-06,2026-08,34,False
+provider_info,County/Parish,2023-06,2026-08,34,False
+provider_info,State,2023-06,2026-08,34,False
+provider_info,Telephone Number,2023-06,2026-08,34,False
+provider_info,ZIP Code,2023-06,2026-08,34,False
+provider_info,Geocoding Footnote,2023-08,2026-08,32,False
+provider_info,Latitude,2023-08,2026-08,32,False
+provider_info,Longitude,2023-08,2026-08,32,False
+provider_info,Case-Mix Weekend Total Nurse Staffing Hours per Resident per Day,2024-07,2026-08,22,False
+provider_info,Nursing Case-Mix Index,2024-07,2026-08,22,False
+provider_info,Nursing Case-Mix Index Ratio,2024-07,2026-08,22,False
+provider_info,Chain Average Health Inspection Rating,2025-07,2026-08,12,False
+provider_info,Chain Average Overall 5-star Rating,2025-07,2026-08,12,False
+provider_info,Chain Average QM Rating,2025-07,2026-08,12,False
+provider_info,Chain Average Staffing Rating,2025-07,2026-08,12,False
+provider_info,Chain ID,2025-07,2026-08,12,False
+provider_info,Chain Name,2025-07,2026-08,12,False
+provider_info,Number of Facilities in Chain,2025-07,2026-08,12,False
+provider_info,Rating Cycle 2/3 Health Deficiency Score,2025-07,2026-08,12,False
+provider_info,Rating Cycle 2/3 Health Revisit Score,2025-07,2026-08,12,False
+provider_info,Rating Cycle 2/3 Number of Complaint Health Deficiencies,2025-07,2026-08,12,False
+provider_info,Rating Cycle 2/3 Number of Health Revisits,2025-07,2026-08,12,False
+provider_info,Rating Cycle 2/3 Total Health Score,2025-07,2026-08,12,False
+provider_info,Rating Cycle 2/3 Total Number of Health Deficiencies,2025-07,2026-08,12,False
+provider_info,Urban,2025-10,2026-08,10,False
+survey_dates,Federal Provider Number,2021-01,2023-05,27,False
+survey_dates,Processing Date,2021-01,2026-08,61,True
+survey_dates,Survey Cycle,2021-01,2026-08,61,True
+survey_dates,Survey Date,2021-01,2026-08,61,True
+survey_dates,Type of Survey,2021-01,2026-08,61,True
+survey_dates,CMS Certification Number (CCN),2023-06,2026-08,34,False
