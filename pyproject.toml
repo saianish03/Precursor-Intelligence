@@ -1,78 +1,169 @@
 [build-system]
-requires = ["hatchling>=1.24"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "precursor-intelligence"
+name = "precursorintelligence"
 version = "0.1.0"
 description = "Precursor Intelligence: end-to-end MLOps platform for nursing-home regulatory risk (CMS data)"
 readme = "README.md"
-requires-python = ">=3.11"
-# Core: what every stage imports (config, storage ports, logging, the ingestion CLI).
+requires-python = ">=3.11,<3.13"
+# Base: only what every image needs (config, settings, HTTP, YAML). Logging uses the stdlib `logging` module.
 dependencies = [
-  "pydantic>=2.6",
-  "pyyaml>=6.0",
-  "typer>=0.12",
-  "requests>=2.31",
-  "certifi",
-  "tenacity>=8.2",
-  "sqlalchemy>=2.0",
-  "fsspec>=2024.2",
-  "polars>=1.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.14.0",
+    "pydantic-settings>=2.15.0",
+    "pyyaml>=6.0.3",
 ]
 
+# One extra per runtime, so each Docker image installs only what it needs:
+#   ingestion image -> pipeline        training image -> pipeline + ml
+#   backend image   -> api + agents    frontend image -> ui
+#   MLflow server   -> mlflow-server
+# Example: uv sync --frozen --no-dev --extra pipeline --extra ml
 [project.optional-dependencies]
-# Cloud backends (prod): GCS files, BigQuery metadata + final dataset
-gcp = ["gcsfs>=2024.2", "google-cloud-storage>=2.14", "google-cloud-bigquery>=3.17", "db-dtypes>=1.2"]
-# Local development database (metadata store + local final table)
-postgres = ["psycopg[binary]>=3.1"]
-# Data-quality checks (silver/gold)
-validation = ["pandera>=0.20"]
-# Modelling stack
-training = [
-  "scikit-learn>=1.4", "lightgbm>=4.3", "catboost>=1.2", "interpret>=0.6",
-  "shap>=0.45", "optuna>=3.6", "mlflow>=2.12",
+pipeline = [
+    "certifi>=2026.7.22",
+    "duckdb>=1.5.6",
+    "fsspec>=2026.9.0",
+    "gcsfs>=2026.10.0",
+    "google-cloud-bigquery>=3.46.1",
+    "google-cloud-storage>=3.17.0",
+    "pandas>=3.0.6",
+    "pandera>=0.34.1",
+    "polars>=2.0.0",
+    "psycopg[binary]>=3.3.6",
+    "pyarrow>=25.0.1",
+    "requests>=2.34.2",
+    "sqlalchemy>=2.1.4",
+    "tenacity>=9.2.1",
+    "typer>=0.27.3",
 ]
-# Drift and model monitoring
-monitoring = ["evidently>=0.4"]
-# Backend API + agents
-backend = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "pydantic-ai>=0.4", "rank-bm25>=0.2"]
-# Dashboard
-frontend = ["streamlit>=1.35"]
-# Tooling used by CI and pre-commit
-dev = [
-  "pytest>=8.0",
-  "pytest-cov>=5.0",
-  "ruff>=0.5",
-  "mypy>=1.10",
-  "pre-commit>=3.7",
-  "types-PyYAML",
-  "types-requests",
+ml = [
+    "catboost>=1.2.10",
+    "evidently>=0.7.23",
+    "interpret>=0.7.8",
+    "lightgbm>=4.7.0",
+    "mlflow>=3.17.0",
+    "optuna>=5.0.0",
+    "scikit-learn>=1.9.1",
+    "shap>=0.51.0",
+]
+agents = [
+    "google-auth>=2.61.0",
+    "pydantic-ai-slim[openai]>=2.55.0",
+    "rank-bm25>=0.2.2",
+]
+api = [
+    "fastapi>=0.143.0",
+    "google-cloud-bigquery>=3.46.1",
+    "google-cloud-secret-manager>=2.31.0",
+    "uvicorn[standard]>=0.54.0",
+]
+ui = [
+    "httpx>=0.28.1",
+    "streamlit>=1.65.0",
+]
+mlflow-server = [
+    "google-cloud-storage>=3.17.0",
+    "mlflow>=3.17.0",
+    "psycopg2-binary>=2.9.13",
 ]
 
 [project.scripts]
 precursor-ingest = "precursorintelligence.ingestion.cli:app"
+
+# Airflow is deliberately NOT a dependency: apache-airflow pins conflict with the ML stack, and DAGs run in
+# the official Airflow 3 image. DAG tests (tests/dags) run in CI inside that image, e.g.
+#   docker run --rm -v "$PWD:/repo" -w /repo -e PYTHONPATH=dags apache/airflow:3.x-python3.12 \
+#     bash -c "uv pip install pytest && python -m pytest tests/dags -p no:cacheprovider"
+# (or as a GitHub Actions job with `container: apache/airflow:3.x-python3.12`). tests/dags/conftest.py should
+# call pytest.importorskip("airflow") so the normal `uv run pytest` skips DAG tests instead of failing.
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pandas-stubs>=3.0.5.260914",
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.0",
+    "types-pyyaml>=6.0.12.20260906",
+    "types-requests>=2.33.0.20261006",
+]
+notebooks = [
+    "ipykernel>=7.4.0",
+    "matplotlib>=3.11.2",
+    "seaborn>=0.13.2",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+# Lock only for platforms we run on (laptops, CI, Docker); skips WebAssembly-only packages.
+environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'", "sys_platform == 'win32'"]
+# shap on Python 3.11 needs numba. Without a floor, the universal resolver picks numba 0.53 (2021), which has no
+# wheels for 3.11 and no NumPy 2 support. 0.60 is the first numba release that supports NumPy 2.
+constraint-dependencies = ["numba>=0.60"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/precursorintelligence"]
 
 # ---------------------------------------------------------------- tooling
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
-markers = ["network: hits the live CMS API (deselected by default; run with -m network)"]
-addopts = "-ra -m 'not network'"
-
 [tool.ruff]
-line-length = 110
+line-length = 100
+# Lowest supported Python (requires-python), so pyupgrade never rewrites code into 3.12-only syntax.
 target-version = "py311"
+src = ["src", "tests"]
 extend-exclude = ["notebooks", "data", "logs"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+# Line length is enforced by `ruff format`; E501 would only flag long strings and comments it can't wrap.
+ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Typer declares CLI options as call defaults by design.
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
 
 [tool.mypy]
-python_version = "3.11"
-ignore_missing_imports = true
+python_version = "3.12"
+files = ["src/precursorintelligence"]
+mypy_path = "src"
+strict = true
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+# Libraries that ship neither type hints (py.typed) nor a stubs package. Everything else is type-checked.
+module = [
+  "catboost.*",
+  "evidently.*",
+  "fsspec.*",
+  "gcsfs.*",
+  "google.cloud.storage.*",
+  "interpret.*",
+  "pyarrow.*",
+  "rank_bm25.*",
+  "shap.*",
+  "sklearn.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Repo root on sys.path so tests/backend can import the backend app package (backend.app).
+pythonpath = ["."]
+markers = [
+  "e2e: end-to-end runs on sample data in Docker Compose (deselected by default)",
+  "slow: slow tests",
+  "network: hits live external services such as the CMS API (deselected by default; run with -m network)",
+]
+addopts = "-ra -m 'not e2e and not network'"
+
+[tool.coverage.run]
+source = ["precursorintelligence"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

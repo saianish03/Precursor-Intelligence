@@ -32,12 +32,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: "uv.lock"
 
-      - name: Install the package with dev tools
-        run: |
-          uv venv
-          uv pip install -e ".[dev]"
+      # Exact versions from uv.lock; the dev group is installed by default. All extras, so tests for every
+      # stage can import their libraries. setup-uv's python-version (UV_PYTHON) overrides .python-version.
+      - name: Install the package, all extras and dev tools
+        run: uv sync --frozen --all-extras
 
       - name: Lint (ruff)
         run: uv run ruff check src tests
