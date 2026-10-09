@@ -1,0 +1,26 @@
+table,measure_code,resident_type,first_vintage,last_vintage,n_vintages,status,description_latest
+mds_qm,401,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents whose need for help with daily activities has increased
+mds_qm,404,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents who lose too much weight
+mds_qm,405,Long Stay,2021-01,2024-11,44,ends,Percentage of low risk long-stay residents who lose control of their bowels or bladder
+mds_qm,406,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents with a catheter inserted and left in their bladder
+mds_qm,407,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents with a urinary tract infection
+mds_qm,408,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents who have depressive symptoms
+mds_qm,409,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents who were physically restrained
+mds_qm,410,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents experiencing one or more falls with major injury
+mds_qm,415,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents assessed and appropriately given the pneumococcal vaccine
+mds_qm,419,Long Stay,2021-01,2025-12,54,ends,Percentage of long-stay residents who received an antipsychotic medication
+mds_qm,430,Short Stay,2021-01,2026-08,61,all_vintages,Percentage of short-stay residents assessed and appropriately given the pneumococcal vaccine
+mds_qm,434,Short Stay,2021-01,2026-08,61,all_vintages,Percentage of short-stay residents who newly received an antipsychotic medication
+mds_qm,451,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents whose ability to walk independently worsened
+mds_qm,452,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents who received an antianxiety or hypnotic medication
+mds_qm,453,Long Stay,2021-01,2024-11,44,ends,Percentage of high risk long-stay residents with pressure ulcers
+mds_qm,454,Long Stay,2021-01,2026-08,61,all_vintages,Percentage of long-stay residents assessed and appropriately given the seasonal influenza vaccine
+mds_qm,471,Short Stay,2021-01,2024-11,44,ends,Percentage of short-stay residents who made improvements in function
+mds_qm,472,Short Stay,2021-01,2026-08,61,all_vintages,Percentage of short-stay residents who were assessed and appropriately given the seasonal influenza vaccine
+mds_qm,479,Long Stay,2025-02,2026-08,17,starts,Percentage of long-stay residents with pressure ulcers
+mds_qm,480,Long Stay,2025-02,2026-08,17,starts,Percentage of long-stay residents with new or worsened bowel or bladder incontinence
+mds_qm,481,Long Stay,2026-02,2026-08,7,starts,Percentage of long-stay residents who received an antipsychotic medication
+claims_qm,521,Short Stay,2021-01,2026-08,61,all_vintages,Percentage of short-stay residents who were rehospitalized after a nursing home admission
+claims_qm,522,Short Stay,2021-01,2026-08,61,all_vintages,Percentage of short-stay residents who had an outpatient emergency department visit
+claims_qm,551,Long Stay,2021-01,2026-08,61,all_vintages,Number of hospitalizations per 1000 long-stay resident days
+claims_qm,552,Long Stay,2021-01,2026-08,61,all_vintages,Number of outpatient emergency department visits per 1000 long-stay resident days

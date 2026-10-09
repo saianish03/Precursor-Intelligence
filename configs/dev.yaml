@@ -1,0 +1,14 @@
+# Development (local): files on disk, metadata in SQLite (local Postgres planned). Relative paths resolve against the repository root.
+env: dev
+object_store:
+  kind: local
+  root: ./data
+metadata_store:
+  url: ${SH_DATABASE_URL:-sqlite:///./data/ops/metadata.db}
+table_sink:
+  kind: parquet
+  prefix: bronze
+logging:
+  config: configs/logging.yaml
+  log_dir: ./logs
+  console_format: text

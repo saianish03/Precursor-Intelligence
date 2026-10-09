@@ -1,0 +1,16 @@
+# GCP: GCS bucket for files, Cloud SQL Postgres for metadata. Requires gcsfs (installed in mlops_project_env).
+# Credentials come from Application Default Credentials / workload identity, never from this file.
+env: prod
+object_store:
+  kind: gcs
+  root: ${SH_BUCKET_URI:-gs://precursorintelligence-bronze}
+  immutable: bucket_retention_policy       # enforced by bucket policy (see docs §9)
+metadata_store:
+  url: ${SH_DATABASE_URL}
+table_sink:
+  kind: parquet
+  prefix: bronze
+logging:
+  config: configs/logging.yaml
+  log_dir: /tmp/precursorintelligence-logs
+  console_format: json                     # stdout JSON -> Cloud Logging
