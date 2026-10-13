@@ -71,7 +71,7 @@ In code, reuse Step 1's ports instead of opening paths directly:
 
 ```python
 from precursorintelligence.common.config import load_settings
-from precursorintelligence.common.context import build_context
+from precursorintelligence.ingestion.context import build_context
 ctx = build_context(load_settings("dev"))
 rows = ctx.metadata.read("inventory", {"status": "selected"})
 with ctx.object_store.open_read(rows[0]["extracted_key"]) as f:

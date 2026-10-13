@@ -16,7 +16,7 @@ They come on top of the architecture changes already listed in `STEP1_DATA_INGES
 **Why.** Detect a new monthly release cheaply, through the documented API, before starting a full run. Today the pipeline always runs the archive discovery; this tells it *when* to.
 
 **What.**
-- A `shingest sensor` command, or a `sensor` step, that calls `/metastore/schemas/dataset/items/{id}` for the 7 dataset IDs in `sources.yaml` and reads `modified`, `released` and `nextUpdateDate`.
+- A `precursor-ingest sensor` command, or a `sensor` step, that calls `/metastore/schemas/dataset/items/{id}` for the 7 dataset IDs in `sources.yaml` and reads `modified`, `released` and `nextUpdateDate`.
 - **New complete release:** all 7 `modified` values share a data month newer than the latest selected vintage in `inventory`. Exit 0 with "release ready", and Airflow starts `ingest_vintage`.
 - **Partial release:** only some datasets moved. Log it and exit "waiting"; no run.
 - **Nothing new:** exit "nothing new".
@@ -54,7 +54,7 @@ They come on top of the architecture changes already listed in `STEP1_DATA_INGES
 **Why.** Safe previews, and an orchestrator that can tell "data problem" apart from "bug".
 
 **What.**
-- `shingest step1 --dry-run`: run discover and select only. Print what *would* be downloaded (new, changed and republished candidates, with sizes); write nothing to the object store; write no state rows except one `run_log` entry.
+- `precursor-ingest step1 --dry-run`: run discover and select only. Print what *would* be downloaded (new, changed and republished candidates, with sizes); write nothing to the object store; write no state rows except one `run_log` entry.
 - **Exit codes:**
 
   | Code | Meaning |
@@ -86,6 +86,11 @@ They come on top of the architecture changes already listed in `STEP1_DATA_INGES
 - runs on all 427 current files with **0 FAIL** (the draft map already covers every header);
 - a fixture with an invented column name fails with exit code 2;
 - the check reads the same YAML Step 2 uses, so there is one contract, not two.
+
+## T5. Follow-ups from the PR #1 review (not blocking)
+
+- **GCS "never overwrite" can race.** `exists()` then upload is two calls; two concurrent runs could both write. Use a GCS precondition (`if_generation_match=0`) in the fsspec adapter, plus the run lock (D8).
+- **Immutability relies on a bucket retention policy** (`immutable: bucket_retention_policy` in `configs/prod.yaml`) that `infra/terraform/modules/gcs` does not provision yet. Add it to the infra list.
 
 ---
 

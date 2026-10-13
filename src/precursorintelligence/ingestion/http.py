@@ -85,13 +85,25 @@ def _retry_after_seconds(value: str | None) -> float | None:
 
 
 def _is_retryable(exc: BaseException) -> bool:
-    return isinstance(exc, (RetryableHTTPError, requests.ConnectionError, requests.Timeout,
-                            requests.exceptions.ChunkedEncodingError))
+    return isinstance(
+        exc,
+        (
+            RetryableHTTPError,
+            requests.ConnectionError,
+            requests.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+        ),
+    )
 
 
 class SafeHttpClient:
-    def __init__(self, source: SourceCfg, http: HttpCfg, security: SecurityCfg,
-                 session: SessionLike | None = None) -> None:
+    def __init__(
+        self,
+        source: SourceCfg,
+        http: HttpCfg,
+        security: SecurityCfg,
+        session: SessionLike | None = None,
+    ) -> None:
         if not security.verify_tls:  # defence in depth; config validation already forbids this
             raise ValueError("TLS verification cannot be disabled")
         self.source, self.http, self.security = source, http, security
@@ -100,7 +112,9 @@ class SafeHttpClient:
         self._allowed_path = re.compile(source.allowed_download_path_regex)
         self.session = session or requests.Session()
         if isinstance(self.session, requests.Session):
-            self.session.headers.update({"User-Agent": http.user_agent, "Accept-Encoding": "identity"})
+            self.session.headers.update(
+                {"User-Agent": http.user_agent, "Accept-Encoding": "identity"}
+            )
             self.session.max_redirects = http.max_redirects
 
     # ------------------------------------------------------------------ URL safety
@@ -117,7 +131,11 @@ class SafeHttpClient:
             raise UnsafeUrlError(f"absolute URL not allowed: {rel_path!r}")
         if parts.query or parts.fragment or "?" in rel_path or "#" in rel_path:
             raise UnsafeUrlError(f"query/fragment not allowed: {rel_path!r}")
-        if any(seg in ("..", ".") for seg in rel_path.split("/")) or "\\" in rel_path or "%" in rel_path:
+        if (
+            any(seg in ("..", ".") for seg in rel_path.split("/"))
+            or "\\" in rel_path
+            or "%" in rel_path
+        ):
             raise UnsafeUrlError(f"path traversal / encoded characters not allowed: {rel_path!r}")
         if not self._allowed_path.fullmatch(rel_path):
             raise UnsafeUrlError(f"path not in allow-list: {rel_path!r}")
@@ -132,7 +150,9 @@ class SafeHttpClient:
 
     # ------------------------------------------------------------------ core request with retries
     def _wait(self, state: RetryCallState) -> float:
-        base = wait_random_exponential(multiplier=self.http.backoff_initial_s, max=self.http.backoff_max_s)(state)
+        base = wait_random_exponential(
+            multiplier=self.http.backoff_initial_s, max=self.http.backoff_max_s
+        )(state)
         exc = state.outcome.exception() if state.outcome else None
         if isinstance(exc, RetryableHTTPError) and exc.retry_after is not None:
             return max(base, min(exc.retry_after, self.http.backoff_max_s))
@@ -140,15 +160,27 @@ class SafeHttpClient:
 
     def _before_sleep(self, state: RetryCallState) -> None:
         exc = state.outcome.exception() if state.outcome else None
-        log.warning("retrying HTTP request (attempt %d/%d) after %s; sleeping %.1fs",
-                    state.attempt_number, self.http.max_retries, exc, state.next_action.sleep if state.next_action else 0)
+        log.warning(
+            "retrying HTTP request (attempt %d/%d) after %s; sleeping %.1fs",
+            state.attempt_number,
+            self.http.max_retries,
+            exc,
+            state.next_action.sleep if state.next_action else 0,
+        )
 
-    def _send_once(self, method: str, url: str, headers: dict[str, str] | None, stream: bool) -> Any:
+    def _send_once(
+        self, method: str, url: str, headers: dict[str, str] | None, stream: bool
+    ) -> Any:
         self._check_same_host(url)
         for _ in range(self.http.max_redirects + 1):
             resp = self.session.request(
-                method, url, headers=headers or {}, stream=stream, allow_redirects=False,
-                timeout=(self.http.connect_timeout_s, self.http.read_timeout_s), verify=certifi.where(),
+                method,
+                url,
+                headers=headers or {},
+                stream=stream,
+                allow_redirects=False,
+                timeout=(self.http.connect_timeout_s, self.http.read_timeout_s),
+                verify=certifi.where(),
             )
             if resp.status_code in (301, 302, 303, 307, 308):
                 location = resp.headers.get("Location", "")
@@ -164,10 +196,15 @@ class SafeHttpClient:
             return resp
         raise UnsafeUrlError(f"too many redirects for {url}")
 
-    def request(self, method: str, url: str, *, headers: dict[str, str] | None = None, stream: bool = False) -> Any:
+    def request(
+        self, method: str, url: str, *, headers: dict[str, str] | None = None, stream: bool = False
+    ) -> Any:
         retrying = Retrying(
-            stop=stop_after_attempt(self.http.max_retries), wait=self._wait,
-            retry=retry_if_exception(_is_retryable), before_sleep=self._before_sleep, reraise=True,
+            stop=stop_after_attempt(self.http.max_retries),
+            wait=self._wait,
+            retry=retry_if_exception(_is_retryable),
+            before_sleep=self._before_sleep,
+            reraise=True,
         )
         return retrying(self._send_once, method, url, headers, stream)
 
@@ -189,7 +226,8 @@ class SafeHttpClient:
         try:
             if resp.status_code != 200:
                 raise DownloadValidationError(f"GET {url} returned HTTP {resp.status_code}")
-            return resp.content
+            body: bytes = resp.content
+            return body
         finally:
             resp.close()
 
@@ -230,38 +268,63 @@ class SafeHttpClient:
                     if len(head_buf) < len(ZIP_MAGIC):
                         head_buf += chunk[: len(ZIP_MAGIC) - len(head_buf)]
                         if len(head_buf) >= len(ZIP_MAGIC) and head_buf[:4] != ZIP_MAGIC:
-                            raise DownloadValidationError("response body is not a zip archive (bad leading bytes)")
+                            raise DownloadValidationError(
+                                "response body is not a zip archive (bad leading bytes)"
+                            )
                     received += len(chunk)
                     if received > expected_size or received > cap:
-                        raise DownloadValidationError(f"received {received} bytes, more than expected {expected_size}")
+                        raise DownloadValidationError(
+                            f"received {received} bytes, more than expected {expected_size}"
+                        )
                     yield chunk
                 if received < expected_size:
                     raise _TruncatedBody(f"body ended at {received}/{expected_size} bytes")
-            except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError,
-                    _TruncatedBody) as exc:
+            except (
+                requests.ConnectionError,
+                requests.Timeout,
+                requests.exceptions.ChunkedEncodingError,
+                _TruncatedBody,
+            ) as exc:
                 resumes += 1
                 if resumes > self.http.max_retries:
                     raise DownloadValidationError(
-                        f"giving up after {resumes - 1} resumes at {received}/{expected_size} bytes: {exc}") from exc
-                wait = min(self.http.backoff_max_s, self.http.backoff_initial_s * 2 ** (resumes - 1))
-                log.warning("download interrupted at %d/%d bytes (%s); resuming in %.0fs (resume %d/%d)",
-                            received, expected_size, exc.__class__.__name__, wait, resumes, self.http.max_retries)
+                        f"giving up after {resumes - 1} resumes at {received}/{expected_size} bytes: {exc}"
+                    ) from exc
+                wait = min(
+                    self.http.backoff_max_s, self.http.backoff_initial_s * 2 ** (resumes - 1)
+                )
+                log.warning(
+                    "download interrupted at %d/%d bytes (%s); resuming in %.0fs (resume %d/%d)",
+                    received,
+                    expected_size,
+                    exc.__class__.__name__,
+                    wait,
+                    resumes,
+                    self.http.max_retries,
+                )
                 time.sleep(wait)
             finally:
                 resp.close()
         if received != expected_size:
-            raise DownloadValidationError(f"size mismatch: received {received}, expected {expected_size}")
+            raise DownloadValidationError(
+                f"size mismatch: received {received}, expected {expected_size}"
+            )
 
     def _validate_download_response(self, resp: Any, offset: int, expected_size: int) -> None:
         want = 206 if offset else 200
         if resp.status_code != want:
             raise DownloadValidationError(
-                f"unexpected HTTP {resp.status_code} (wanted {want}{' for Range resume' if offset else ''})")
+                f"unexpected HTTP {resp.status_code} (wanted {want}{' for Range resume' if offset else ''})"
+            )
         ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
         if ctype not in self.security.allowed_content_types:
-            raise DownloadValidationError(f"Content-Type {ctype!r} not in {self.security.allowed_content_types}")
+            raise DownloadValidationError(
+                f"Content-Type {ctype!r} not in {self.security.allowed_content_types}"
+            )
         clen = resp.headers.get("Content-Length")
         if clen is None or not clen.isdigit() or int(clen) != expected_size - offset:
-            raise DownloadValidationError(f"Content-Length {clen!r} != expected {expected_size - offset}")
+            raise DownloadValidationError(
+                f"Content-Length {clen!r} != expected {expected_size - offset}"
+            )
         if offset and not (resp.headers.get("Content-Range") or "").startswith(f"bytes {offset}-"):
             raise DownloadValidationError("server did not honour the Range request")

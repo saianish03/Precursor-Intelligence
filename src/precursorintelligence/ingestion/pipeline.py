@@ -15,10 +15,11 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Any
 
-from ..common.context import Context, utc_now
 from ..common.obs.logging import log_context
 from .catalog import discover, select
+from .context import Context, utc_now
 from .download import run_download
 from .extract import extract_entry
 from .inventory import inventory_entry, iter_good_downloads
@@ -31,8 +32,10 @@ STEPS = ("discover", "download", "extract", "inventory", "resolve", "report")
 
 
 @contextmanager
-def task_scope(ctx: Context, task: str, entry_id: str | None = None, **ctx_fields) -> Iterator[dict]:
-    detail: dict = {}
+def task_scope(
+    ctx: Context, task: str, entry_id: str | None = None, **ctx_fields: Any
+) -> Iterator[dict[str, Any]]:
+    detail: dict[str, Any] = {}
     started, t0 = utc_now(), time.monotonic()
     with log_context(task=task, entry_id=entry_id, **ctx_fields):
         log.debug("task %s started", task)
@@ -45,12 +48,25 @@ def task_scope(ctx: Context, task: str, entry_id: str | None = None, **ctx_field
             raise
         finally:
             dur = time.monotonic() - t0
-            ctx.metadata.append("run_log", [{
-                "run_id": ctx.run_id, "task": task, "entry_id": entry_id, "status": status, "started_at": started,
-                "finished_at": utc_now(), "duration_s": f"{dur:.2f}", "detail": json.dumps(detail, default=str),
-            }])
+            ctx.metadata.append(
+                "run_log",
+                [
+                    {
+                        "run_id": ctx.run_id,
+                        "task": task,
+                        "entry_id": entry_id,
+                        "status": status,
+                        "started_at": started,
+                        "finished_at": utc_now(),
+                        "duration_s": f"{dur:.2f}",
+                        "detail": json.dumps(detail, default=str),
+                    }
+                ],
+            )
             if entry_id is None:
-                log.info("task %s %s in %.1fs %s", task, status, dur, json.dumps(detail, default=str))
+                log.info(
+                    "task %s %s in %.1fs %s", task, status, dur, json.dumps(detail, default=str)
+                )
 
 
 @dataclass
@@ -64,19 +80,34 @@ class Step1Result:
     failures: list[str] = field(default_factory=list)
 
 
-def run_step1(ctx: Context, *, steps: tuple[str, ...] = STEPS, zip_dates: list[date] | None = None,
-              limit: int | None = None) -> Step1Result:
+def run_step1(
+    ctx: Context,
+    *,
+    steps: tuple[str, ...] = STEPS,
+    zip_dates: list[date] | None = None,
+    limit: int | None = None,
+) -> Step1Result:
     unknown = set(steps) - set(STEPS)
     if unknown:
         raise ValueError(f"unknown steps {sorted(unknown)}; valid: {STEPS}")
     res = Step1Result(run_id=ctx.run_id)
     with log_context(run_id=ctx.run_id, env=ctx.settings.env.env):
-        log.info("Step 1 run %s starting: steps=%s, store=%s, metadata=%s", ctx.run_id, ",".join(steps),
-                 ctx.object_store.root_uri, getattr(ctx.metadata, "safe_url", "?"))
+        log.info(
+            "Step 1 run %s starting: steps=%s, store=%s, metadata=%s",
+            ctx.run_id,
+            ",".join(steps),
+            ctx.object_store.root_uri,
+            getattr(ctx.metadata, "safe_url", "?"),
+        )
         if "discover" in steps:
             with task_scope(ctx, "discover") as d:
                 out = discover(ctx)
-                d.update(entries=out.n_entries, new=out.n_new, removed=out.n_removed, size_changed=out.n_size_changed)
+                d.update(
+                    entries=out.n_entries,
+                    new=out.n_new,
+                    removed=out.n_removed,
+                    size_changed=out.n_size_changed,
+                )
 
         with task_scope(ctx, "select") as d:
             entries = select(ctx, zip_dates=zip_dates, limit=limit)
@@ -97,9 +128,9 @@ def run_step1(ctx: Context, *, steps: tuple[str, ...] = STEPS, zip_dates: list[d
             for entry, row in good:
                 try:
                     with task_scope(ctx, "extract", entry.entry_id, zip_name=entry.zip_name) as d:
-                        r = extract_entry(ctx, entry, row["object_key"], row["sha256"])
-                        d.update(written=r.n_extracted, existing=r.n_skipped_existing)
-                        res.extracted += r.n_extracted
+                        xr = extract_entry(ctx, entry, row["object_key"], row["sha256"])
+                        d.update(written=xr.n_extracted, existing=xr.n_skipped_existing)
+                        res.extracted += xr.n_extracted
                 except Exception as exc:
                     res.failures.append(f"extract {entry.entry_id}: {exc}")
 
@@ -117,8 +148,11 @@ def run_step1(ctx: Context, *, steps: tuple[str, ...] = STEPS, zip_dates: list[d
         if "resolve" in steps:
             with task_scope(ctx, "resolve") as d:
                 resolved = resolve(ctx)
-                d.update(latest_vintage=resolved.latest_vintage, duplicates=len(resolved.duplicates),
-                         anomalies=len(resolved.anomalies))
+                d.update(
+                    latest_vintage=resolved.latest_vintage,
+                    duplicates=len(resolved.duplicates),
+                    anomalies=len(resolved.anomalies),
+                )
         if "report" in steps:
             with task_scope(ctx, "report") as d:
                 resolved = resolved or resolve(ctx)

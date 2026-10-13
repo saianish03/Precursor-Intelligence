@@ -22,7 +22,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO, Protocol, runtime_checkable
+from typing import Any, BinaryIO, Protocol, runtime_checkable
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +69,9 @@ class ObjectStore(Protocol):
     def exists(self, key: str) -> bool: ...
     def stat(self, key: str) -> ObjectInfo | None: ...
     def list(self, prefix: str) -> list[str]: ...
-    def put_stream(self, key: str, chunks: Iterable[bytes], *, overwrite: bool = False) -> PutResult: ...
+    def put_stream(
+        self, key: str, chunks: Iterable[bytes], *, overwrite: bool = False
+    ) -> PutResult: ...
     def put_bytes(self, key: str, data: bytes, *, overwrite: bool = False) -> PutResult: ...
     def open_read(self, key: str) -> BinaryIO: ...
     def move(self, src: str, dst: str) -> None: ...
@@ -81,7 +83,9 @@ class ObjectStore(Protocol):
 
 def _check_deletable(key: str) -> None:
     if not key.startswith(DELETABLE_PREFIXES):
-        raise ObjectStoreError(f"refusing to delete outside scratch prefixes {DELETABLE_PREFIXES}: {key}")
+        raise ObjectStoreError(
+            f"refusing to delete outside scratch prefixes {DELETABLE_PREFIXES}: {key}"
+        )
 
 
 def sha256_of(store: ObjectStore, key: str, chunk: int = 8 * 1024 * 1024) -> str:
@@ -133,7 +137,9 @@ class LocalObjectStore:
             if p.is_file() and not p.name.startswith(".tmp-")
         )
 
-    def put_stream(self, key: str, chunks: Iterable[bytes], *, overwrite: bool = False) -> PutResult:
+    def put_stream(
+        self, key: str, chunks: Iterable[bytes], *, overwrite: bool = False
+    ) -> PutResult:
         dst = self._path(key)
         if dst.exists() and not overwrite:
             raise ObjectExistsError(f"object already exists: {key}")
@@ -182,7 +188,9 @@ class LocalObjectStore:
         base = self._path(prefix.rstrip("/")) if prefix.strip("/") else self.root
         removed = 0
         if base.is_dir():
-            for d in sorted((p for p in base.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+            for d in sorted(
+                (p for p in base.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True
+            ):
                 if not any(d.iterdir()):
                     d.rmdir()
                     removed += 1
@@ -193,7 +201,9 @@ class LocalObjectStore:
 
     def make_immutable(self, key: str) -> None:
         if self.immutable:
-            os.chmod(self._path(key), stat_mod.S_IRUSR | stat_mod.S_IRGRP | stat_mod.S_IROTH)  # 0o444
+            os.chmod(
+                self._path(key), stat_mod.S_IRUSR | stat_mod.S_IRGRP | stat_mod.S_IROTH
+            )  # 0o444
 
 
 class FsspecObjectStore:
@@ -205,7 +215,13 @@ class FsspecObjectStore:
     code; ``make_immutable`` therefore only records the intent here.
     """
 
-    def __init__(self, root: str, *, immutable: str | None = None, storage_options: dict | None = None) -> None:
+    def __init__(
+        self,
+        root: str,
+        *,
+        immutable: str | None = None,
+        storage_options: dict[str, Any] | None = None,
+    ) -> None:
         import fsspec
 
         self.fs, base = fsspec.core.url_to_fs(root, **(storage_options or {}))
@@ -225,7 +241,7 @@ class FsspecObjectStore:
 
     def exists(self, key: str) -> bool:
         p = self._path(key)
-        return self.fs.exists(p) and self.fs.isfile(p)
+        return bool(self.fs.exists(p) and self.fs.isfile(p))
 
     def stat(self, key: str) -> ObjectInfo | None:
         p = self._path(key)
@@ -245,11 +261,13 @@ class FsspecObjectStore:
             return []
         out = []
         for p in self.fs.find(base):
-            rel = p[len(self.base):].lstrip("/") if p.startswith(self.base) else p
+            rel = p[len(self.base) :].lstrip("/") if p.startswith(self.base) else p
             out.append(rel)
         return sorted(out)
 
-    def put_stream(self, key: str, chunks: Iterable[bytes], *, overwrite: bool = False) -> PutResult:
+    def put_stream(
+        self, key: str, chunks: Iterable[bytes], *, overwrite: bool = False
+    ) -> PutResult:
         p = self._path(key)
         if self.exists(key) and not overwrite:
             raise ObjectExistsError(f"object already exists: {key}")
@@ -273,7 +291,8 @@ class FsspecObjectStore:
         return self.put_stream(key, [data], overwrite=overwrite)
 
     def open_read(self, key: str) -> BinaryIO:
-        return self.fs.open(self._path(key), "rb")
+        f: BinaryIO = self.fs.open(self._path(key), "rb")
+        return f
 
     def move(self, src: str, dst: str) -> None:
         if self.exists(dst):
@@ -289,13 +308,17 @@ class FsspecObjectStore:
             self.fs.rm(self._path(key))
 
     def make_immutable(self, key: str) -> None:
-        log.debug("immutability for %s is enforced by bucket policy (%s)", key, self.immutable or "none")
+        log.debug(
+            "immutability for %s is enforced by bucket policy (%s)", key, self.immutable or "none"
+        )
 
     def prune_empty(self, prefix: str) -> int:
         return 0  # object stores have no empty directories to clean up
 
 
-def copy_object(src_store: ObjectStore, src_key: str, dst_store: ObjectStore, dst_key: str) -> PutResult:
+def copy_object(
+    src_store: ObjectStore, src_key: str, dst_store: ObjectStore, dst_key: str
+) -> PutResult:
     """Stream an object between two stores (e.g. local landing -> S3 bucket)."""
     with src_store.open_read(src_key) as f:
         return dst_store.put_stream(dst_key, iter(lambda: f.read(8 * 1024 * 1024), b""))

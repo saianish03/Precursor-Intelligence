@@ -1,9 +1,9 @@
 """MetadataStore port and its SQLAlchemy adapter.
 
 One adapter covers every SQL database SQLAlchemy supports. Changing the backend is a URL change:
-  sqlite:///./data/ops/metadata.db             (local)
-  postgresql+psycopg://user@rds-host/db        (AWS RDS / Aurora)
-  postgresql+psycopg://user@/db?host=/cloudsql/<instance>  (GCP Cloud SQL)
+  sqlite:///./data/ops/metadata.db                          (unit tests, quick local runs)
+  postgresql+psycopg://user:pass@localhost:5432/<db>        (Postgres: local dev, or on the Airflow VM)
+A BigQuery metadata adapter for test/prod is planned (docs/STEP1_DATA_INGESTION_PIPELINE.md, decision D4).
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from sqlalchemy import Integer, and_, create_engine, delete, insert, select
+from sqlalchemy import Integer, Table, and_, create_engine, delete, insert, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 
@@ -55,14 +55,14 @@ class SqlAlchemyMetadataStore:
         with self._lock:
             metadata.create_all(self.engine)
 
-    def _table(self, name: str):
+    def _table(self, name: str) -> Table:
         try:
             return TABLES[name]
         except KeyError:
             raise KeyError(f"unknown metadata table: {name}") from None
 
     @staticmethod
-    def _clean(table, rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    def _clean(table: Table, rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
         """Uniform rows for executemany: unknown keys dropped, missing columns set to NULL.
         Integer surrogate keys (autoincrement ``id``) are left to the database."""
         auto = {c.name for c in table.primary_key.columns if isinstance(c.type, Integer)}

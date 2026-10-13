@@ -13,7 +13,9 @@ from precursorintelligence.common.obs.logging import (
 
 
 def test_redaction_patterns():
-    s = redact("GET https://user:pw@host/x?X-Amz-Signature=abc123&a=1 Authorization: Bearer xyz api_key=SECRET")
+    s = redact(
+        "GET https://user:pw@host/x?X-Amz-Signature=abc123&a=1 Authorization: Bearer xyz api_key=SECRET"
+    )
     assert "pw" not in s and "abc123" not in s and "SECRET" not in s and "xyz" not in s
     assert "X-Amz-Signature=***" in s
 
@@ -43,7 +45,9 @@ def test_context_defaults_to_dash():
 
 
 def test_setup_logging_writes_json_lines(tmp_path):
-    log_file = setup_logging(MODULE_ROOT / "configs" / "logging.yaml", log_dir=tmp_path, run_id="rtest")
+    log_file = setup_logging(
+        MODULE_ROOT / "configs" / "logging.yaml", log_dir=tmp_path, run_id="rtest"
+    )
     log = logging.getLogger("precursorintelligence.test")
     with log_context(run_id="rtest", task="t"):
         log.info("hello token=abc")

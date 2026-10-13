@@ -4,9 +4,9 @@
 
 | | |
 |---|---|
-| Module | `src/precursorintelligence/` (`common/` + `ingestion/`) in the Precursor-Intelligence repo. CLI: `python -m precursorintelligence.ingestion` today; a console command (written `shingest` in this document, final name to be chosen) comes with `pyproject.toml`. |
+| Module | `src/precursorintelligence/` (`common/` + `ingestion/`) in the Precursor-Intelligence repo. CLI: `precursor-ingest` (console command from `pyproject.toml`), or `python -m precursorintelligence.ingestion`. |
 | Implements | `dataset/Dataset_build_guide_v1.md` §2 (STEP 1), ending at 🛑 Checkpoint 1 |
-| Python env | `mlops_project_env` (Python 3.12.14) |
+| Python env | uv project: `uv sync --all-extras` (Python 3.12 from `.python-version`; 3.11 also supported and tested in CI) |
 | Status | Implemented; 97 offline tests + 2 live contract tests passing; first full archive run completed (§15). **The storage and metadata decisions of 2026-10-08 (§0) are agreed but not yet implemented.** |
 
 ---
@@ -81,9 +81,9 @@ The BigQuery datasets and the GCS bucket must be in the **same region**, so load
 | Tasks (`catalog`, `download`, `extract`, `inventory`, `resolve`) | Replace per-entry reads with one bulk read per task, and upserts / in-place status changes with appended row versions. |
 | `pipeline.py` | Acquire and release the run lock around each run. |
 | `common/io/table_sink.py`, `common/io/registry.py` | Remove `DuckDBTableSink`. Keep `ParquetTableSink` for bronze/silver/gold. Add a separate **warehouse** port with two adapters, used only for the final dataset: BigQuery (load job from gold Parquet in GCS, replace affected month partitions) and Postgres (`COPY`). |
-| `configs/` | Delete `aws.yaml`. `local.yaml` points metadata at Postgres (`SH_DATABASE_URL`); `gcp.yaml` points metadata and the warehouse at BigQuery. |
+| `configs/` | `dev.yaml` points metadata at Postgres (`PI_DATABASE_URL`); `prod.yaml` points metadata and the warehouse at BigQuery. (`aws.yaml` was not carried into this repo.) |
 | `ingestion/report.py` and every later layer | Write the per-run JSON manifest (D11). |
-| Packaging | The code now lives in the Precursor-Intelligence repo (`src/precursorintelligence/`). Add a repo-wide `pyproject.toml` (optional dependency groups per stage, uv lock, mypy config, console command); until then run with `PYTHONPATH=src`. |
+| Packaging | Done: repo-wide `pyproject.toml` + `uv.lock` (extras per image; ingestion uses `pipeline`), strict mypy, console command `precursor-ingest`. |
 
 Further Step 1 improvements are tracked in [`STEP1_TODO.md`](STEP1_TODO.md): metastore release sensor, per-table download fallback, `--dry-run` and exit codes, and an early schema-drift check.
 
@@ -97,7 +97,7 @@ Further Step 1 improvements are tracked in [`STEP1_TODO.md`](STEP1_TODO.md): met
 | Monthly download method | Per-table CSVs from the metastore `downloadURL` | One monthly zip from the archive/current JSON endpoints | Both work. The zip gives all tables of a release at once and uses the same code for history and new months. |
 | Backfill source | Annual zips uploaded to GCS manually (the archive page was thought to need JavaScript) | All monthly zips downloaded automatically through the archive JSON endpoint (§3.2) | Manual upload is no longer needed. |
 | Stale refresh check | Hash each table ignoring the date column; flag `stale_refresh` | Not implemented in Step 1 | **Confirmed in the data:** in vintage 2025-09, health citations, penalties, survey dates and claims QMs are identical to 2025-07; only Provider Info and MDS QMs changed. Added to the Step 2 checks (`STEP2_HANDOFF.md` §7.6). |
-| Python tooling | Python 3.11+, `uv` | conda `mlops_project_env`, Python 3.12 | The code needs ≥ 3.11, so it runs under both. |
+| Python tooling | Python 3.11+, `uv` | `uv` (`uv.lock`), Python 3.12; CI tests 3.11 and 3.12 | Aligned. |
 
 ---
 
@@ -132,12 +132,11 @@ The `TableSink` port that Step 2 will write through is already defined (§5.2).
 
 ## 2. Quick start
 
-Run from the repository root. Until `pyproject.toml` is added, call the CLI as a module with `PYTHONPATH=src`; after that, `pip install -e .` provides a console command and `PYTHONPATH` is no longer needed.
+Run from the repository root. `uv sync --all-extras` installs the package (editable) with the console command `precursor-ingest`. If the package is installed non-editable (e.g. in a Docker image), set `PI_PROJECT_ROOT` to the directory that holds `configs/`.
 
 ```bash
-conda activate mlops_project_env
-export PYTHONPATH=src
-CLI="python -m precursorintelligence.ingestion"
+uv sync --all-extras
+CLI="uv run precursor-ingest"
 
 $CLI catalog                                       # show what CMS advertises (no zip downloads)
 $CLI step1                                         # full Step 1 (~3.1 GB download on first run)
@@ -270,14 +269,13 @@ No task knows where data physically lives. Tasks receive a `Context` that holds 
 | `CatalogSource` (`ingestion/sources/base.py`) | `fetch() -> SourceSnapshot` | `CmsPdcArchiveSource` | Implemented. Later: PBJ staffing. |
 
 - **Adapter selection** is a registry (`common/io/registry.py`) keyed by `object_store.kind` and `table_sink.kind`. A new backend means writing an adapter class plus adding one decorator line.
-- **Credentials** are never in config. The adapters pick up the standard credential chain: GCP Application Default Credentials or workload identity, and `SH_DATABASE_URL` for the local Postgres.
+- **Credentials** are never in config. The adapters pick up the standard credential chain: GCP Application Default Credentials or workload identity, and `PI_DATABASE_URL` for the local Postgres.
 
 ### 5.2 Module map
 ```
 src/precursorintelligence/
   common/
     config.py            pydantic models for configs/ingestion/sources.yaml + configs/<env>.yaml; ${ENV} expansion; security validation
-    context.py           Context dataclass, run_id, build_context()
     io/object_store.py   ObjectStore port, LocalObjectStore, FsspecObjectStore, copy_object, sha256_of
     io/metadata_store.py MetadataStore port, SqlAlchemyMetadataStore
     io/schemas.py        bookkeeping tables (SQLAlchemy Core)
@@ -285,6 +283,7 @@ src/precursorintelligence/
     io/registry.py       kind -> adapter factories
     obs/logging.py       ContextFilter, RedactFilter, JsonFormatter, log_context, setup_logging
   ingestion/
+    context.py           Context dataclass, run_id, build_context() (ingestion-only: holds the HTTP client)
     cli.py               typer CLI (step1, catalog); ships the run log next to the reports; `python -m precursorintelligence.ingestion`
     pipeline.py          run_step1(): chains tasks; task_scope() = log context + timing + run_log rows
     http.py              SafeHttpClient (allow-list, same-host redirects, retries, resumable validated download)
@@ -612,7 +611,7 @@ All buckets get uniform bucket-level access, public access prevention, and Googl
 
 **Credentials and secrets:**
 - **No keys anywhere.** Credentials come from workload identity (Cloud Run / VM service account) or `gcloud auth application-default login` for a developer. No service-account key files, no credentials in config, code or logs.
-- **Local Postgres:** the URL comes from `SH_DATABASE_URL` (environment or Secret Manager). The logged URL hides the password (`render_as_string(hide_password=True)`), and the log redaction filter masks credentials in URLs.
+- **Local Postgres:** the URL comes from `PI_DATABASE_URL` (environment or Secret Manager). The logged URL hides the password (`render_as_string(hide_password=True)`), and the log redaction filter masks credentials in URLs.
 - **Infrastructure as code:** create the buckets, datasets and IAM bindings with Terraform (team tech-stack document), not by hand.
 
 ### 9.10 Supply chain
@@ -671,12 +670,12 @@ Logging uses only the standard-library **`logging`** module, configured by `logg
 |---|---|---|
 | `env` | `local` | `gcp` |
 | `object_store.kind` | `local` (`memory` in unit tests) | `gcs` |
-| `object_store.root` | `./data` | `${SH_BUCKET_URI}` (e.g. `gs://precursorintelligence-landing`) |
+| `object_store.root` | `./data` | `${PI_BUCKET_URI}` (e.g. `gs://precursorintelligence-landing`) |
 | `object_store.immutable` | `chmod` | `bucket_retention_policy` |
 | `object_store.storage_options` | — | passed to gcsfs (e.g. `{project: my-proj}`) |
-| `metadata_store` | **(current code)** `url: sqlite:///./data/ops/metadata.db`. **Decided:** `url: ${SH_DATABASE_URL}` (local Postgres) | **Decided:** `kind: bigquery`, `project`, `dataset: precursorintelligence_ops`, `location` |
+| `metadata_store` | **(current code)** `url: sqlite:///./data/ops/metadata.db`. **Decided:** `url: ${PI_DATABASE_URL}` (local Postgres) | **Decided:** `kind: bigquery`, `project`, `dataset: precursorintelligence_ops`, `location` |
 | `table_sink.kind` / `.prefix` | `parquet` / `bronze` | `parquet` / `bronze` |
-| `warehouse` (planned, final dataset only) | `kind: postgres`, `url: ${SH_DATABASE_URL}`, `schema: gold` | `kind: bigquery`, `dataset: precursorintelligence_gold`, `location` |
+| `warehouse` (planned, final dataset only) | `kind: postgres`, `url: ${PI_DATABASE_URL}`, `schema: gold` | `kind: bigquery`, `dataset: precursorintelligence_gold`, `location` |
 | `logging.config` / `.log_dir` / `.console_format` | `configs/logging.yaml` / `./logs` / `text` | same / `/tmp/…` / `json` (Cloud Logging) |
 
 `${VAR}` and `${VAR:-default}` are expanded from the environment. A missing required variable is a config error. **(current code)** `configs/aws.yaml (not carried into this repo)` still exists; it is to be deleted (§0.3).
@@ -688,13 +687,13 @@ Logging uses only the standard-library **`logging`** module, configured by `logg
 ### 12.1 Run on GCP (GCS + BigQuery)
 1. **Create the resources with Terraform:** the buckets, BigQuery datasets `precursorintelligence_ops` and `precursorintelligence_gold` in the **same region** (open decision O1, recommended `us-central1`), and the service accounts and IAM bindings of §9.9.
 2. **Authenticate:** workload identity (VM or Cloud Run service account), or `gcloud auth application-default login` for a developer. No key files.
-3. **Configure:** `export SH_BUCKET_URI=gs://precursorintelligence-landing` and set the BigQuery project and dataset in `configs/prod.yaml`.
-4. **Run:** `shingest step1 --env prod`. The keys and folder structure are exactly those of §7.
+3. **Configure:** `export PI_BUCKET_URI=gs://precursorintelligence-landing` and set the BigQuery project and dataset in `configs/prod.yaml`.
+4. **Run:** `precursor-ingest step1 --env prod`. The keys and folder structure are exactly those of §7.
 5. **Migrate files you already downloaded locally,** instead of re-downloading them: use `copy_object(local, key, gcs, key)` (`common/io/object_store.py`) or `gcloud storage rsync data/landing gs://…/landing`. On the first GCP run, each zip found in the bucket without a metadata row is **adopted after full validation** (§6.3 step 4).
 
 ### 12.2 Local development with Postgres
 1. Start Postgres in Docker, for example the team's `docker compose` stack (`postgres:16`). Create a database with schemas `ops` (pipeline metadata) and `gold` (final dataset).
-2. Run `export SH_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/precursorintelligence`. The SQLAlchemy metadata adapter works unchanged.
+2. Run `export PI_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/precursorintelligence`. The SQLAlchemy metadata adapter works unchanged.
 3. Unit tests keep using in-memory SQLite and need no database.
 
 ### 12.3 The final dataset table (warehouse port, planned)
@@ -727,7 +726,7 @@ LANDING = Asset("gs://precursorintelligence-landing/landing/cms_nh")      # emit
 def step(task_id, steps, **kw):
     return DockerOperator(
         task_id=task_id, image="…/precursor-pipeline:latest",
-        command=f"shingest step1 --env prod --steps {steps}", **kw)
+        command=f"precursor-ingest step1 --env prod --steps {steps}", **kw)
 
 @dag(schedule="@daily", catchup=False, max_active_runs=1)          # max_active_runs=1 complements the run lock (D8)
 def ingest_vintage():
@@ -766,13 +765,13 @@ Run: `pytest` (offline, under 1 s) and `pytest -m network`.
 
 | Situation | Action |
 |---|---|
-| First run | `shingest step1`. It downloads about 3.1 GB of zips and extracts about 18 GB of in-scope CSVs into `data/`. Review `data/reports/step1/latest/01_inventory_summary.md` (Checkpoint 1). |
-| Monthly refresh | `shingest step1`. Unchanged zips are `skipped`; only new zips (and a new `current` entry) are downloaded. A catalog diff shows what changed. |
+| First run | `precursor-ingest step1`. It downloads about 3.1 GB of zips and extracts about 18 GB of in-scope CSVs into `data/`. Review `data/reports/step1/latest/01_inventory_summary.md` (Checkpoint 1). |
+| Monthly refresh | `precursor-ingest step1`. Unchanged zips are `skipped`; only new zips (and a new `current` entry) are downloaded. A catalog diff shows what changed. |
 | `republished` warning | Compare the two zips' inventories (`header_hash`, `row_count`). The newest copy is what downstream uses, and the original is kept for audit. |
 | `quarantined` / `failed` | Inspect `quarantine/cms_nh/<run_id>/…` and the `download_log.detail`. Re-run; transient network failures resolve on their own. |
 | `rejected` | The catalog advertised a URL outside the allow-list. **Do not widen the regex without review.** |
 | Contract test fails | CMS changed the undocumented endpoints. Update `ingestion/sources/cms_pdc.py` and `configs/ingestion/sources.yaml`. |
-| Rebuild only the report | `shingest step1 --steps resolve,report`. |
+| Rebuild only the report | `precursor-ingest step1 --steps resolve,report`. |
 | Free disk space | The extracted CSVs can be regenerated from the zips: delete `data/landing/cms_nh/extracted/` and the `extracted_files` rows. **Never delete `landing/cms_nh/zips/`**; it is the immutable source of truth. |
 | Start from scratch (local) | Delete `data/` and `logs/`. Local zips are `chmod 444`, so use `chmod -R u+w data` first. |
 

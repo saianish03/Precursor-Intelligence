@@ -27,13 +27,26 @@ def _zip(entries: dict[str, bytes], *, symlink: str | None = None) -> io.BytesIO
 
 
 def test_good_archive_and_junk_flags():
-    members = inspect_archive(_zip({"a/NH_ProviderInfo_Jan2021.csv": b"x,y\n1,2\n", "__MACOSX/._a": b"j",
-                                    ".DS_Store": b"j"}), ZipLimits())
-    assert {m.file_name: m.is_junk for m in members} == {"NH_ProviderInfo_Jan2021.csv": False, "._a": True,
-                                                         ".DS_Store": True}
+    members = inspect_archive(
+        _zip(
+            {
+                "a/NH_ProviderInfo_Jan2021.csv": b"x,y\n1,2\n",
+                "__MACOSX/._a": b"j",
+                ".DS_Store": b"j",
+            }
+        ),
+        ZipLimits(),
+    )
+    assert {m.file_name: m.is_junk for m in members} == {
+        "NH_ProviderInfo_Jan2021.csv": False,
+        "._a": True,
+        ".DS_Store": True,
+    }
 
 
-@pytest.mark.parametrize("name", ["../evil.csv", "a/../../evil.csv", "/abs/evil.csv", "C:/evil.csv", "a\\..\\evil.csv"])
+@pytest.mark.parametrize(
+    "name", ["../evil.csv", "a/../../evil.csv", "/abs/evil.csv", "C:/evil.csv", "a\\..\\evil.csv"]
+)
 def test_zip_slip_names_are_rejected(name):
     with pytest.raises(UnsafeArchiveError):
         inspect_archive(_zip({name: b"x"}), ZipLimits())
@@ -68,7 +81,7 @@ def test_not_a_zip_and_crc():
     good = _zip({"a.csv": b"hello world" * 100})
     verify_crc(good)
     raw = bytearray(good.getvalue())
-    idx = raw.find(b"a.csv") + len(b"a.csv")   # first byte of compressed data of the only member
+    idx = raw.find(b"a.csv") + len(b"a.csv")  # first byte of compressed data of the only member
     raw[idx + 5] ^= 0xFF
     with pytest.raises(UnsafeArchiveError):
         verify_crc(io.BytesIO(bytes(raw)))
@@ -77,3 +90,21 @@ def test_not_a_zip_and_crc():
 def test_is_junk():
     assert is_junk("__MACOSX/x/._y.csv") and is_junk("a/.DS_Store") and is_junk("a/._x")
     assert not is_junk("a/NH_ProviderInfo_Jan2021.csv")
+
+
+@pytest.mark.parametrize("name", ["__MACOSX/._bomb", "a/._bomb", "bomb.csv"])
+def test_junk_named_members_do_not_skip_bomb_limits(name):
+    limits = ZipLimits(
+        max_total_uncompressed_bytes=1 << 20, max_compression_ratio=10.0, ratio_check_min_bytes=1024
+    )
+    with pytest.raises(UnsafeArchiveError, match="compression ratio"):
+        inspect_archive(_zip({name: b"\x00" * (4 << 20)}), limits)
+
+
+def test_junk_members_count_towards_total_size():
+    limits = ZipLimits(max_total_uncompressed_bytes=1 << 20, ratio_check_min_bytes=1 << 30)
+    with pytest.raises(UnsafeArchiveError, match="total uncompressed size"):
+        inspect_archive(
+            _zip({"NH_ProviderInfo_Jan2021.csv": b"x\n", "__MACOSX/._big": b"\x00" * (2 << 20)}),
+            limits,
+        )

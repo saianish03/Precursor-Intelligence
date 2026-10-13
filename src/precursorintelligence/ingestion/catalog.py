@@ -10,8 +10,9 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict, dataclass
 from datetime import date
+from typing import Any
 
-from ..common.context import Context, utc_now
+from .context import Context, utc_now
 from .sources.base import CatalogEntry, CatalogSource
 from .sources.cms_pdc import CmsPdcArchiveSource
 
@@ -33,7 +34,7 @@ def default_source(ctx: Context) -> CatalogSource:
     return CmsPdcArchiveSource(ctx.http, ctx.cfg)
 
 
-def _entry_row(e: CatalogEntry) -> dict:
+def _entry_row(e: CatalogEntry) -> dict[str, Any]:
     row = asdict(e)
     row["zip_date"] = e.zip_date.isoformat()
     return row
@@ -63,9 +64,15 @@ def discover(ctx: Context, source: CatalogSource | None = None) -> DiscoverOutpu
                 log.info("catalog: new entry %s (%d bytes)", e.entry_id, e.size_bytes)
         elif prev.get("size_bytes") != e.size_bytes:
             n_changed += 1
-            log.warning("catalog: size of %s changed %s -> %s bytes (possible re-publication)",
-                        e.entry_id, prev.get("size_bytes"), e.size_bytes)
-        row.update(first_seen_at=(prev or {}).get("first_seen_at") or now, last_seen_at=now, active=True)
+            log.warning(
+                "catalog: size of %s changed %s -> %s bytes (possible re-publication)",
+                e.entry_id,
+                prev.get("size_bytes"),
+                e.size_bytes,
+            )
+        row.update(
+            first_seen_at=(prev or {}).get("first_seen_at") or now, last_seen_at=now, active=True
+        )
         rows.append(row)
     removed = [r for eid, r in previous.items() if eid not in current_ids and r.get("active")]
     for r in removed:
@@ -75,24 +82,40 @@ def discover(ctx: Context, source: CatalogSource | None = None) -> DiscoverOutpu
     if snap.datasets:
         ctx.metadata.upsert("source_datasets", [{**d, "fetched_at": now} for d in snap.datasets])
     out = DiscoverOutput(len(snap.entries), n_new, len(removed), n_changed, prefix)
-    log.info("discover: %d entries (%d new, %d removed, %d size-changed); raw payloads at %s",
-             out.n_entries, out.n_new, out.n_removed, out.n_size_changed, ctx.object_store.uri_for(prefix + "/archive.json"))
+    log.info(
+        "discover: %d entries (%d new, %d removed, %d size-changed); raw payloads at %s",
+        out.n_entries,
+        out.n_new,
+        out.n_removed,
+        out.n_size_changed,
+        ctx.object_store.uri_for(prefix + "/archive.json"),
+    )
     return out
 
 
-def _row_to_entry(r: dict) -> CatalogEntry:
+def _row_to_entry(r: dict[str, Any]) -> CatalogEntry:
     return CatalogEntry(
-        entry_id=r["entry_id"], name=r["name"], nid=r["nid"], type=r["type"], theme=r["theme"],
-        zip_date=date.fromisoformat(r["zip_date"]), zip_name=r["zip_name"], url=r["url"],
-        size_bytes=int(r["size_bytes"]), source_endpoint=r["source_endpoint"],
+        entry_id=r["entry_id"],
+        name=r["name"],
+        nid=r["nid"],
+        type=r["type"],
+        theme=r["theme"],
+        zip_date=date.fromisoformat(r["zip_date"]),
+        zip_name=r["zip_name"],
+        url=r["url"],
+        size_bytes=int(r["size_bytes"]),
+        source_endpoint=r["source_endpoint"],
     )
 
 
-def select(ctx: Context, *, zip_dates: list[date] | None = None, limit: int | None = None) -> list[CatalogEntry]:
+def select(
+    ctx: Context, *, zip_dates: list[date] | None = None, limit: int | None = None
+) -> list[CatalogEntry]:
     scope = ctx.cfg.scope
     entries = [_row_to_entry(r) for r in ctx.metadata.read("catalog", {"active": True})]
     chosen = [
-        e for e in entries
+        e
+        for e in entries
         if e.type in scope.include_types
         and e.zip_date >= scope.min_zip_date
         and (scope.max_zip_date is None or e.zip_date <= scope.max_zip_date)
@@ -102,6 +125,12 @@ def select(ctx: Context, *, zip_dates: list[date] | None = None, limit: int | No
     chosen.sort(key=lambda e: (e.zip_date, e.source_endpoint != "archive", e.zip_name))
     if limit:
         chosen = chosen[:limit]
-    log.info("select: %d of %d catalog entries in scope (types=%s, from %s%s)", len(chosen), len(entries),
-             scope.include_types, scope.min_zip_date, f", subset={len(zip_dates)} dates" if zip_dates else "")
+    log.info(
+        "select: %d of %d catalog entries in scope (types=%s, from %s%s)",
+        len(chosen),
+        len(entries),
+        scope.include_types,
+        scope.min_zip_date,
+        f", subset={len(zip_dates)} dates" if zip_dates else "",
+    )
     return chosen

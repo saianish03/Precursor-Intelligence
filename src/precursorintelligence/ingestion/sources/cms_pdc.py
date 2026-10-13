@@ -17,8 +17,10 @@ import posixpath
 from datetime import date
 from typing import Any
 
+import requests
+
 from ...common.config import SourcesConfig
-from ..http import SafeHttpClient
+from ..http import DownloadValidationError, RetryableHTTPError, SafeHttpClient
 from .base import CatalogContractError, CatalogEntry, SourceSnapshot
 
 log = logging.getLogger(__name__)
@@ -26,14 +28,21 @@ log = logging.getLogger(__name__)
 REQUIRED_KEYS = {"name", "type", "url", "size", "date"}
 
 
-def _entries_from(payload: Any, *, endpoint: str, theme: str) -> list[CatalogEntry]:
+def _entries_from(
+    payload: Any, *, endpoint: str, theme: str, require_theme: bool = False
+) -> list[CatalogEntry]:
+    """Flatten one archive payload. ``require_theme`` demands an exact ``theme`` match: needed for the
+    all-themes ``current`` endpoint, where an entry without a theme could belong to any topic."""
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
         raise CatalogContractError(f"{endpoint}: expected an object with a 'data' list")
     out: list[CatalogEntry] = []
     for i, item in enumerate(payload["data"]):
         if not isinstance(item, dict) or not item.keys() >= REQUIRED_KEYS:
-            raise CatalogContractError(f"{endpoint}: item {i} is missing keys {REQUIRED_KEYS - set(item)}")
-        if item.get("theme") not in (theme, None):
+            raise CatalogContractError(
+                f"{endpoint}: item {i} is missing keys {REQUIRED_KEYS - set(item)}"
+            )
+        allowed = (theme,) if require_theme else (theme, None)
+        if item.get("theme") not in allowed:
             continue
         if item.get("access_level", "public") != "public":
             continue
@@ -44,11 +53,20 @@ def _entries_from(payload: Any, *, endpoint: str, theme: str) -> list[CatalogEnt
             raise CatalogContractError(f"{endpoint}: item {i} has a bad date/size: {exc}") from exc
         url = str(item["url"]).replace("\\/", "/")
         zip_name = posixpath.basename(url)
-        out.append(CatalogEntry(
-            entry_id=f"{item['type']}:{zip_date.isoformat()}:{zip_name}",
-            name=str(item["name"]), nid=str(item.get("nid") or ""), type=str(item["type"]), theme=theme,
-            zip_date=zip_date, zip_name=zip_name, url=url, size_bytes=size, source_endpoint=endpoint,
-        ))
+        out.append(
+            CatalogEntry(
+                entry_id=f"{item['type']}:{zip_date.isoformat()}:{zip_name}",
+                name=str(item["name"]),
+                nid=str(item.get("nid") or ""),
+                type=str(item["type"]),
+                theme=theme,
+                zip_date=zip_date,
+                zip_name=zip_name,
+                url=url,
+                size_bytes=size,
+                source_endpoint=endpoint,
+            )
+        )
     return out
 
 
@@ -58,7 +76,7 @@ class CmsPdcArchiveSource:
     def __init__(self, http: SafeHttpClient, cfg: SourcesConfig) -> None:
         self.http, self.cfg = http, cfg
 
-    def fetch(self):
+    def fetch(self) -> SourceSnapshot:
         src = self.cfg.source
         theme = src.theme_slug
         raw: dict[str, bytes] = {}
@@ -71,7 +89,7 @@ class CmsPdcArchiveSource:
 
         current = self.http.get_json(self.http.api_url(src.endpoints.current))
         raw["current.json"] = json.dumps(current, sort_keys=True).encode()
-        cur = _entries_from(current, endpoint="current", theme=theme)
+        cur = _entries_from(current, endpoint="current", theme=theme, require_theme=True)
         if not cur:
             log.warning("current endpoint has no entry for theme %s", theme)
         entries += cur
@@ -81,16 +99,44 @@ class CmsPdcArchiveSource:
         for table, spec in self.cfg.tables.items():
             if not spec.dataset_id:
                 continue
-            item = self.http.get_json(self.http.api_url(src.endpoints.metastore_item.format(dataset_id=spec.dataset_id)))
+            url = self.http.api_url(src.endpoints.metastore_item.format(dataset_id=spec.dataset_id))
+            try:
+                item = self.http.get_json(url)
+            except (requests.RequestException, RetryableHTTPError, DownloadValidationError) as exc:
+                # Release metadata only (modified/released/nextUpdateDate): the zips do not depend on it,
+                # so one failing dataset is logged and skipped instead of aborting the run.
+                log.warning(
+                    "metastore lookup failed for %s (%s); continuing without it: %s",
+                    spec.dataset_id,
+                    table,
+                    exc,
+                )
+                meta_raw[spec.dataset_id] = {"error": f"{exc.__class__.__name__}: {exc}"}
+                continue
+            if not isinstance(item, dict):
+                log.warning("metastore returned a non-object for %s; skipping it", spec.dataset_id)
+                meta_raw[spec.dataset_id] = {"error": "non-object response"}
+                continue
             meta_raw[spec.dataset_id] = item
             dist = (item.get("distribution") or [{}])[0]
             dist = dist.get("data", dist) if isinstance(dist, dict) else {}
-            datasets.append({
-                "dataset_id": spec.dataset_id, "table_name": table, "title": item.get("title"),
-                "modified": item.get("modified"), "released": item.get("released"),
-                "next_update": item.get("nextUpdateDate"), "current_download_url": dist.get("downloadURL"),
-            })
+            datasets.append(
+                {
+                    "dataset_id": spec.dataset_id,
+                    "table_name": table,
+                    "title": item.get("title"),
+                    "modified": item.get("modified"),
+                    "released": item.get("released"),
+                    "next_update": item.get("nextUpdateDate"),
+                    "current_download_url": dist.get("downloadURL"),
+                }
+            )
         raw["metastore.json"] = json.dumps(meta_raw, sort_keys=True).encode()
-        log.info("catalog fetched: %d archive entries (%d monthly), %d current, %d dataset records",
-                 len(entries) - len(cur), sum(e.type == "theme" for e in entries), len(cur), len(datasets))
+        log.info(
+            "catalog fetched: %d archive entries (%d monthly), %d current, %d dataset records",
+            len(entries) - len(cur),
+            sum(e.type == "theme" for e in entries),
+            len(cur),
+            len(datasets),
+        )
         return SourceSnapshot(entries=entries, raw_payloads=raw, datasets=datasets)

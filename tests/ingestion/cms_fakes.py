@@ -36,9 +36,15 @@ TABLE_FILES = {  # base names per table (L2 style, month token filled in)
     "claims_qm": "NH_QualityMsr_Claims_{tok}.csv",
     "citation_lookup": "NH_CitationDescriptions_{tok}.csv",
 }
-DATASET_IDS = {"provider_info": "4pq5-n9py", "health_citations": "r5ix-sfxw", "survey_dates": "svdt-c123",
-               "penalties": "g6vv-u9sr", "mds_qm": "djen-97ju", "claims_qm": "ijh5-nb2v",
-               "citation_lookup": "tagd-9999"}
+DATASET_IDS = {
+    "provider_info": "4pq5-n9py",
+    "health_citations": "r5ix-sfxw",
+    "survey_dates": "svdt-c123",
+    "penalties": "g6vv-u9sr",
+    "mds_qm": "djen-97ju",
+    "claims_qm": "ijh5-nb2v",
+    "citation_lookup": "tagd-9999",
+}
 
 
 def csv_bytes(month: str, extra_rows: int = 3, survey_date: str = "2019-05-02") -> bytes:
@@ -48,8 +54,16 @@ def csv_bytes(month: str, extra_rows: int = 3, survey_date: str = "2019-05-02") 
     return ("\n".join(lines) + "\n").encode()
 
 
-def make_zip(month: str, tok: str, *, layout: str = "L2", tables=None, junk: bool = False,
-             subfolder: str | None = None, extra: dict[str, bytes] | None = None) -> bytes:
+def make_zip(
+    month: str,
+    tok: str,
+    *,
+    layout: str = "L2",
+    tables=None,
+    junk: bool = False,
+    subfolder: str | None = None,
+    extra: dict[str, bytes] | None = None,
+) -> bytes:
     tables = tables or list(TABLE_FILES)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -59,8 +73,18 @@ def make_zip(month: str, tok: str, *, layout: str = "L2", tables=None, junk: boo
             if layout == "L3":
                 name = f"{DATASET_IDS[t]}_{month}-01_{name}"
             path = f"{subfolder}/{name}" if subfolder else name
-            zf.writestr(path, csv_bytes(month, survey_date="2018-03-04" if t == "health_citations" else "2019-05-02"))
-            manifest.append({"dataset_id": DATASET_IDS[t], "resources": [{"filename": TABLE_FILES[t].format(tok=tok)}]})
+            zf.writestr(
+                path,
+                csv_bytes(
+                    month, survey_date="2018-03-04" if t == "health_citations" else "2019-05-02"
+                ),
+            )
+            manifest.append(
+                {
+                    "dataset_id": DATASET_IDS[t],
+                    "resources": [{"filename": TABLE_FILES[t].format(tok=tok)}],
+                }
+            )
         zf.writestr("NH_Data_Dictionary.pdf", b"%PDF-1.4 fake")
         if layout == "L3":
             zf.writestr("manifest.json", json.dumps(manifest))
@@ -86,7 +110,7 @@ class FakeResponse:
 
     def iter_content(self, chunk_size: int = 1024):
         for i in range(0, len(self._body), chunk_size):
-            yield self._body[i:i + chunk_size]
+            yield self._body[i : i + chunk_size]
 
     def close(self) -> None:
         pass
@@ -103,15 +127,36 @@ class FakeCMS:
         self.requests: list[tuple[str, str, dict]] = []
         self.overrides: dict[str, FakeResponse] = {}
 
-    def add(self, date: str, body: bytes, *, kind: str = "theme", path: str | None = None,
-            catalog_size: int | None = None) -> str:
-        name = f"nursing-homes_{date}.zip" if kind != "current" else "theme_nursing-homes_current.zip"
-        rel = path or (f"{ARCH}/current/theme/{name}" if kind == "current" else f"{ARCH}/theme/nursing-homes/{name}")
+    def add(
+        self,
+        date: str,
+        body: bytes,
+        *,
+        kind: str = "theme",
+        path: str | None = None,
+        catalog_size: int | None = None,
+    ) -> str:
+        name = (
+            f"nursing-homes_{date}.zip" if kind != "current" else "theme_nursing-homes_current.zip"
+        )
+        rel = path or (
+            f"{ARCH}/current/theme/{name}"
+            if kind == "current"
+            else f"{ARCH}/theme/nursing-homes/{name}"
+        )
         self.files[rel] = body
         self.last_modified[rel] = formatdate(1_700_000_000 + len(self.files) * 86400, usegmt=True)
-        item = {"name": f"Theme: nursing-homes ({date})", "nid": str(len(self.files)), "identifier": None,
-                "type": kind, "theme": "nursing-homes", "url": rel, "size": str(catalog_size or len(body)),
-                "date": date, "access_level": "public"}
+        item = {
+            "name": f"Theme: nursing-homes ({date})",
+            "nid": str(len(self.files)),
+            "identifier": None,
+            "type": kind,
+            "theme": "nursing-homes",
+            "url": rel,
+            "size": str(catalog_size or len(body)),
+            "date": date,
+            "access_level": "public",
+        }
         (self.current if kind == "current" else self.entries).append(item)
         return rel
 
@@ -123,7 +168,16 @@ class FakeCMS:
                 item["size"] = str(len(body))
 
     # requests.Session-compatible
-    def request(self, method, url, headers=None, stream=False, allow_redirects=True, timeout=None, verify=None):
+    def request(
+        self,
+        method,
+        url,
+        headers=None,
+        stream=False,
+        allow_redirects=True,
+        timeout=None,
+        verify=None,
+    ):
         headers = headers or {}
         self.requests.append((method, url, dict(headers)))
         if url in self.overrides:
@@ -134,23 +188,40 @@ class FakeCMS:
             return self._json({"data": self.current})
         if url.startswith(API + "/metastore/schemas/dataset/items/"):
             ds = url.rsplit("/", 1)[1].split("?")[0]
-            return self._json({"identifier": ds, "title": ds, "modified": "2026-08-01", "released": "2026-08-26",
-                               "nextUpdateDate": "2026-09-30",
-                               "distribution": [{"data": {"downloadURL": f"{BASE}/x/{ds}.csv"}}]})
-        rel = url[len(BASE):]
+            return self._json(
+                {
+                    "identifier": ds,
+                    "title": ds,
+                    "modified": "2026-08-01",
+                    "released": "2026-08-26",
+                    "nextUpdateDate": "2026-09-30",
+                    "distribution": [{"data": {"downloadURL": f"{BASE}/x/{ds}.csv"}}],
+                }
+            )
+        rel = url[len(BASE) :]
         if rel not in self.files:
             return FakeResponse(404, b"not found", {"Content-Type": "text/html"})
         body = self.files[rel]
-        base_headers = {"Content-Type": "application/zip", "Accept-Ranges": "bytes",
-                        "Last-Modified": self.last_modified[rel]}
+        base_headers = {
+            "Content-Type": "application/zip",
+            "Accept-Ranges": "bytes",
+            "Last-Modified": self.last_modified[rel],
+        }
         if method == "HEAD":
             return FakeResponse(200, b"", {**base_headers, "Content-Length": str(len(body))})
         rng = headers.get("Range")
         if rng:
             start = int(rng.split("=")[1].rstrip("-"))
             part = body[start:]
-            return FakeResponse(206, part, {**base_headers, "Content-Length": str(len(part)),
-                                            "Content-Range": f"bytes {start}-{len(body) - 1}/{len(body)}"})
+            return FakeResponse(
+                206,
+                part,
+                {
+                    **base_headers,
+                    "Content-Length": str(len(part)),
+                    "Content-Range": f"bytes {start}-{len(body) - 1}/{len(body)}",
+                },
+            )
         return FakeResponse(200, body, {**base_headers, "Content-Length": str(len(body))})
 
     @staticmethod
@@ -159,17 +230,23 @@ class FakeCMS:
 
 
 def make_settings(tmp_path: Path, backend: str = "local") -> Settings:
-    sources = SourcesConfig.model_validate(_read_yaml(MODULE_ROOT / "configs" / "ingestion" / "sources.yaml"))
+    sources = SourcesConfig.model_validate(
+        _read_yaml(MODULE_ROOT / "configs" / "ingestion" / "sources.yaml")
+    )
     sources.http.backoff_initial_s = 0.01
     sources.http.backoff_max_s = 0.02
     if backend == "local":
-        env = {"env": "test-local", "object_store": {"kind": "local", "root": str(tmp_path / "store")},
-               "metadata_store": {"url": f"sqlite:///{tmp_path / 'meta.db'}"}}
+        env = {
+            "env": "test-local",
+            "object_store": {"kind": "local", "root": str(tmp_path / "store")},
+            "metadata_store": {"url": f"sqlite:///{tmp_path / 'meta.db'}"},
+        }
     elif backend == "memory":
-        env = {"env": "test-memory", "object_store": {"kind": "memory", "root": f"memory://sh-{uuid.uuid4().hex}"},
-               "metadata_store": {"url": "sqlite:///:memory:"}}
+        env = {
+            "env": "test-memory",
+            "object_store": {"kind": "memory", "root": f"memory://sh-{uuid.uuid4().hex}"},
+            "metadata_store": {"url": "sqlite:///:memory:"},
+        }
     else:
         raise ValueError(backend)
     return Settings(sources=sources, env=EnvConfig.model_validate(env), module_root=MODULE_ROOT)
-
-

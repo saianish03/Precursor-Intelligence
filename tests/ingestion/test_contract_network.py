@@ -20,7 +20,9 @@ def client():
 
 def test_archive_endpoint_shape(client):
     http, s = client
-    data = http.get_json(http.api_url(s.source.endpoints.archive.format(theme=s.source.theme_slug)))["data"]
+    data = http.get_json(
+        http.api_url(s.source.endpoints.archive.format(theme=s.source.theme_slug))
+    )["data"]
     monthly = [d for d in data if d["type"] == "theme"]
     assert len(monthly) >= 89
     assert all(d.keys() >= REQUIRED_KEYS for d in data)
@@ -30,8 +32,11 @@ def test_archive_endpoint_shape(client):
 
 def test_current_endpoint_and_range_support(client):
     http, s = client
-    cur = [d for d in http.get_json(http.api_url(s.source.endpoints.current))["data"]
-           if d.get("theme") == s.source.theme_slug]
+    cur = [
+        d
+        for d in http.get_json(http.api_url(s.source.endpoints.current))["data"]
+        if d.get("theme") == s.source.theme_slug
+    ]
     assert len(cur) == 1
     head = http.head(http.download_url(cur[0]["url"]))
     assert head.status == 200 and head.accept_ranges and head.content_type == "application/zip"

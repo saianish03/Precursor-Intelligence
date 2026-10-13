@@ -19,7 +19,20 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-MODULE_ROOT = Path(__file__).resolve().parents[3]  # repository root
+MODULE_ROOT = Path(__file__).resolve().parents[3]  # repository root (src layout, editable install)
+PROJECT_ROOT_ENV = "PI_PROJECT_ROOT"
+
+
+def project_root() -> Path:
+    """Directory holding ``configs/``; relative paths in the configs resolve against it.
+
+    Defaults to the repository root. Set ``PI_PROJECT_ROOT`` when the package is installed non-editable
+    (e.g. in a Docker image) so ``configs/`` is found outside site-packages.
+    """
+    override = os.environ.get(PROJECT_ROOT_ENV)
+    return Path(override).expanduser().resolve() if override else MODULE_ROOT
+
+
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*?))?\}")
 
 
@@ -34,7 +47,9 @@ def _expand_env(value: Any) -> Any:
             name, default = m.group(1), m.group(2)
             resolved = os.environ.get(name, default)
             if resolved is None:
-                raise ConfigError(f"environment variable {name} is required by the config but not set")
+                raise ConfigError(
+                    f"environment variable {name} is required by the config but not set"
+                )
             return resolved
 
         return _ENV_PATTERN.sub(repl, value)
@@ -52,7 +67,8 @@ def _read_yaml(path: Path) -> dict[str, Any]:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict):
         raise ConfigError(f"config file must contain a mapping: {path}")
-    return _expand_env(data)
+    expanded: dict[str, Any] = _expand_env(data)
+    return expanded
 
 
 # --------------------------------------------------------------------------- sources.yaml
@@ -106,7 +122,7 @@ class TableSpec(BaseModel):
     dataset_id: str | None = None
     patterns: list[str]
     extract: bool = True
-    has_processing_date: bool = True   # False: the vintage is expected to come from the file name
+    has_processing_date: bool = True  # False: the vintage is expected to come from the file name
 
     @field_validator("patterns")
     @classmethod
@@ -137,7 +153,9 @@ class ZipLimits(BaseModel):
     max_total_uncompressed_bytes: int = 5 * 1024**3
     max_compression_ratio: float = 100.0
     ratio_check_min_bytes: int = 10 * 1024**2
-    allowed_extensions: list[str] = Field(default_factory=lambda: [".csv", ".json", ".pdf", ".xlsx", ".txt"])
+    allowed_extensions: list[str] = Field(
+        default_factory=lambda: [".csv", ".json", ".pdf", ".xlsx", ".txt"]
+    )
     max_nested_depth: int = 0
 
 
@@ -215,7 +233,7 @@ def _absolutize(env: EnvConfig, root: Path) -> EnvConfig:
     url = env.metadata_store.url
     prefix = "sqlite:///"
     if url.startswith(prefix) and ":memory:" not in url:
-        db_path = url[len(prefix):]
+        db_path = url[len(prefix) :]
         if not Path(db_path).is_absolute():
             env.metadata_store.url = prefix + str((root / db_path).resolve())
     return env
@@ -226,10 +244,15 @@ def load_settings(
     *,
     sources_path: str | Path | None = None,
     env_path: str | Path | None = None,
-    module_root: Path = MODULE_ROOT,
+    module_root: Path | None = None,
 ) -> Settings:
     """Load and validate ``configs/ingestion/sources.yaml`` plus ``configs/<env>.yaml``."""
-    sources_file = Path(sources_path) if sources_path else module_root / "configs" / "ingestion" / "sources.yaml"
+    module_root = module_root or project_root()
+    sources_file = (
+        Path(sources_path)
+        if sources_path
+        else module_root / "configs" / "ingestion" / "sources.yaml"
+    )
     env_file = Path(env_path) if env_path else module_root / "configs" / f"{env_name}.yaml"
     try:
         sources = SourcesConfig.model_validate(_read_yaml(sources_file))

@@ -61,7 +61,9 @@ def test_classify_real_names(classifier, name, table):
 def test_detect_layout():
     assert detect_layout(["ProviderInfo_Download.csv"]) == "L1"
     assert detect_layout(["NH_ProviderInfo_Jan2021.csv", "readme.txt"]) == "L2"
-    assert detect_layout(["4pq5-n9py_2026-07-01_NH_ProviderInfo_Jul2026.csv", "manifest.json"]) == "L3"
+    assert (
+        detect_layout(["4pq5-n9py_2026-07-01_NH_ProviderInfo_Jul2026.csv", "manifest.json"]) == "L3"
+    )
 
 
 def test_filename_month_and_dates():
@@ -74,7 +76,9 @@ def test_filename_month_and_dates():
 
 
 def test_processing_date_read_from_first_row_with_bom():
-    data = "﻿CMS Certification Number (CCN),Provider Name,Processing Date\n015009,\"A, B\",2021-11-01\n"
+    data = (
+        '﻿CMS Certification Number (CCN),Provider Name,Processing Date\n015009,"A, B",2021-11-01\n'
+    )
     header, row = read_header_and_first_row(io.BytesIO(data.encode("utf-8")))
     assert header[0] == "CMS Certification Number (CCN)"
     assert str(processing_date_from(header, row)) == "2021-11-01"

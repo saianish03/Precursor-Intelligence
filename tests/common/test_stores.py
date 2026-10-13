@@ -64,6 +64,7 @@ def test_failed_stream_leaves_nothing(store):
     def gen():
         yield b"part"
         raise RuntimeError("network died")
+
     with pytest.raises(RuntimeError):
         store.put_stream("landing/partial.zip", gen())
     assert not store.exists("landing/partial.zip")
@@ -73,7 +74,9 @@ def test_copy_between_backends(tmp_path):
     a = LocalObjectStore(tmp_path / "a")
     b = FsspecObjectStore(f"memory://copy-{uuid.uuid4().hex}")
     a.put_bytes("landing/k.zip", b"abc")
-    assert copy_object(a, "landing/k.zip", b, "landing/k.zip").sha256 == sha256_of(a, "landing/k.zip")
+    assert copy_object(a, "landing/k.zip", b, "landing/k.zip").sha256 == sha256_of(
+        a, "landing/k.zip"
+    )
 
 
 def test_parquet_table_sink_on_any_store(store):
@@ -92,11 +95,21 @@ def meta(request, tmp_path):
 
 
 def test_metadata_append_upsert_read(meta):
-    meta.upsert("catalog", [{"entry_id": "theme:2021-01-27:a.zip", "size_bytes": 1, "active": True}])
-    meta.upsert("catalog", [{"entry_id": "theme:2021-01-27:a.zip", "size_bytes": 2, "active": True}])
+    meta.upsert(
+        "catalog", [{"entry_id": "theme:2021-01-27:a.zip", "size_bytes": 1, "active": True}]
+    )
+    meta.upsert(
+        "catalog", [{"entry_id": "theme:2021-01-27:a.zip", "size_bytes": 2, "active": True}]
+    )
     rows = meta.read("catalog")
     assert len(rows) == 1 and rows[0]["size_bytes"] == 2
-    meta.append("download_log", [{"entry_id": "e", "status": "downloaded"}, {"entry_id": "e", "status": "skipped"}])
-    assert [r["status"] for r in meta.read("download_log", {"entry_id": "e"})] == ["downloaded", "skipped"]
+    meta.append(
+        "download_log",
+        [{"entry_id": "e", "status": "downloaded"}, {"entry_id": "e", "status": "skipped"}],
+    )
+    assert [r["status"] for r in meta.read("download_log", {"entry_id": "e"})] == [
+        "downloaded",
+        "skipped",
+    ]
     assert meta.read("download_log", {"status": ["skipped"]})[0]["status"] == "skipped"
     assert meta.delete_where("download_log", {"status": "skipped"}) == 1

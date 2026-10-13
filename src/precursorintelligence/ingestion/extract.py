@@ -14,8 +14,8 @@ import posixpath
 import zipfile
 from dataclasses import dataclass
 
-from ..common.context import Context, utc_now
 from ..common.io.object_store import ObjectExistsError
+from .context import Context, utc_now
 from .layout import OTHER, TableClassifier
 from .sources.base import CatalogEntry
 from .zipsafe import inspect_archive, is_allowed_extension
@@ -39,10 +39,15 @@ def extracted_prefix(entry: CatalogEntry, zip_key: str) -> str:
     return f"{EXTRACT_PREFIX}/zip_date={entry.zip_date.isoformat()}/{stem}"
 
 
-def extract_entry(ctx: Context, entry: CatalogEntry, zip_key: str, zip_sha256: str) -> ExtractResult:
+def extract_entry(
+    ctx: Context, entry: CatalogEntry, zip_key: str, zip_sha256: str
+) -> ExtractResult:
     store, limits = ctx.object_store, ctx.cfg.security.zip
-    done = [r for r in ctx.metadata.read("extracted_files", {"entry_id": entry.entry_id})
-            if r["zip_sha256"] == zip_sha256]
+    done = [
+        r
+        for r in ctx.metadata.read("extracted_files", {"entry_id": entry.entry_id})
+        if r["zip_sha256"] == zip_sha256
+    ]
     if done and all(store.exists(r["object_key"]) for r in done):
         log.info("extract %s: already extracted (%d files)", entry.zip_name, len(done))
         return ExtractResult(entry.entry_id, 0, len(done), True)
@@ -75,14 +80,24 @@ def extract_entry(ctx: Context, entry: CatalogEntry, zip_key: str, zip_sha256: s
                         try:
                             store.put_stream(key, iter(lambda: src.read(CHUNK), b""))
                         except ObjectExistsError:
-                            raise RuntimeError(f"extracted object {key} exists with a different size") from None
+                            raise RuntimeError(
+                                f"extracted object {key} exists with a different size"
+                            ) from None
                     store.make_immutable(key)
                     n_new += 1
-                rows.append({
-                    "entry_id": entry.entry_id, "member_path": m.path, "zip_sha256": zip_sha256,
-                    "table_name": table, "object_key": key, "size_bytes": m.size, "crc32": m.crc32,
-                    "run_id": ctx.run_id, "extracted_at": utc_now(),
-                })
+                rows.append(
+                    {
+                        "entry_id": entry.entry_id,
+                        "member_path": m.path,
+                        "zip_sha256": zip_sha256,
+                        "table_name": table,
+                        "object_key": key,
+                        "size_bytes": m.size,
+                        "crc32": m.crc32,
+                        "run_id": ctx.run_id,
+                        "extracted_at": utc_now(),
+                    }
+                )
     ctx.metadata.upsert("extracted_files", rows)
     log.info("extract %s: %d files written, %d already present", entry.zip_name, n_new, n_existing)
     return ExtractResult(entry.entry_id, n_new, n_existing, False)

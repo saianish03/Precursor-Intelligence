@@ -6,12 +6,12 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from ..ingestion.http import SafeHttpClient
-from .config import Settings
-from .io.metadata_store import MetadataStore
-from .io.object_store import ObjectStore
-from .io.registry import build_metadata_store, build_object_store, build_table_sink
-from .io.table_sink import TableSink
+from ..common.config import Settings, SourcesConfig
+from ..common.io.metadata_store import MetadataStore
+from ..common.io.object_store import ObjectStore
+from ..common.io.registry import build_metadata_store, build_object_store, build_table_sink
+from ..common.io.table_sink import TableSink
+from .http import SafeHttpClient
 
 
 def utc_now() -> str:
@@ -33,11 +33,13 @@ class Context:
     started_at: str = field(default_factory=utc_now)
 
     @property
-    def cfg(self):
+    def cfg(self) -> SourcesConfig:
         return self.settings.sources
 
 
-def build_context(settings: Settings, *, run_id: str | None = None, http: SafeHttpClient | None = None) -> Context:
+def build_context(
+    settings: Settings, *, run_id: str | None = None, http: SafeHttpClient | None = None
+) -> Context:
     store = build_object_store(settings)
     meta = build_metadata_store(settings)
     meta.ensure_schema()

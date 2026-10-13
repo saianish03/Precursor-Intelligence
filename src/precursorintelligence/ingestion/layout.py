@@ -13,14 +13,20 @@ import hashlib
 import io
 import json
 import re
+from collections.abc import Iterator
 from datetime import date, datetime
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from ..common.config import TableSpec
 
 OTHER = "other"
-_MONTHS = {m: i for i, m in enumerate(
-    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], start=1)}
+_MONTHS = {
+    m: i
+    for i, m in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"],
+        start=1,
+    )
+}
 _TOKEN = re.compile(r"_([A-Za-z]{3})(\d{4})\.[A-Za-z]+$")
 _L3_PREFIX = re.compile(r"^[a-z0-9]{4}-[a-z0-9]{4}_\d{4}-\d{2}-\d{2}_")
 _DATE_FORMATS = ("%Y-%m-%d", "%m/%d/%Y", "%Y%m%d", "%m/%d/%y", "%Y/%m/%d")
@@ -28,7 +34,9 @@ _DATE_FORMATS = ("%Y-%m-%d", "%m/%d/%Y", "%Y%m%d", "%m/%d/%y", "%Y/%m/%d")
 
 class TableClassifier:
     def __init__(self, tables: dict[str, TableSpec]) -> None:
-        self._rules = [(name, [re.compile(p) for p in spec.patterns]) for name, spec in tables.items()]
+        self._rules = [
+            (name, [re.compile(p) for p in spec.patterns]) for name, spec in tables.items()
+        ]
 
     def classify(self, file_name: str) -> str:
         for name, patterns in self._rules:
@@ -74,7 +82,9 @@ def header_hash(cols: list[str]) -> str:
     return hashlib.sha256("\x1f".join(cols).encode("utf-8")).hexdigest()[:16]
 
 
-def read_header_and_first_row(f: BinaryIO, max_bytes: int = 4 * 1024 * 1024) -> tuple[list[str], list[str] | None]:
+def read_header_and_first_row(
+    f: BinaryIO, max_bytes: int = 4 * 1024 * 1024
+) -> tuple[list[str], list[str] | None]:
     """Read only the beginning of a CSV (never the whole file)."""
     text = io.TextIOWrapper(f, encoding="utf-8-sig", errors="replace", newline="")
     reader = csv.reader(_bounded_lines(text, max_bytes))
@@ -84,7 +94,7 @@ def read_header_and_first_row(f: BinaryIO, max_bytes: int = 4 * 1024 * 1024) -> 
     return normalize_header(header), next(reader, None)
 
 
-def _bounded_lines(text: io.TextIOBase, max_bytes: int):
+def _bounded_lines(text: io.TextIOBase, max_bytes: int) -> Iterator[str]:
     read = 0
     for line in text:
         read += len(line)
@@ -110,7 +120,7 @@ def manifest_filenames(raw: bytes) -> set[str]:
         return set()
     names: set[str] = set()
 
-    def walk(x):
+    def walk(x: Any) -> None:
         if isinstance(x, dict):
             for k, v in x.items():
                 if k == "filename" and isinstance(v, str):
@@ -120,5 +130,6 @@ def manifest_filenames(raw: bytes) -> set[str]:
         elif isinstance(x, list):
             for v in x:
                 walk(v)
+
     walk(data)
     return names

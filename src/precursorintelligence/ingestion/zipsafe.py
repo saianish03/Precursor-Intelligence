@@ -3,7 +3,8 @@
 ``inspect_archive`` validates the whole central directory before anything is extracted:
   * every member name is safe (no absolute paths, drive letters, '..', backslashes, NUL bytes);
   * no symlink members;
-  * member count, total uncompressed size and per-member compression ratio are within limits (zip bombs);
+  * member count (real members), total uncompressed size and per-member compression ratio (all members,
+    junk included) are within limits (zip bombs);
   * nested zips are rejected unless nesting is enabled;
   * ``verify_crc`` re-reads every member and checks its CRC-32.
 Junk entries created by macOS (``__MACOSX/``, ``.DS_Store``) are recognised and skipped.
@@ -26,8 +27,8 @@ class UnsafeArchiveError(RuntimeError):
 
 @dataclass(frozen=True)
 class MemberInfo:
-    path: str            # name inside the archive (normalised to '/')
-    file_name: str       # base name
+    path: str  # name inside the archive (normalised to '/')
+    file_name: str  # base name
     size: int
     compressed_size: int
     crc32: str
@@ -38,7 +39,12 @@ class MemberInfo:
 
 def is_junk(path: str) -> bool:
     base = posixpath.basename(path.rstrip("/"))
-    return path.startswith("__MACOSX/") or "/__MACOSX/" in path or base == ".DS_Store" or base.startswith("._")
+    return (
+        path.startswith("__MACOSX/")
+        or "/__MACOSX/" in path
+        or base == ".DS_Store"
+        or base.startswith("._")
+    )
 
 
 def _check_name(name: str) -> str:
@@ -73,24 +79,36 @@ def inspect_archive(fileobj: BinaryIO, limits: ZipLimits) -> list[MemberInfo]:
                 raise UnsafeArchiveError(f"symlink member not allowed: {path}")
             junk = is_junk(path)
             ext = posixpath.splitext(path)[1].lower()
-            if not junk:
-                if ext == ".zip" and limits.max_nested_depth < 1:
-                    raise UnsafeArchiveError(f"nested zip not allowed (max_nested_depth=0): {path}")
-                if zi.file_size >= limits.ratio_check_min_bytes and zi.compress_size > 0:
-                    ratio = zi.file_size / zi.compress_size
-                    if ratio > limits.max_compression_ratio:
-                        raise UnsafeArchiveError(f"compression ratio {ratio:.0f}x exceeds limit for {path}")
-                total += zi.file_size
-            members.append(MemberInfo(
-                path=path, file_name=posixpath.basename(path), size=zi.file_size,
-                compressed_size=zi.compress_size, crc32=f"{zi.CRC:08x}", compress_type=zi.compress_type,
-                is_junk=junk, extension=ext,
-            ))
+            if not junk and ext == ".zip" and limits.max_nested_depth < 1:
+                raise UnsafeArchiveError(f"nested zip not allowed (max_nested_depth=0): {path}")
+            # Size and ratio caps apply to junk-named members too: they are never extracted, but
+            # verify_crc still decompresses them, so a bomb named __MACOSX/._x must not slip through.
+            if zi.file_size >= limits.ratio_check_min_bytes and zi.compress_size > 0:
+                ratio = zi.file_size / zi.compress_size
+                if ratio > limits.max_compression_ratio:
+                    raise UnsafeArchiveError(
+                        f"compression ratio {ratio:.0f}x exceeds limit for {path}"
+                    )
+            total += zi.file_size
+            members.append(
+                MemberInfo(
+                    path=path,
+                    file_name=posixpath.basename(path),
+                    size=zi.file_size,
+                    compressed_size=zi.compress_size,
+                    crc32=f"{zi.CRC:08x}",
+                    compress_type=zi.compress_type,
+                    is_junk=junk,
+                    extension=ext,
+                )
+            )
     real = [m for m in members if not m.is_junk]
     if len(real) > limits.max_members:
         raise UnsafeArchiveError(f"{len(real)} members exceeds limit {limits.max_members}")
     if total > limits.max_total_uncompressed_bytes:
-        raise UnsafeArchiveError(f"total uncompressed size {total} exceeds limit {limits.max_total_uncompressed_bytes}")
+        raise UnsafeArchiveError(
+            f"total uncompressed size {total} exceeds limit {limits.max_total_uncompressed_bytes}"
+        )
     return members
 
 

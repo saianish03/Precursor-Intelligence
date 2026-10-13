@@ -17,7 +17,7 @@ def _sources() -> dict:
 
 
 def test_repo_configs_load_for_every_env(monkeypatch):
-    monkeypatch.setenv("SH_DATABASE_URL", "postgresql+psycopg://u@h/db")
+    monkeypatch.setenv("PI_DATABASE_URL", "postgresql+psycopg://u@h/db")
     for env in ("dev", "prod"):
         s = load_settings(env)
         assert s.sources.security.verify_tls is True
@@ -46,12 +46,33 @@ def test_unanchored_allow_list_is_rejected(tmp_path):
 
 
 def test_env_placeholders(tmp_path, monkeypatch):
-    env = {"env": "x", "object_store": {"kind": "s3", "root": "${SH_TEST_BUCKET}"},
-           "metadata_store": {"url": "${SH_TEST_DB:-sqlite:///:memory:}"}}
+    env = {
+        "env": "x",
+        "object_store": {"kind": "gcs", "root": "${PI_TEST_BUCKET}"},
+        "metadata_store": {"url": "${PI_TEST_DB:-sqlite:///:memory:}"},
+    }
     path = _write(tmp_path, "e.yaml", env)
-    with pytest.raises(ConfigError, match="SH_TEST_BUCKET"):
+    with pytest.raises(ConfigError, match="PI_TEST_BUCKET"):
         load_settings(env_path=path)
-    monkeypatch.setenv("SH_TEST_BUCKET", "s3://bucket")
+    monkeypatch.setenv("PI_TEST_BUCKET", "gs://bucket")
     s = load_settings(env_path=path)
-    assert s.env.object_store.root == "s3://bucket"
+    assert s.env.object_store.root == "gs://bucket"
     assert s.env.metadata_store.url == "sqlite:///:memory:"
+
+
+def test_project_root_override(tmp_path, monkeypatch):
+    (tmp_path / "configs" / "ingestion").mkdir(parents=True)
+    (tmp_path / "configs" / "ingestion" / "sources.yaml").write_text(yaml.safe_dump(_sources()))
+    (tmp_path / "configs" / "dev.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "env": "dev",
+                "object_store": {"kind": "local", "root": "./data"},
+                "metadata_store": {"url": "sqlite:///./data/ops/metadata.db"},
+            }
+        )
+    )
+    monkeypatch.setenv("PI_PROJECT_ROOT", str(tmp_path))
+    s = load_settings("dev")
+    assert s.module_root == tmp_path.resolve()
+    assert s.env.object_store.root == str((tmp_path / "data").resolve())

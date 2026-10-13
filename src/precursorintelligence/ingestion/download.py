@@ -20,10 +20,11 @@ import posixpath
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass, field
+from typing import Any
 
-from ..common.context import Context, utc_now
 from ..common.io.object_store import sha256_of
 from ..common.obs.logging import log_context
+from .context import Context, utc_now
 from .http import DownloadValidationError, UnsafeUrlError
 from .sources.base import CatalogEntry
 from .zipsafe import UnsafeArchiveError, inspect_archive, verify_crc
@@ -51,27 +52,41 @@ class DownloadResult:
     http_content_type: str | None = None
     detail: str = ""
     url: str | None = None
-    extra: dict = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict[str, Any])
 
     @property
     def ok(self) -> bool:
         return self.status in SUCCESS
 
-    def log_row(self, ctx: Context) -> dict:
+    def log_row(self, ctx: Context) -> dict[str, Any]:
         e = self.entry
         return {
-            "run_id": ctx.run_id, "entry_id": e.entry_id, "zip_name": e.zip_name, "zip_date": e.zip_date.isoformat(),
-            "type": e.type, "url": self.url, "catalog_size": e.size_bytes, "expected_size": self.expected_size,
-            "actual_size": self.actual_size, "sha256": self.sha256, "http_last_modified": self.http_last_modified,
-            "http_content_type": self.http_content_type, "object_key": self.object_key,
+            "run_id": ctx.run_id,
+            "entry_id": e.entry_id,
+            "zip_name": e.zip_name,
+            "zip_date": e.zip_date.isoformat(),
+            "type": e.type,
+            "url": self.url,
+            "catalog_size": e.size_bytes,
+            "expected_size": self.expected_size,
+            "actual_size": self.actual_size,
+            "sha256": self.sha256,
+            "http_last_modified": self.http_last_modified,
+            "http_content_type": self.http_content_type,
+            "object_key": self.object_key,
             "object_uri": ctx.object_store.uri_for(self.object_key) if self.object_key else None,
-            "status": self.status, "detail": self.detail, "logged_at": utc_now(),
+            "status": self.status,
+            "detail": self.detail,
+            "logged_at": utc_now(),
         }
 
 
-def last_good_download(ctx: Context, entry_id: str) -> dict | None:
-    rows = [r for r in ctx.metadata.read("download_log", {"entry_id": entry_id})
-            if r["status"] in SUCCESS and r.get("sha256")]
+def last_good_download(ctx: Context, entry_id: str) -> dict[str, Any] | None:
+    rows = [
+        r
+        for r in ctx.metadata.read("download_log", {"entry_id": entry_id})
+        if r["status"] in SUCCESS and r.get("sha256")
+    ]
     return max(rows, key=lambda r: r["id"]) if rows else None
 
 
@@ -83,7 +98,9 @@ def _validate_archive(ctx: Context, key: str) -> None:
         verify_crc(f)
 
 
-def download_entry(ctx: Context, entry: CatalogEntry, prior: dict | None) -> DownloadResult:
+def download_entry(
+    ctx: Context, entry: CatalogEntry, prior: dict[str, Any] | None
+) -> DownloadResult:
     store = ctx.object_store
     res = DownloadResult(entry=entry, status="failed")
     try:
@@ -96,17 +113,32 @@ def download_entry(ctx: Context, entry: CatalogEntry, prior: dict | None) -> Dow
     final = landing_key(entry)
     try:
         head = ctx.http.head(url)
-        res.expected_size, res.http_last_modified, res.http_content_type = head.size, head.last_modified, head.content_type
+        res.expected_size, res.http_last_modified, res.http_content_type = (
+            head.size,
+            head.last_modified,
+            head.content_type,
+        )
         if head.status != 200 or head.size is None:
             raise DownloadValidationError(f"HEAD returned HTTP {head.status} / size {head.size}")
         if head.size != entry.size_bytes:
-            log.warning("HEAD size %d differs from catalog size %d for %s; trusting the server",
-                        head.size, entry.size_bytes, entry.zip_name)
+            log.warning(
+                "HEAD size %d differs from catalog size %d for %s; trusting the server",
+                head.size,
+                entry.size_bytes,
+                entry.zip_name,
+            )
 
-        if store.exists(final) and prior and prior["actual_size"] == head.size \
-                and prior["http_last_modified"] == head.last_modified:
+        if (
+            store.exists(final)
+            and prior
+            and prior["actual_size"] == head.size
+            and prior["http_last_modified"] == head.last_modified
+        ):
             res.status, res.object_key, res.sha256 = "skipped", prior["object_key"], prior["sha256"]
-            res.actual_size, res.detail = prior["actual_size"], "unchanged since last download (size + Last-Modified)"
+            res.actual_size, res.detail = (
+                prior["actual_size"],
+                "unchanged since last download (size + Last-Modified)",
+            )
             log.info("skip %s: already stored and unchanged", entry.zip_name)
             return res
 
@@ -114,7 +146,8 @@ def download_entry(ctx: Context, entry: CatalogEntry, prior: dict | None) -> Dow
             # A zip placed manually (e.g. copied from a teammate) is adopted only after full validation.
             _validate_archive(ctx, final)
             res.status, res.object_key, res.sha256 = "adopted", final, sha256_of(store, final)
-            res.actual_size = store.stat(final).size
+            info = store.stat(final)
+            res.actual_size = info.size if info else None
             res.detail = "pre-existing object validated and adopted"
             log.info("adopted pre-existing %s (sha256 %s)", entry.zip_name, res.sha256[:12])
             return res
@@ -126,30 +159,57 @@ def download_entry(ctx: Context, entry: CatalogEntry, prior: dict | None) -> Dow
         try:
             _validate_archive(ctx, qkey)
         except UnsafeArchiveError as exc:
-            res.status, res.detail, res.object_key = "quarantined", f"archive validation failed: {exc}", qkey
+            res.status, res.detail, res.object_key = (
+                "quarantined",
+                f"archive validation failed: {exc}",
+                qkey,
+            )
             log.error("quarantined %s: %s", entry.zip_name, exc)
             return res
 
         if store.exists(final):
-            old_sha = (prior or {}).get("sha256") or sha256_of(store, final)
-            if old_sha == put.sha256:
+            # The last good row may point at a republished copy (<stem>__<sha8>.zip), not at `final`,
+            # so record the object whose bytes actually match the new download.
+            prior_key = (prior or {}).get("object_key")
+            if (
+                prior
+                and prior.get("sha256") == put.sha256
+                and prior_key
+                and store.exists(prior_key)
+            ):
+                same_key: str | None = prior_key
+            else:
+                same_key = final if sha256_of(store, final) == put.sha256 else None
+            if same_key is not None:
                 store.remove(qkey)
-                res.status, res.object_key = "unchanged", final
+                res.status, res.object_key = "unchanged", same_key
                 res.detail = "re-downloaded after header change; content identical"
-                log.info("%s re-checked: identical content (sha256 %s)", entry.zip_name, put.sha256[:12])
+                log.info(
+                    "%s re-checked: identical content (sha256 %s)", entry.zip_name, put.sha256[:12]
+                )
                 return res
+            old_sha = (prior or {}).get("sha256") or sha256_of(store, final)
             stem, ext = posixpath.splitext(entry.zip_name)
             alt = landing_key(entry, f"{stem}__{put.sha256[:8]}{ext}")
             if store.exists(alt):
                 store.remove(qkey)
-                res.status, res.object_key, res.detail = "unchanged", alt, "republished version already stored"
+                res.status, res.object_key, res.detail = (
+                    "unchanged",
+                    alt,
+                    "republished version already stored",
+                )
                 return res
             store.move(qkey, alt)
             store.make_immutable(alt)
             res.status, res.object_key = "republished", alt
             res.detail = f"CMS re-published this zip: sha256 {old_sha[:12]} -> {put.sha256[:12]}; original kept"
-            log.warning("%s was re-published by CMS (sha256 %s -> %s); stored side by side as %s",
-                        entry.zip_name, old_sha[:12], put.sha256[:12], posixpath.basename(alt))
+            log.warning(
+                "%s was re-published by CMS (sha256 %s -> %s); stored side by side as %s",
+                entry.zip_name,
+                old_sha[:12],
+                put.sha256[:12],
+                posixpath.basename(alt),
+            )
             return res
 
         store.move(qkey, final)
@@ -181,7 +241,9 @@ def run_download(ctx: Context, entries: list[CatalogEntry]) -> list[DownloadResu
             r = fut.result()
             ctx.metadata.append("download_log", [r.log_row(ctx)])
             results.append(r)
-    ctx.object_store.prune_empty(QUARANTINE_PREFIX)  # removes empty folders only; quarantined files stay
+    ctx.object_store.prune_empty(
+        QUARANTINE_PREFIX
+    )  # removes empty folders only; quarantined files stay
     counts: dict[str, int] = {}
     for r in results:
         counts[r.status] = counts.get(r.status, 0) + 1

@@ -1,5 +1,5 @@
 # What to download and the rules the download must obey.
-# Backend choice (where things are stored) lives in configs/env/<env>.yaml, not here.
+# Backend choice (where things are stored) lives in configs/<env>.yaml, not here.
 
 source:
   name: cms_pdc_nursing_homes

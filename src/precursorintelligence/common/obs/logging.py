@@ -28,10 +28,15 @@ import yaml
 
 CONTEXT_FIELDS = ("run_id", "env", "task", "entry_id", "zip_name")
 _EMPTY: Mapping[str, str] = MappingProxyType({})
-_log_ctx: contextvars.ContextVar[Mapping[str, str]] = contextvars.ContextVar("precursorintelligence_log_ctx", default=_EMPTY)
+_log_ctx: contextvars.ContextVar[Mapping[str, str]] = contextvars.ContextVar(
+    "precursorintelligence_log_ctx", default=_EMPTY
+)
 
 # Attributes every LogRecord has; anything else on a record came from `extra=` and is emitted in JSON.
-_STANDARD_ATTRS = set(vars(logging.LogRecord("x", 0, "x", 0, "x", None, None))) | {"message", "asctime"}
+_STANDARD_ATTRS = set(vars(logging.LogRecord("x", 0, "x", 0, "x", None, None))) | {
+    "message",
+    "asctime",
+}
 
 
 @contextmanager
@@ -64,14 +69,28 @@ _REDACTIONS: list[tuple[re.Pattern[str], str]] = [
     # credentials embedded in URLs: https://user:pass@host
     (re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@"), r"\1***:***@"),
     # signed-URL query parameters (S3 / GCS / generic)
-    (re.compile(r"(?i)((?:x-amz-signature|x-amz-credential|x-amz-security-token|x-goog-signature|"
-                r"x-goog-credential|signature|sig|token|access_token)=)[^&\s\"']+"), r"\1***"),
+    (
+        re.compile(
+            r"(?i)((?:x-amz-signature|x-amz-credential|x-amz-security-token|x-goog-signature|"
+            r"x-goog-credential|signature|sig|token|access_token)=)[^&\s\"']+"
+        ),
+        r"\1***",
+    ),
     # Authorization headers, including the scheme word (Bearer/Basic/Token <credential>)
-    (re.compile(r"(?i)\b(authorization|proxy-authorization)(\s*[:=]\s*)(?:(?:bearer|basic|token|digest)\s+)?[^\s,]+"),
-     r"\1\2***"),
+    (
+        re.compile(
+            r"(?i)\b(authorization|proxy-authorization)(\s*[:=]\s*)(?:(?:bearer|basic|token|digest)\s+)?[^\s,]+"
+        ),
+        r"\1\2***",
+    ),
     # header / key-value style secrets
-    (re.compile(r"(?i)\b(api[_-]?key|secret|password|passwd|[a-z_]*token|[a-z_]*_key)"
-                r"(\s*[:=]\s*)(\"?)[^\s,\"'&]+"), r"\1\2\3***"),
+    (
+        re.compile(
+            r"(?i)\b(api[_-]?key|secret|password|passwd|[a-z_]*token|[a-z_]*_key)"
+            r"(\s*[:=]\s*)(\"?)[^\s,\"'&]+"
+        ),
+        r"\1\2\3***",
+    ),
 ]
 
 
@@ -108,7 +127,9 @@ class JsonFormatter(logging.Formatter):
         }
         for key, value in vars(record).items():
             if key not in _STANDARD_ATTRS and not key.startswith("_"):
-                payload[key] = value if isinstance(value, (str, int, float, bool, type(None))) else str(value)
+                payload[key] = (
+                    value if isinstance(value, (str, int, float, bool, type(None))) else str(value)
+                )
         if record.exc_info:
             payload["exc"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False, default=str)
@@ -136,6 +157,8 @@ def setup_logging(
         for name in ("console",):
             if name in handlers:
                 handlers[name]["level"] = level.upper()
-        cfg.setdefault("loggers", {}).setdefault("precursorintelligence", {})["level"] = level.upper()
+        cfg.setdefault("loggers", {}).setdefault("precursorintelligence", {})["level"] = (
+            level.upper()
+        )
     logging.config.dictConfig(cfg)
     return log_file

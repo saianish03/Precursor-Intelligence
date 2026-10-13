@@ -1,4 +1,4 @@
-"""Adapter registry: maps the ``kind`` in configs/env/<env>.yaml to a concrete adapter.
+"""Adapter registry: maps the ``kind`` in configs/<env>.yaml to a concrete adapter.
 
 Adding a backend = write an adapter class that satisfies the port Protocol, then register it::
 
@@ -9,28 +9,31 @@ Adding a backend = write an adapter class that satisfies the port Protocol, then
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
 
 from ..config import ObjectStoreCfg, Settings, TableSinkCfg
 from .metadata_store import MetadataStore, SqlAlchemyMetadataStore
 from .object_store import FsspecObjectStore, LocalObjectStore, ObjectStore
 from .table_sink import DuckDBTableSink, ParquetTableSink, TableSink
 
-_OBJECT_STORES: dict[str, Callable[[ObjectStoreCfg, Settings], ObjectStore]] = {}
-_TABLE_SINKS: dict[str, Callable[[TableSinkCfg, Settings, ObjectStore], TableSink]] = {}
+ObjectStoreFactory = Callable[[ObjectStoreCfg, Settings], ObjectStore]
+TableSinkFactory = Callable[[TableSinkCfg, Settings, ObjectStore], TableSink]
+_OBJECT_STORES: dict[str, ObjectStoreFactory] = {}
+_TABLE_SINKS: dict[str, TableSinkFactory] = {}
 
 
-def register_object_store(kind: str) -> Callable[[Any], Any]:
-    def deco(factory):
+def register_object_store(kind: str) -> Callable[[ObjectStoreFactory], ObjectStoreFactory]:
+    def deco(factory: ObjectStoreFactory) -> ObjectStoreFactory:
         _OBJECT_STORES[kind] = factory
         return factory
+
     return deco
 
 
-def register_table_sink(kind: str) -> Callable[[Any], Any]:
-    def deco(factory):
+def register_table_sink(kind: str) -> Callable[[TableSinkFactory], TableSinkFactory]:
+    def deco(factory: TableSinkFactory) -> TableSinkFactory:
         _TABLE_SINKS[kind] = factory
         return factory
+
     return deco
 
 
@@ -53,7 +56,9 @@ def _parquet(cfg: TableSinkCfg, settings: Settings, store: ObjectStore) -> Table
 
 @register_table_sink("duckdb")
 def _duckdb(cfg: TableSinkCfg, settings: Settings, store: ObjectStore) -> TableSink:
-    return DuckDBTableSink(str(settings.resolve_path(cfg.options.get("path", "./data/warehouse.duckdb"))))
+    return DuckDBTableSink(
+        str(settings.resolve_path(cfg.options.get("path", "./data/warehouse.duckdb")))
+    )
 
 
 def build_object_store(settings: Settings) -> ObjectStore:
@@ -61,7 +66,9 @@ def build_object_store(settings: Settings) -> ObjectStore:
     try:
         return _OBJECT_STORES[cfg.kind](cfg, settings)
     except KeyError:
-        raise ValueError(f"unknown object_store.kind {cfg.kind!r}; registered: {sorted(_OBJECT_STORES)}") from None
+        raise ValueError(
+            f"unknown object_store.kind {cfg.kind!r}; registered: {sorted(_OBJECT_STORES)}"
+        ) from None
 
 
 def build_metadata_store(settings: Settings) -> MetadataStore:
@@ -73,4 +80,6 @@ def build_table_sink(settings: Settings, store: ObjectStore) -> TableSink:
     try:
         return _TABLE_SINKS[cfg.kind](cfg, settings, store)
     except KeyError:
-        raise ValueError(f"unknown table_sink.kind {cfg.kind!r}; registered: {sorted(_TABLE_SINKS)}") from None
+        raise ValueError(
+            f"unknown table_sink.kind {cfg.kind!r}; registered: {sorted(_TABLE_SINKS)}"
+        ) from None
