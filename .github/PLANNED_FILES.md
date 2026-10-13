@@ -7,7 +7,7 @@ Planned files (added by the owning teammate; empty workflow files are not commit
 | `CODEOWNERS` | review ownership per folder |
 | `pull_request_template.md` | PR checklist |
 | `ISSUE_TEMPLATE/{feature,bug,data_issue}.yml` | issue forms |
-| `workflows/ci.yml` | PRs: lint, type check, unit and contract tests |
+| `workflows/ci.yml` | ✅ added: PRs into dev/main run ruff + offline tests; `ci-ok` is the required check |
 | `workflows/integration.yml` | nightly / manual: real CMS + GCP sandbox |
 | `workflows/deploy-ingestion.yml` | main: build → Artifact Registry → Cloud Run job |
 | `workflows/deploy-backend.yml`, `deploy-frontend.yml` | main: build → Cloud Run services |

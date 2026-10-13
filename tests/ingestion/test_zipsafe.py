@@ -5,7 +5,12 @@ import zipfile
 import pytest
 
 from precursorintelligence.common.config import ZipLimits
-from precursorintelligence.ingestion.zipsafe import UnsafeArchiveError, inspect_archive, is_junk, verify_crc
+from precursorintelligence.ingestion.zipsafe import (
+    UnsafeArchiveError,
+    inspect_archive,
+    is_junk,
+    verify_crc,
+)
 
 
 def _zip(entries: dict[str, bytes], *, symlink: str | None = None) -> io.BytesIO:

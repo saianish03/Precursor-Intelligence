@@ -31,7 +31,7 @@ def _entries_from(payload: Any, *, endpoint: str, theme: str) -> list[CatalogEnt
         raise CatalogContractError(f"{endpoint}: expected an object with a 'data' list")
     out: list[CatalogEntry] = []
     for i, item in enumerate(payload["data"]):
-        if not isinstance(item, dict) or not REQUIRED_KEYS <= item.keys():
+        if not isinstance(item, dict) or not item.keys() >= REQUIRED_KEYS:
             raise CatalogContractError(f"{endpoint}: item {i} is missing keys {REQUIRED_KEYS - set(item)}")
         if item.get("theme") not in (theme, None):
             continue

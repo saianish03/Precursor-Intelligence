@@ -4,8 +4,8 @@ import uuid
 from pathlib import Path
 
 import pytest
-
 from cms_fakes import FakeCMS, make_settings
+
 from precursorintelligence.common.context import build_context
 from precursorintelligence.ingestion.http import SafeHttpClient
 

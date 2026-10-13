@@ -24,7 +24,13 @@ from urllib.parse import urljoin, urlsplit
 
 import certifi
 import requests
-from tenacity import RetryCallState, Retrying, retry_if_exception, stop_after_attempt, wait_random_exponential
+from tenacity import (
+    RetryCallState,
+    Retrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_random_exponential,
+)
 
 from ..common.config import HttpCfg, SecurityCfg, SourceCfg
 

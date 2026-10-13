@@ -19,8 +19,8 @@ import typer
 
 from ..common.config import ConfigError, load_settings
 from ..common.context import build_context, new_run_id
-from .catalog import discover
 from ..common.obs.logging import setup_logging
+from .catalog import discover
 from .pipeline import STEPS, run_step1
 
 app = typer.Typer(add_completion=False, help="Precursor Intelligence data ingestion (Step 1: CMS archive download + inventory)")

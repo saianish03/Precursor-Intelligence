@@ -23,7 +23,7 @@ def test_archive_endpoint_shape(client):
     data = http.get_json(http.api_url(s.source.endpoints.archive.format(theme=s.source.theme_slug)))["data"]
     monthly = [d for d in data if d["type"] == "theme"]
     assert len(monthly) >= 89
-    assert all(REQUIRED_KEYS <= d.keys() for d in data)
+    assert all(d.keys() >= REQUIRED_KEYS for d in data)
     for d in monthly:
         http.download_url(d["url"])  # every advertised URL passes the allow-list
 

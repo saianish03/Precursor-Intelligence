@@ -102,7 +102,7 @@ def _header_sets(inv: list[dict]) -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = defaultdict(list)
     for (table, _), s in per.items():
         out[table].append(s)
-    for table, sets in out.items():
+    for sets in out.values():
         sets.sort(key=lambda s: min(s["vintages"]))
         prev = None
         for s in sets:

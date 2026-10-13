@@ -45,3 +45,7 @@ crash.log
 .idea/
 .vscode/
 ~$*
+
+# --- Claude Code (local agent settings, never shared) ---
+.claude/
+CLAUDE.local.md

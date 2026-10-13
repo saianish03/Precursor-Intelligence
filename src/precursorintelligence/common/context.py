@@ -6,8 +6,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from .config import Settings
 from ..ingestion.http import SafeHttpClient
+from .config import Settings
 from .io.metadata_store import MetadataStore
 from .io.object_store import ObjectStore
 from .io.registry import build_metadata_store, build_object_store, build_table_sink

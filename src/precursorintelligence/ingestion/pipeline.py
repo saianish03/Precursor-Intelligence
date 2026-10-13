@@ -17,13 +17,13 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from ..common.context import Context, utc_now
+from ..common.obs.logging import log_context
 from .catalog import discover, select
 from .download import run_download
 from .extract import extract_entry
 from .inventory import inventory_entry, iter_good_downloads
 from .report import report
 from .resolve import resolve
-from ..common.obs.logging import log_context
 
 log = logging.getLogger(__name__)
 

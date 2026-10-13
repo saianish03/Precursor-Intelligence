@@ -94,7 +94,7 @@ def resolve(ctx: Context) -> ResolveOutput:
     for r in inv:
         by_entry[r["entry_id"]].append(r)
     real_counts: dict[str, list[int]] = defaultdict(list)
-    for eid, rows in by_entry.items():
+    for rows in by_entry.values():
         real_counts[rows[0]["layout"]].append(sum(r["table_name"] != JUNK for r in rows))
     for eid, rows in by_entry.items():
         cat = catalog.get(eid, {})

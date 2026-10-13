@@ -15,7 +15,13 @@ from pathlib import Path
 
 from requests.structures import CaseInsensitiveDict
 
-from precursorintelligence.common.config import MODULE_ROOT, EnvConfig, Settings, SourcesConfig, _read_yaml
+from precursorintelligence.common.config import (
+    MODULE_ROOT,
+    EnvConfig,
+    Settings,
+    SourcesConfig,
+    _read_yaml,
+)
 
 BASE = "https://data.cms.gov"
 API = BASE + "/provider-data/api/1"

@@ -2,7 +2,11 @@ import pytest
 import requests
 from cms_fakes import ARCH, BASE, FakeCMS, FakeResponse, make_settings, make_zip
 
-from precursorintelligence.ingestion.http import DownloadValidationError, SafeHttpClient, UnsafeUrlError
+from precursorintelligence.ingestion.http import (
+    DownloadValidationError,
+    SafeHttpClient,
+    UnsafeUrlError,
+)
 
 
 @pytest.fixture
