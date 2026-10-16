@@ -5,7 +5,10 @@ env: prod
 object_store:
   kind: gcs
   root: ${PI_BUCKET_URI:-gs://precursorintelligence-bronze}
-  immutable: bucket_retention_policy       # enforced by bucket policy (see docs §9)
+  # No bucket retention policy: this one root also holds layers that are rewritten (bronze reloads,
+  # gold promotion, reports) and quarantine files that are deleted. Landing is protected by the code's
+  # never-overwrite rule plus bucket object versioning (spec §0.6; decided 2026-10-16).
+  immutable: object_versioning
 metadata_store:
   url: ${PI_DATABASE_URL}
 table_sink:
@@ -15,3 +18,5 @@ logging:
   config: configs/logging.yaml
   log_dir: /tmp/precursorintelligence-logs
   console_format: json                     # stdout JSON -> Cloud Logging
+run_lock:
+  stale_after_hours: 12                    # a lock older than this was left by a killed run

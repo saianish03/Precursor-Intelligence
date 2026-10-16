@@ -90,6 +90,27 @@ def last_good_download(ctx: Context, entry_id: str) -> dict[str, Any] | None:
     return max(rows, key=lambda r: r["id"]) if rows else None
 
 
+def download_backlog(ctx: Context, entries: list[CatalogEntry]) -> list[CatalogEntry]:
+    """Entries whose advertised version is not stored yet (read-only; for ``check_release``).
+
+    An entry is in the backlog when it has no successful download, or when the catalog now advertises a
+    different size than the one its last good download saw (a re-publication). ``discover`` stores the
+    new catalog before the downloads run, so comparing against ``download_log`` instead of ``catalog``
+    keeps a failed or quarantined download visible until it succeeds.
+    """
+    good: dict[str, dict[str, Any]] = {}
+    for r in ctx.metadata.read("download_log"):  # read once (D7)
+        if r["status"] in SUCCESS and r.get("sha256"):
+            prev = good.get(r["entry_id"])
+            if prev is None or r["id"] > prev["id"]:
+                good[r["entry_id"]] = r
+    return [
+        e
+        for e in entries
+        if (g := good.get(e.entry_id)) is None or g.get("catalog_size") != e.size_bytes
+    ]
+
+
 def _validate_archive(ctx: Context, key: str) -> None:
     limits = ctx.cfg.security.zip
     with ctx.object_store.open_read(key) as f:

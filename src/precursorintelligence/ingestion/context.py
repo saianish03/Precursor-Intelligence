@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -18,8 +19,26 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def utc_stamp() -> str:
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
 def new_run_id() -> str:
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:6]
+    return utc_stamp() + "-" + uuid.uuid4().hex[:6]
+
+
+# Safe in object keys and log fields, and fits the run_id columns (64). Accepts our own ids and Airflow's
+# {{ run_id }}, e.g. scheduled__2026-10-13T00:00:00+00:00.
+RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:+-]{0,63}")
+
+
+def validate_run_id(run_id: str) -> str:
+    if not RUN_ID_PATTERN.fullmatch(run_id):
+        raise ValueError(
+            f"invalid run id {run_id!r}: 1-64 characters from A-Z a-z 0-9 _ . : + -, "
+            "starting with a letter or digit"
+        )
+    return run_id
 
 
 @dataclass
@@ -50,5 +69,5 @@ def build_context(
         metadata=meta,
         table_sink=build_table_sink(settings, store),
         http=http or SafeHttpClient(s.source, s.http, s.security),
-        run_id=run_id or new_run_id(),
+        run_id=validate_run_id(run_id) if run_id else new_run_id(),
     )

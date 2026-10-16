@@ -100,6 +100,12 @@ def test_republished_zip_is_kept_side_by_side(fake_cms, make_ctx, tmp_path):
     assert res.downloads == {"republished": 1}
     keys = ctx.object_store.list("landing/cms_nh/zips")
     assert len(keys) == 2 and any("__" in k for k in keys)  # original + <stem>__<sha8>.zip
+    new_sha = sha256_of(ctx.object_store, next(k for k in keys if "__" in k))
+    selected = ctx.metadata.read("inventory", {"status": "selected"})
+    assert len(selected) == 7, "the republished copy is what downstream loads"
+    assert {(r["zip_name"], r["zip_sha256"]) for r in selected} == {
+        (f"nursing-homes_2021-01-27__{new_sha[:8]}.zip", new_sha)
+    }
 
 
 def _republish_once(fake_cms, ctx):

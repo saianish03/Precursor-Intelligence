@@ -1,7 +1,11 @@
 # docs/
 
-| Folder | Contents |
+| File / folder | Contents |
 |---|---|
+| `DATA_PIPELINE_SPEC.md` | **The single reference for building the data pipeline**: the 5 DAG nodes (`check_release → ingestion → bronze → silver → gold`), every step's rules, checks and decisions |
+| `STEP1_DATA_INGESTION_PIPELINE.md` | Step 1 (ingestion node) technical design and results |
+| `STEP1_TODO.md` | Step 1 backlog |
+| `STEP2_HANDOFF.md` | Step 2 profiling facts and reference drafts (`data/step2_reference/`) |
 | `adr/` | architecture decision records (`0001-monorepo.md`, …) |
 | `data/` | data dictionary notes, footnote codes, schema-change log |
 | `runbooks/` | how to operate, backfill, recover, promote / roll back |

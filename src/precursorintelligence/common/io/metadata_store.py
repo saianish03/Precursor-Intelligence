@@ -14,19 +14,23 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from sqlalchemy import Integer, Table, and_, create_engine, delete, insert, select
+from sqlalchemy import Integer, Table, and_, create_engine, delete, insert, select, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 
 from .schemas import TABLES, metadata
 
 log = logging.getLogger(__name__)
 
+_SCHEMA_LOCK_KEY = 7_374_001  # arbitrary constant: Postgres advisory-lock id for schema creation
+
 
 @runtime_checkable
 class MetadataStore(Protocol):
     def ensure_schema(self) -> None: ...
     def append(self, table: str, rows: Iterable[Mapping[str, Any]]) -> int: ...
+    def insert_if_absent(self, table: str, row: Mapping[str, Any]) -> bool: ...
     def upsert(self, table: str, rows: Iterable[Mapping[str, Any]]) -> int: ...
     def read(self, table: str, where: Mapping[str, Any] | None = None) -> list[dict[str, Any]]: ...
     def delete_where(self, table: str, where: Mapping[str, Any]) -> int: ...
@@ -38,7 +42,8 @@ class SqlAlchemyMetadataStore:
     def __init__(self, url: str) -> None:
         kwargs: dict[str, Any] = {"future": True}
         if url.startswith("sqlite"):
-            kwargs["connect_args"] = {"check_same_thread": False}
+            # timeout: wait for another process's write instead of failing with "database is locked"
+            kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
             if ":memory:" in url:
                 kwargs["poolclass"] = StaticPool
             else:
@@ -52,8 +57,12 @@ class SqlAlchemyMetadataStore:
         return self.engine.url.render_as_string(hide_password=True)
 
     def ensure_schema(self) -> None:
-        with self._lock:
-            metadata.create_all(self.engine)
+        with self._lock, self.engine.begin() as conn:
+            if conn.dialect.name == "postgresql":
+                # Parallel DAG tasks start at the same moment; without this, two concurrent CREATE TABLEs
+                # on a fresh database fail with a duplicate pg_type key. Released at commit.
+                conn.execute(text("select pg_advisory_xact_lock(:key)"), {"key": _SCHEMA_LOCK_KEY})
+            metadata.create_all(conn)
 
     def _table(self, name: str) -> Table:
         try:
@@ -77,6 +86,16 @@ class SqlAlchemyMetadataStore:
         with self._lock, self.engine.begin() as conn:
             conn.execute(insert(t), data)
         return len(data)
+
+    def insert_if_absent(self, table: str, row: Mapping[str, Any]) -> bool:
+        """Insert one row unless its primary key exists. Atomic across processes (used by the run lock)."""
+        t = self._table(table)
+        try:
+            with self._lock, self.engine.begin() as conn:
+                conn.execute(insert(t), self._clean(t, [row]))
+        except IntegrityError:
+            return False
+        return True
 
     def upsert(self, table: str, rows: Iterable[Mapping[str, Any]]) -> int:
         """Replace rows that share the primary key (portable delete+insert in one transaction)."""

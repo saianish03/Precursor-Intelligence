@@ -1,8 +1,7 @@
 """TableSink port: where analytical tables (bronze/silver/gold) are written. Used from Step 2 onward.
 
-Defined now so Step 2 can plug in without touching Step 1. Adapters:
-  * ParquetTableSink - Hive-partitioned Parquet on any ObjectStore (local disk, GCS).
-  * DuckDBTableSink  - a local analytical database file (to be removed, decision D2).
+Defined now so Step 2 can plug in without touching Step 1. Adapter: ParquetTableSink, Hive-partitioned
+Parquet on any ObjectStore (local disk, GCS). Files stay files: no database sink (decision D2).
 """
 
 from __future__ import annotations
@@ -64,41 +63,3 @@ class ParquetTableSink:
                     pl.read_parquet(f).with_columns([pl.lit(v).alias(k) for k, v in p.items()])
                 )
         return pl.concat(frames, how="diagonal") if frames else pl.DataFrame()
-
-
-class DuckDBTableSink:
-    def __init__(self, path: str) -> None:
-        import duckdb
-
-        self.con = duckdb.connect(path)
-
-    def _count(self, sql: str, params: list[str]) -> int:
-        row = self.con.execute(sql, params).fetchone()
-        return int(row[0]) if row else 0
-
-    def write_partition(
-        self, table: str, partition: dict[str, str], df: pl.DataFrame, *, overwrite: bool = False
-    ) -> str:
-        df = df.with_columns([pl.lit(v).alias(k) for k, v in partition.items()])
-        self.con.register("_incoming", df.to_arrow())
-        exists = self._count(
-            "select count(*) from information_schema.tables where table_name = ?", [table]
-        )
-        if not exists:
-            self.con.execute(f'create table "{table}" as select * from _incoming limit 0')
-        cond = " and ".join(f'"{k}" = ?' for k in partition)
-        if self._count(f'select count(*) from "{table}" where {cond}', list(partition.values())):
-            if not overwrite:
-                raise FileExistsError(f"partition {partition} of {table} already exists")
-            self.con.execute(f'delete from "{table}" where {cond}', list(partition.values()))
-        self.con.execute(f'insert into "{table}" by name select * from _incoming')
-        self.con.unregister("_incoming")
-        return f"duckdb:{table}/{_partition_path(partition)}"
-
-    def list_partitions(
-        self, table: str
-    ) -> list[dict[str, str]]:  # pragma: no cover - thin wrapper
-        raise NotImplementedError("query the DuckDB table directly")
-
-    def read(self, table: str, partition: dict[str, str] | None = None) -> pl.DataFrame:
-        return self.con.execute(f'select * from "{table}"').pl()

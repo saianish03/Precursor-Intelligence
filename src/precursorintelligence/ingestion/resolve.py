@@ -24,6 +24,13 @@ log = logging.getLogger(__name__)
 TYPE_RANK = {"theme": 2, "current": 1, "annual_theme": 0}
 
 
+def selection_key(r: dict[str, Any]) -> tuple[str, int, str, str]:
+    """Rank the files of one (table, month); the highest wins. Later zip date first, archive beats
+    current on the same date; zip name and member path only make ties deterministic (the metadata
+    store returns rows in no guaranteed order)."""
+    return (r["zip_date"], TYPE_RANK.get(r["zip_type"], 0), r["zip_name"], r["member_path"])
+
+
 def month_range(start: str, end: str) -> list[str]:
     y, m = map(int, start.split("-"))
     ey, em = map(int, end.split("-"))
@@ -88,7 +95,7 @@ def resolve(ctx: Context) -> ResolveOutput:
     duplicates = []
     coverage: dict[str, dict[str, str]] = {t: {} for t in tables}
     for (table, month), rows in groups.items():
-        rows.sort(key=lambda r: (r["zip_date"], TYPE_RANK.get(r["zip_type"], 0)), reverse=True)
+        rows.sort(key=selection_key, reverse=True)
         keep = rows[0]
         keep["status"], keep["status_detail"] = "selected", None
         coverage[table][month] = keep["zip_name"]

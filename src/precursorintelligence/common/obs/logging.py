@@ -142,12 +142,17 @@ def setup_logging(
     run_id: str,
     console_format: str = "text",
     level: str | None = None,
+    file_stem: str | None = None,
 ) -> Path:
-    """Configure logging from a dictConfig YAML. Returns the path of this run's JSON-lines log file."""
+    """Configure logging from a dictConfig YAML. Returns the path of the JSON-lines log file.
+
+    The file is ``<log_dir>/<file_stem or run_id>.jsonl``. Pass a per-process ``file_stem`` when several
+    processes share one run id (parallel DAG tasks), so they never write to the same file.
+    """
     with config_path.open(encoding="utf-8") as f:
         cfg = copy.deepcopy(yaml.safe_load(f))
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{run_id}.jsonl"
+    log_file = log_dir / f"{file_stem or run_id}.jsonl"
     handlers = cfg.get("handlers", {})
     if "file" in handlers:
         handlers["file"]["filename"] = str(log_file)

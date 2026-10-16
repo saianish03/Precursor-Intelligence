@@ -1,4 +1,6 @@
-# Development (local): files on disk, metadata in SQLite (local Postgres planned). Relative paths resolve against the repository root.
+# Development (local): files on disk. Metadata: Postgres when PI_DATABASE_URL is set (required for Airflow /
+# parallel tasks); otherwise a SQLite file, for single-process CLI runs only. Relative paths resolve against
+# the repository root.
 env: dev
 object_store:
   kind: local
@@ -12,3 +14,5 @@ logging:
   config: configs/logging.yaml
   log_dir: ./logs
   console_format: text
+run_lock:
+  stale_after_hours: 12                    # a lock older than this was left by a killed run

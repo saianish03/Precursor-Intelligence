@@ -1,7 +1,7 @@
 """ObjectStore port and adapters.
 
 Keys are logical, POSIX-style, relative paths such as ``landing/cms_nh/zips/zip_date=2024-08-29/x.zip``.
-Every adapter maps a key to ``<root>/<key>``, so the folder layout is identical on local disk, S3 and GCS.
+Every adapter maps a key to ``<root>/<key>``, so the folder layout is identical on local disk and GCS.
 
 Rules enforced for every adapter:
   * keys are validated (no absolute paths, no ``..``, no backslashes, no empty segments);
@@ -207,12 +207,13 @@ class LocalObjectStore:
 
 
 class FsspecObjectStore:
-    """Any fsspec filesystem: ``memory://`` (tests), ``s3://`` (s3fs), ``gs://`` (gcsfs), ...
+    """An fsspec filesystem: ``memory://`` (tests) or ``gs://`` (gcsfs).
 
     Object stores publish an object only when the upload completes (multipart/resumable upload), which
-    gives the same atomicity as a local rename. Immutability on S3/GCS is enforced by bucket-level
-    policy (Object Lock default retention / bucket retention policy), provisioned with infrastructure
-    code; ``make_immutable`` therefore only records the intent here.
+    gives the same atomicity as a local rename. On GCS, landing objects are protected by the code's
+    never-overwrite rule plus bucket object versioning. There is no bucket retention policy: the one
+    bucket also holds layers that are rewritten (bronze reloads, gold promotion, reports) and quarantine
+    files that are deleted. ``make_immutable`` therefore only records the intent here.
     """
 
     def __init__(
@@ -319,7 +320,7 @@ class FsspecObjectStore:
 def copy_object(
     src_store: ObjectStore, src_key: str, dst_store: ObjectStore, dst_key: str
 ) -> PutResult:
-    """Stream an object between two stores (e.g. local landing -> S3 bucket)."""
+    """Stream an object between two stores (e.g. local landing -> GCS bucket)."""
     with src_store.open_read(src_key) as f:
         return dst_store.put_stream(dst_key, iter(lambda: f.read(8 * 1024 * 1024), b""))
 
