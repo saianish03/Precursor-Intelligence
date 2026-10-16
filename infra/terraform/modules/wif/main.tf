@@ -58,8 +58,9 @@ resource "google_service_account" "apply" {
 }
 
 locals {
-  # One workflow identity is exactly one token subject: no wildcards.
-  subject = "principal://iam.googleapis.com/projects/${var.project_number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}/subject/repo:${var.github_repository}"
+  # One workflow identity is exactly one token subject: no wildcards. GitHub's subject carries the owner and
+  # repository ids (see var.github_subject); the plain repository name is only used in the provider condition.
+  subject = "principal://iam.googleapis.com/projects/${var.project_number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}/subject/${var.github_subject}"
 }
 
 resource "google_service_account_iam_member" "plan_from_pull_request" {

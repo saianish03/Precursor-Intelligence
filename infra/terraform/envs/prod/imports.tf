@@ -48,17 +48,17 @@ import {
 
 import {
   to = module.wif.google_service_account_iam_member.plan_from_pull_request
-  id = "projects/precursor-intel-mlops/serviceAccounts/sa-tf-plan@precursor-intel-mlops.iam.gserviceaccount.com roles/iam.workloadIdentityUser principal://iam.googleapis.com/projects/852874974077/locations/global/workloadIdentityPools/github/subject/repo:saianish03/Precursor-Intelligence:pull_request"
+  id = "projects/precursor-intel-mlops/serviceAccounts/sa-tf-plan@precursor-intel-mlops.iam.gserviceaccount.com roles/iam.workloadIdentityUser principal://iam.googleapis.com/projects/852874974077/locations/global/workloadIdentityPools/github/subject/repo:saianish03@89864897/Precursor-Intelligence@1402453226:pull_request"
 }
 
 import {
   to = module.wif.google_service_account_iam_member.apply_from_branch["dev"]
-  id = "projects/precursor-intel-mlops/serviceAccounts/sa-tf-apply@precursor-intel-mlops.iam.gserviceaccount.com roles/iam.workloadIdentityUser principal://iam.googleapis.com/projects/852874974077/locations/global/workloadIdentityPools/github/subject/repo:saianish03/Precursor-Intelligence:ref:refs/heads/dev"
+  id = "projects/precursor-intel-mlops/serviceAccounts/sa-tf-apply@precursor-intel-mlops.iam.gserviceaccount.com roles/iam.workloadIdentityUser principal://iam.googleapis.com/projects/852874974077/locations/global/workloadIdentityPools/github/subject/repo:saianish03@89864897/Precursor-Intelligence@1402453226:ref:refs/heads/dev"
 }
 
 import {
   to = module.wif.google_service_account_iam_member.apply_from_branch["main"]
-  id = "projects/precursor-intel-mlops/serviceAccounts/sa-tf-apply@precursor-intel-mlops.iam.gserviceaccount.com roles/iam.workloadIdentityUser principal://iam.googleapis.com/projects/852874974077/locations/global/workloadIdentityPools/github/subject/repo:saianish03/Precursor-Intelligence:ref:refs/heads/main"
+  id = "projects/precursor-intel-mlops/serviceAccounts/sa-tf-apply@precursor-intel-mlops.iam.gserviceaccount.com roles/iam.workloadIdentityUser principal://iam.googleapis.com/projects/852874974077/locations/global/workloadIdentityPools/github/subject/repo:saianish03@89864897/Precursor-Intelligence@1402453226:ref:refs/heads/main"
 }
 
 import {

@@ -11,6 +11,11 @@ variable "github_repository" {
   type        = string
 }
 
+variable "github_subject" {
+  description = "Prefix of the GitHub token subject: repo:OWNER@OWNER_ID/REPO@REPO_ID. GitHub puts the permanent numeric ids in it, so a renamed or re-created repository can never match."
+  type        = string
+}
+
 variable "apply_branches" {
   description = "Branches whose workflow runs may act as the apply account."
   type        = list(string)

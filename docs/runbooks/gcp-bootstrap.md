@@ -61,7 +61,7 @@ drops the colon.
    gcloud iam service-accounts create sa-tf-plan --display-name="Terraform plan (PRs, read-only)"
    gcloud iam service-accounts create sa-tf-apply --display-name="Terraform apply (merged branches only)"
    P=principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/subject
-   R=repo:saianish03/Precursor-Intelligence
+   R=repo:saianish03@89864897/Precursor-Intelligence@1402453226
    gcloud iam service-accounts add-iam-policy-binding sa-tf-plan@$PROJECT.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="${P}/${R}:pull_request"
    gcloud iam service-accounts add-iam-policy-binding sa-tf-apply@$PROJECT.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="${P}/${R}:ref:refs/heads/dev"
    gcloud iam service-accounts add-iam-policy-binding sa-tf-apply@$PROJECT.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="${P}/${R}:ref:refs/heads/main"
@@ -91,6 +91,29 @@ Why: a pull request runs its own code as `sa-tf-plan`. With write access to the 
 the state that the next apply trusts, and plain `viewer` cannot read IAM policies, so `plan` would fail on the
 first refresh. The plan job therefore reads the state only and runs with `-lock=false`.
 
+### The token subject contains numeric ids
+
+GitHub puts the owner and repository ids in the token subject:
+`repo:saianish03@89864897/Precursor-Intelligence@1402453226:pull_request`. A binding written with the plain name
+(`repo:saianish03/Precursor-Intelligence`) never matches and the login fails with
+`iam.serviceAccounts.getAccessToken denied`. The ids are permanent, so a renamed or re-created repository cannot
+take over the login. The workflow prints the claims it presents (step "Show the login claims"); read the real
+`sub` there if this ever changes, and update `github_subject` in `envs/prod/variables.tf`. The provider
+condition still uses the plain `repository` claim.
+
+If the first version of step 4 (plain name) was run, replace those three bindings:
+```bash
+R_OLD=repo:saianish03/Precursor-Intelligence
+R=repo:saianish03@89864897/Precursor-Intelligence@1402453226
+P=principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/subject
+gcloud iam service-accounts add-iam-policy-binding sa-tf-plan@$PROJECT.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="${P}/${R}:pull_request"
+gcloud iam service-accounts add-iam-policy-binding sa-tf-apply@$PROJECT.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="${P}/${R}:ref:refs/heads/dev"
+gcloud iam service-accounts add-iam-policy-binding sa-tf-apply@$PROJECT.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="${P}/${R}:ref:refs/heads/main"
+gcloud iam service-accounts remove-iam-policy-binding sa-tf-plan@$PROJECT.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="${P}/${R_OLD}:pull_request"
+gcloud iam service-accounts remove-iam-policy-binding sa-tf-apply@$PROJECT.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="${P}/${R_OLD}:ref:refs/heads/dev"
+gcloud iam service-accounts remove-iam-policy-binding sa-tf-apply@$PROJECT.iam.gserviceaccount.com --role=roles/iam.workloadIdentityUser --member="${P}/${R_OLD}:ref:refs/heads/main"
+```
+
 ## Checks
 
 ```bash
@@ -98,7 +121,8 @@ gcloud storage buckets describe gs://$PROJECT-data --format="yaml(lifecycle_conf
 gcloud iam service-accounts get-iam-policy sa-tf-apply@$PROJECT.iam.gserviceaccount.com --format="yaml(bindings)"
 gcloud projects get-iam-policy $PROJECT --flatten="bindings[].members" --filter="bindings.members:user:" --format="table(bindings.members,bindings.role)"
 ```
-The `sa-tf-apply` policy must list exactly two members, ending in `:ref:refs/heads/dev` and `:ref:refs/heads/main`.
+The `sa-tf-apply` policy must list exactly two members, ending in `:ref:refs/heads/dev` and `:ref:refs/heads/main`, each
+with the numeric ids in the repository part.
 
 ## Why two Terraform accounts
 

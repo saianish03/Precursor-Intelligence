@@ -43,6 +43,7 @@ module "wif" {
   project_id        = var.project_id
   project_number    = var.project_number
   github_repository = var.github_repository
+  github_subject    = var.github_subject
   apply_branches    = var.apply_branches
   state_bucket_name = module.state_bucket.name
 }
