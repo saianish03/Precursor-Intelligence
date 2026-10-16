@@ -14,6 +14,7 @@ from ..common.io.metadata_store import MetadataStore
 from ..common.io.object_store import ObjectStore, ObjectStoreError
 from ..common.io.table_sink import TableSink
 from .content import PUBLISHED, content_hash, content_unchanged, previous_content_hash
+from .flags import mark_revised
 from .lineage import ReconcileError, add_lineage, reconcile
 from .reader import DecodeError, decode_csv, parse_csv_text
 
@@ -36,6 +37,7 @@ class FileResult:
     vintage: str
     status: str  # loaded | reloaded | failed | skipped
     detail: str = ""
+    revised: bool = False  # a reload whose content differs from what was published before
 
 
 def _partition(inv: Mapping[str, Any]) -> dict[str, str]:
@@ -123,5 +125,8 @@ def load_file(
             }
         ],
     )
+    revised = status == RELOADED and previous is not None and previous["content_hash"] != digest
+    if revised:
+        mark_revised(meta, table, vintage, run_id, now)
     log.info("bronze %s %s %s (%d rows)", status, table, vintage, parsed.frame.height)
-    return FileResult(table, vintage, status)
+    return FileResult(table, vintage, status, revised=revised)
