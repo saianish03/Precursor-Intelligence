@@ -42,6 +42,12 @@ jobs:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: sa-tf-plan@precursor-intel-mlops.iam.gserviceaccount.com
 
+      # TEMPORARY, to find out why the login is refused: prints the claims (not the token) GitHub sends.
+      - name: Show the login claims (debug)
+        run: |
+          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://iam.googleapis.com/${{ env.WIF_PROVIDER }}" | jq -r .value)
+          TOKEN="$TOKEN" python3 -c 'import os,json,base64; p=os.environ["TOKEN"].split(".")[1]; p+="="*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); print(json.dumps({k:c.get(k) for k in ("sub","repository","repository_owner","ref","event_name","job_workflow_ref")}, indent=2))'
+
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.3
