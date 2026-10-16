@@ -96,3 +96,31 @@ def drop_object(store):
             store.fs.rm(store._path(key))
 
     return drop
+
+
+@pytest.fixture
+def ctx(store, meta, sink, tmp_path):
+    """A run context over the same store, metadata DB and sink the other fixtures use."""
+    import yaml
+
+    from precursorintelligence.common.config import load_settings
+    from precursorintelligence.ingestion.context import Context
+
+    env = tmp_path / "env.yaml"
+    env.write_text(
+        yaml.safe_dump(
+            {
+                "env": "test-bronze",
+                "object_store": {"kind": "local", "root": str(tmp_path / "unused")},
+                "metadata_store": {"url": f"sqlite:///{tmp_path / 'unused.db'}"},
+            }
+        )
+    )
+    return Context(
+        settings=load_settings("dev", env_path=env),
+        object_store=store,
+        metadata=meta,
+        table_sink=sink,
+        http=None,  # type: ignore[arg-type]  # bronze never touches the network
+        run_id="R1",
+    )
