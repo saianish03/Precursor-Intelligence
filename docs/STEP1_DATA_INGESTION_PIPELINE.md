@@ -7,7 +7,8 @@
 | Module | `src/precursorintelligence/` (`common/` + `ingestion/`) in the Precursor-Intelligence repo. CLI: `precursor-ingest` (console command from `pyproject.toml`), or `python -m precursorintelligence.ingestion`. |
 | Implements | `dataset/Dataset_build_guide_v1.md` §2 (STEP 1), ending at 🛑 Checkpoint 1 |
 | Python env | uv project: `uv sync --all-extras` (Python 3.12 from `.python-version`; 3.11 also supported and tested in CI) |
-| Status | Implemented; 97 offline tests + 2 live contract tests passing; first full archive run completed (§15). **The storage and metadata decisions of 2026-10-08 (§0) are agreed but not yet implemented.** |
+| Status | Implemented; 149 offline tests (+6 Postgres variants, opt-in) + 2 live contract tests passing; first full archive run completed (§15). **It is the `ingestion` node (TaskGroup) of the one-DAG pipeline `cms_nh_pipeline`** (`DATA_PIPELINE_SPEC.md` §15; rechecked against the spec 2026-10-16): shared run id, run lock (D8), per-zip task list, exit codes, landing backlog for `check_release`, per-run manifest (D11). Other storage and metadata decisions of §0 (BigQuery adapter, append-only writes, warehouse port) are not implemented yet. |
+| Implementation reference | **`docs/DATA_PIPELINE_SPEC.md` wins** where this document differs (spec §0 precedence). |
 
 ---
 
@@ -47,10 +48,10 @@ These decisions replace the earlier "any cloud / any database" framing in this d
 | D5 | **Metadata write pattern: append-only** (recommended; see open decision O2) | Every write appends a new row version with `_written_at`; readers use a "latest version per key" view. No in-place `UPDATE`/`MERGE`. The log tables are already append-only. |
 | D6 | **BigQuery writes use batch load jobs** | Load jobs are free and the rows can be changed immediately. Streaming inserts cost money and block updates/deletes for up to ~90 minutes, so they are not used. |
 | D7 | **Read once, write once per task** | Each task reads the metadata tables it needs into memory once (they are small) and writes its rows in one batch at the end. BigQuery queries take about 1–2 s and are billed at a 10 MB minimum, so per-zip queries would be slow. |
-| D8 | **One pipeline run at a time (run lock)** | BigQuery has no practical cross-statement transactions. A lock object in GCS, created with an "only if absent" precondition, stops a second run; locally, a Postgres advisory lock does the same. Code never relies on transactions. |
+| D8 | **One pipeline run at a time (run lock)** | BigQuery has no practical cross-statement transactions. A lock object in GCS, created with an "only if absent" precondition, stops a second run; locally, a Postgres advisory lock does the same. Code never relies on transactions. **Implemented 2026-10-13 differently:** the lock is a row in the metadata store's `run_lock` table (primary-key insert = atomic acquire), because a lock must span many DAG task processes (a Postgres advisory lock lives only as long as one connection) and the retention-locked landing bucket cannot delete a lock object. Revisit with the BigQuery adapter (BigQuery does not enforce primary keys). See §12.6. |
 | D9 | **Bronze keeps every column, as text** | Bronze is a lossless Parquet copy of each selected CSV. Renaming, pruning and typing happen in silver (Step 2b–2e). Lineage columns that we generate are stored with real types. Details in `STEP2_HANDOFF.md`. |
 | D10 | **Republished data rebuilds downstream partitions** | If the selected file for a (table, month) changes fingerprint, Step 2 reloads that bronze partition and marks the matching silver/gold partitions for rebuild. Landing keeps both raw zips, so old bronze versions need not be kept. |
-| D11 | **Per-run JSON manifest as the audit record** (recommended) | Each layer writes `metadata/<layer>/run_date=YYYY-MM-DD/<layer>_run_<timestamp>.json` with run ID, git commit, config hash, inputs and outputs (keys and fingerprints), counts and anomalies. The metadata store remains the source of truth the pipeline acts on. |
+| D11 | **Per-run JSON manifest as the audit record** | Each layer writes `metadata/<layer>/run_date=YYYY-MM-DD/<layer>_run_<run_id>_<timestamp>.json` with run ID, git commit, config hash, inputs and outputs (keys and fingerprints), counts and anomalies. The metadata store remains the source of truth the pipeline acts on. **Ingestion: done 2026-10-16** (`report.write_manifest`, §6.7). |
 
 **Environment summary:**
 
@@ -68,32 +69,34 @@ The BigQuery datasets and the GCS bucket must be in the **same region**, so load
 
 | # | Question | Recommendation |
 |---|---|---|
-| O1 | Region for the bucket and both BigQuery datasets | `us-central1` (usual lowest-cost default) |
-| O2 | Catalog / inventory updates: append-only plus a "latest" view, or `MERGE` statements | Append-only (D5): faster on BigQuery, within quotas, and gives full status history |
-| O3 | Per-run JSON manifests (D11) | Adopt for every layer |
+| O1 | Region for the bucket and both BigQuery datasets | `us-central1` (usual lowest-cost default). Still open (spec §14 #7). |
+| O2 | Catalog / inventory updates: append-only plus a "latest" view, or `MERGE` statements | Append-only (D5): faster on BigQuery, within quotas, and gives full status history. Still open (spec §14 #8). **Not implemented:** the code upserts and deletes today, which works on Postgres; it is needed with the BigQuery adapter. Until then, metadata column names and types are the downstream contract: any change needs a migration on `precursor_meta` (`create_all` never alters an existing table). |
+| O3 | Per-run JSON manifests (D11) | Decided (spec §14 #13); ingestion writes one. |
 
-### 0.3 Changes to the current code that these decisions require (not yet done)
+### 0.3 Changes to the current code that these decisions require
 
 | Area | Change |
 |---|---|
 | `common/io/metadata_store.py` | Keep the SQLAlchemy adapter (SQLite for tests, Postgres locally). Add a `BigQueryMetadataStore` (google-cloud-bigquery, load jobs, latest-version views). |
 | `common/io/schemas.py` | Add `_written_at` to the upserted tables; store dates and timestamps as `DATE` / `TIMESTAMP` instead of ISO strings; partition BigQuery log tables by `_written_at` date. |
 | Tasks (`catalog`, `download`, `extract`, `inventory`, `resolve`) | Replace per-entry reads with one bulk read per task, and upserts / in-place status changes with appended row versions. |
-| `pipeline.py` | Acquire and release the run lock around each run. |
-| `common/io/table_sink.py`, `common/io/registry.py` | Remove `DuckDBTableSink`. Keep `ParquetTableSink` for bronze/silver/gold. Add a separate **warehouse** port with two adapters, used only for the final dataset: BigQuery (load job from gold Parquet in GCS, replace affected month partitions) and Postgres (`COPY`). |
-| `configs/` | `dev.yaml` points metadata at Postgres (`PI_DATABASE_URL`); `prod.yaml` points metadata and the warehouse at BigQuery. (`aws.yaml` was not carried into this repo.) |
-| `ingestion/report.py` and every later layer | Write the per-run JSON manifest (D11). |
+| `pipeline.py` | **Done (2026-10-13):** `run_step1` takes the `data_pipeline` run lock (re-entrant for the same run id) and releases it if it took it. |
+| `common/io/table_sink.py`, `common/io/registry.py` | **Done (2026-10-16):** `DuckDBTableSink` and the `s3` object-store registration removed (D1, D2); the `duckdb` package stays in the `pipeline` extra for notebooks. Keep `ParquetTableSink` for bronze/silver/gold. Add a separate **warehouse** port with two adapters, used only for the final dataset: BigQuery (load job from gold Parquet in GCS, replace affected month partitions) and Postgres (`COPY`). |
+| `configs/` | `dev.yaml`: Postgres via `PI_DATABASE_URL`, with a SQLite fallback for single-process CLI runs only. `prod.yaml`: Postgres on the VM via `PI_DATABASE_URL` until the BigQuery metadata adapter exists (D4); the warehouse later. |
+| `ingestion/report.py` and every later layer | Write the per-run JSON manifest (D11). **Ingestion done (2026-10-16).** |
 | Packaging | Done: repo-wide `pyproject.toml` + `uv.lock` (extras per image; ingestion uses `pipeline`), strict mypy, console command `precursor-ingest`. |
 
-Further Step 1 improvements are tracked in [`STEP1_TODO.md`](STEP1_TODO.md): metastore release sensor, per-table download fallback, `--dry-run` and exit codes, and an early schema-drift check.
+The remaining Step 1 backlog, and what the spec changed about each item, is in [`STEP1_TODO.md`](STEP1_TODO.md).
 
 ### 0.4 Alignment with the team documents
 
-`PI_Tech_Stack.docx` and `Precursor_Intelligence_Data_Pipeline_Plan.docx` (2026-10-08) agree with D3 and D4: in production, BigQuery holds the final tables and the pipeline state, and Postgres runs on the VM for Airflow and MLflow. The differences below need one team decision each. They are recorded here, and the Word documents have not been changed.
+`PI_Tech_Stack.docx` and `Precursor_Intelligence_Data_Pipeline_Plan.docx` (2026-10-08) agree with D3 and D4: in production, BigQuery holds the final tables and the pipeline state, and Postgres runs on the VM for Airflow and MLflow. The differences below were decided on 2026-10-15 (`DATA_PIPELINE_SPEC.md` §0.8, §14). They are recorded here, and the Word documents have not been changed.
 
 | Topic | Team documents | This implementation | Note |
 |---|---|---|---|
-| Layer names and raw layout | "Bronze" = raw files as published plus all-string Parquet, stored at `bronze/pdc/vintage=YYYY-MM/` | `landing/cms_nh/zips/zip_date=…/` (raw, by zip date) then `bronze/<table>/vintage=YYYY-MM/` (Parquet) | Same content, different names and folders. Raw files are kept by zip date because the vintage is known only after reading `Processing Date`, and one month can arrive in two zips. |
+| Layer names and raw layout | "Bronze" = raw files as published plus all-string Parquet, stored at `bronze/pdc/vintage=YYYY-MM/` | `landing/cms_nh/zips/zip_date=…/` (raw, by zip date) then `bronze/<table>/vintage=YYYY-MM/` (Parquet) | **Decided (spec §14 #6): `landing/` + `bronze/`.** Raw files are kept by zip date because the vintage is known only after reading `Processing Date`, and one month can arrive in two zips. |
+| DAG shape | Separate asset-chained DAGs (`pdc_release_sensor`, `ingest_vintage`, `build_silver`, …) | One DAG `cms_nh_pipeline`; Step 1 is its `ingestion` TaskGroup | **Decided (spec §14 #19).** One run id and one lock end to end (§12.6). |
+| Duplicate data month | The team `cms-data-domain` skill: "prefer the complete zip" | The later zip wins; archive beats current on the same date | **Decided (spec §14 #2).** |
 | Monthly download method | Per-table CSVs from the metastore `downloadURL` | One monthly zip from the archive/current JSON endpoints | Both work. The zip gives all tables of a release at once and uses the same code for history and new months. |
 | Backfill source | Annual zips uploaded to GCS manually (the archive page was thought to need JavaScript) | All monthly zips downloaded automatically through the archive JSON endpoint (§3.2) | Manual upload is no longer needed. |
 | Stale refresh check | Hash each table ignoring the date column; flag `stale_refresh` | Not implemented in Step 1 | **Confirmed in the data:** in vintage 2025-09, health citations, penalties, survey dates and claims QMs are identical to 2025-07; only Provider Info and MDS QMs changed. Added to the Step 2 checks (`STEP2_HANDOFF.md` §7.6). |
@@ -138,7 +141,7 @@ Run from the repository root. `uv sync --all-extras` installs the package (edita
 uv sync --all-extras
 CLI="uv run precursor-ingest"
 
-$CLI catalog                                       # show what CMS advertises (no zip downloads)
+$CLI catalog                                       # print what CMS advertises (read-only: stores nothing)
 $CLI step1                                         # full Step 1 (~3.1 GB download on first run)
 $CLI step1 --zip-dates 2021-01-27,2021-12-27       # subset of zips (smoke test)
 $CLI step1 --limit 5                               # oldest 5 in-scope zips
@@ -146,15 +149,27 @@ $CLI step1 --steps resolve,report                  # rebuild report from stored 
 $CLI step1 --log-level DEBUG                       # verbose console
 $CLI step1 --env prod                              # GCS backends (configs/prod.yaml)
 $CLI step1 --env-file my_env.yaml                  # any custom backend combination
+$CLI step1 --run-id R --steps extract,inventory --entry-ids <id>   # one DAG task (§12.6)
+$CLI entries --pending                             # JSON list of zips still to extract + inventory
+$CLI lock status                                   # who holds the run lock (also: acquire / release)
 
-pytest tests                                       # 97 offline tests
-pytest tests -m network                            # 2 live contract tests against data.cms.gov
+uv run pytest                                      # 149 offline tests (+6 Postgres variants, skipped)
+PI_TEST_POSTGRES_URL=postgresql+psycopg://… uv run pytest   # + run-lock tests on a throwaway Postgres
+uv run pytest -m network                           # 2 live contract tests against data.cms.gov
 ```
 
-**Exit codes:**
-- `0`: success;
-- `1`: the run finished, but some zips failed, were quarantined or were rejected (they are listed on stderr);
-- `2`: the configuration is invalid.
+**Exit codes** (every command; `pipeline.py` `EXIT_*`):
+
+| Code | Meaning | Examples | Retry? |
+|---|---|---|---|
+| `0` | Success, or nothing new | | |
+| `1` | Error | network failure after retries, storage error, exception in a task, run lock held by another run | Yes, may be transient |
+| `2` | Validation / drift: the data is bad or changed | quarantined or rejected zip, unsafe archive, CMS catalog contract changed | No: fix the data or config first |
+| `3` | Config or usage error | bad env file, missing `${VAR}`, invalid `--run-id`, unknown step, bad flag | No |
+
+If a run has both errors and validation failures, it exits `1`. Failures are listed on stderr.
+
+**In Airflow** (spec §14 #21, §15.4): exit 1 is retried (2 × 5 min); exits 2 and 3 fail at once without retries, through `PipelineDockerOperator`, a thin `DockerOperator` subclass. A stale `--entry-ids` list and a task whose run does not hold the lock are config errors (3).
 
 ---
 
@@ -297,7 +312,7 @@ src/precursorintelligence/
     resolve.py           duplicates, gaps, anomalies
     report.py            01_inventory.csv + 01_inventory_summary.md
 configs/ingestion/sources.yaml   configs/dev.yaml   configs/prod.yaml   configs/logging.yaml
-tests/conftest.py (src path, network marker)   tests/common/   tests/ingestion/ (cms_fakes.py = fake CMS server)
+tests/common/   tests/ingestion/ (cms_fakes.py = fake CMS server; conftest.py blocks real HTTP in unit tests)
 ```
 
 ### 5.3 Task contract (what makes each step swappable and DAG-ready)
@@ -312,7 +327,8 @@ tests/conftest.py (src path, network marker)   tests/common/   tests/ingestion/ 
   | inventory | replaces its own rows each time |
 - **Fan-out:**
   - `download` runs in a thread pool (`http.max_parallel_downloads`, default 3). Workers return result rows, and only the main thread writes to the MetadataStore, which keeps every backend safe.
-  - `extract` and `inventory` iterate over entries. In a DAG they become mapped tasks.
+  - `extract` and `inventory` iterate over entries. In a DAG they become mapped tasks: `entries --pending` lists the zips that still need them, and `step1 --entry-ids <id>` runs one (§12.6).
+- **One run id per DAG run** (`--run-id`), shared by all of its tasks, and one run lock held from the first task to the last (§12.6).
 
 ### 5.4 Data flow
 ```
@@ -440,7 +456,9 @@ vintage_month = YYYY-MM(Processing Date)            vintage_source = processing_
 - the **distinct header sets per table**, with vintage ranges and the columns added or removed between sets;
 - the anomalies, grouped and explained.
 
-Both files are written to `reports/step1/run=<run_id>/`, which is immutable, and to `reports/step1/latest/`. The CLI also uploads the run's JSON log as `reports/step1/run=<run_id>/run.jsonl`.
+Both files are written to `reports/step1/run=<run_id>/` and to `reports/step1/latest/`. `latest/` is replaced by every run; `run=<run_id>/` is rewritten only when a task of the same run is retried (Airflow retries keep the run id). Each CLI process also uploads its own JSON log as `reports/step1/run=<run_id>/logs/<command>_<timestamp>-<hex>.jsonl`, so parallel tasks of one run never overwrite each other's log.
+
+**Run manifest (D11).** `report` also writes `metadata/ingestion/run_date=<UTC date>/ingestion_run_<run_id>_<ts>-<hex>.json`: run id, env, `code_version` (`PI_GIT_SHA`, set by the image build), the sha256 of the parsed `sources.yaml`, V, counts (this run's downloads by status, selected files, duplicates, anomalies by kind), gaps, and every selected file with `zip_sha256`, `member_path`, `extracted_key`, `header_hash` and `row_count`. A retry adds a new manifest; none is overwritten.
 
 ---
 
@@ -470,10 +488,10 @@ In the last two cases the selected file for a (table, month) gets a new fingerpr
   landing/cms_nh/zips/zip_date=<YYYY-MM-DD>/<stem>__<sha8>.zip            only if CMS re-published
   landing/cms_nh/extracted/zip_date=<YYYY-MM-DD>/<zip_stem>/<file>.csv     7 in-scope tables
   quarantine/cms_nh/<run_id>/<zip_date>/<zip_name>                         only failed validations remain
-  reports/step1/run=<run_id>/01_inventory.csv | 01_inventory_summary.md | run.jsonl
+  reports/step1/run=<run_id>/01_inventory.csv | 01_inventory_summary.md | logs/<command>_<ts>-<hex>.jsonl
   reports/step1/latest/…                                                   copy of the latest run
-  ops/metadata.db                                                          SQLite (current code; local Postgres planned, §0 D4)
-  metadata/<layer>/run_date=<YYYY-MM-DD>/<layer>_run_<timestamp>.json     per-run audit manifest (planned, §0 D11)
+  ops/metadata.db                                                          SQLite fallback (dev, single process); Postgres via PI_DATABASE_URL otherwise (§0 D4)
+  metadata/ingestion/run_date=<YYYY-MM-DD>/ingestion_run_<run_id>_<ts>-<hex>.json   per-run landing manifest (D11)
   bronze/<table>/vintage=<YYYY-MM>/part-0.parquet                          Step 2 (TableSink), not yet written
 ```
 
@@ -495,7 +513,7 @@ In the last two cases the selected file for a (table, month) gets a new fingerpr
 | Write pattern | **Append-only.** Every write adds a row version with `_written_at`. A view per table returns the latest version per key: BigQuery `QUALIFY ROW_NUMBER() OVER (PARTITION BY <key> ORDER BY _written_at DESC) = 1`; Postgres `DISTINCT ON (<key>) … ORDER BY <key>, _written_at DESC`. Status changes (e.g. `selected` → `duplicate_vintage`) become new versions, which gives a full history. |
 | BigQuery write method | Batch **load jobs** (free, immediately consistent). No streaming inserts. |
 | Access pattern | Each task reads its tables once and writes once, in batch |
-| Concurrency | One run at a time, enforced by a GCS lock object (or a Postgres advisory lock locally). No reliance on transactions. |
+| Concurrency | One run at a time. **Implemented** as a `run_lock` row (lock name `data_pipeline`) in the metadata store, so it works across processes on SQLite and Postgres (§12.6). No reliance on transactions. |
 | Types | `DATE` / `TIMESTAMP` instead of ISO strings. BigQuery log tables partitioned by `_written_at` date. |
 
 | Table | Key | One row per | Main columns |
@@ -507,6 +525,7 @@ In the last two cases the selected file for a (table, month) gets a new fingerpr
 | `inventory` | `entry_id, member_path` | zip member | see §6.5, plus `status` (`selected` / `duplicate_vintage` / `out_of_scope` / `other` / `junk` / `unresolved`), `status_detail` |
 | `anomalies` | `id` | anomaly per run | `run_id, entry_id, kind, severity, detail, created_at` |
 | `run_log` | `id` | task invocation | `run_id, task, entry_id, status, started_at, finished_at, duration_s, detail (JSON)` |
+| `run_lock` | `lock_name` | held lock (0 or 1 row per name) | `run_id, holder (host:pid), acquired_at`. Inserting the row is the atomic acquire (D8, §12.6). |
 
 Useful queries:
 ```sql
@@ -563,7 +582,7 @@ Before any byte is trusted:
 3. Promotion is an atomic move:
    - local: `os.replace`;
    - GCS: the object only appears when its upload completes.
-4. Failed files stay in quarantine and the run exits with code 1. Downstream tasks only read objects named by a successful `download_log` row, so they never see quarantined bytes.
+4. Failed files stay in quarantine and the run exits with code 2 (validation). Downstream tasks only read objects named by a successful `download_log` row, so they never see quarantined bytes.
 
 ### 9.5 Safe archive handling (`ingestion/zipsafe.py`)
 - **Zip-slip:** absolute paths, Windows drive letters, `..` segments and NUL bytes are rejected. Extraction also flattens to the base name and validates the destination key.
@@ -590,14 +609,11 @@ Before any byte is trusted:
 
 ### 9.9 Cloud storage and credentials (GCP)
 
-**Buckets.** GCS permissions and retention policies apply per bucket, so use separate buckets where the rules differ:
-
-| Bucket | Holds | Settings |
-|---|---|---|
-| `…-landing` | `landing/` (catalog snapshots, zips, extracted CSVs) | **Bucket retention policy** (e.g. 365 days, optionally locked). This is where immutability is really enforced; `FsspecObjectStore.make_immutable` only records the intent. Object versioning on. |
-| `…-scratch` | `quarantine/`, `tmp/`, run locks | No retention policy, because the pipeline must delete quarantine files and release locks. Lifecycle rule: delete after 30 days. |
-| `…-bronze`, `…-silver`, `…-gold` | Parquet layers | Versioning on. No retention lock, because partitions are rebuilt (D10). |
-| `…-reports` (or a `reports/` prefix) | Checkpoint reports, run logs, per-run manifests | Versioning on |
+**Bucket (decided 2026-10-16).** The spec keeps every layer under **one object-store root** (`DATA_PIPELINE_SPEC.md` §0.6). That root also holds data that must be rewritten (bronze reloads under D10, gold promotion from staging, `reports/…/latest`) or deleted (quarantine). So it gets **no bucket retention policy**. Instead:
+- **Object versioning on**, so an accidental overwrite or delete can be recovered.
+- **Landing immutability comes from the code:** writes under `landing/` never overwrite, and republished zips are stored side by side. `prod.yaml` records `immutable: object_versioning`; `FsspecObjectStore.make_immutable` only logs the intent.
+- **Lifecycle rule:** delete `quarantine/` objects after 30 days.
+- **Later, if needed:** per-object retention on `landing/` objects only (GCS Object Retention Lock), or a separate landing root. Either needs adapter code.
 
 All buckets get uniform bucket-level access, public access prevention, and Google-managed or CMEK encryption.
 
@@ -628,7 +644,7 @@ Logging uses only the standard-library **`logging`** module, configured by `logg
 |---|---|
 | Loggers | `logging.getLogger(__name__)` in every module, e.g. `precursorintelligence.ingestion.download`. The `precursorintelligence` logger has its own handlers; `propagate: false`. |
 | Console handler | INFO, text: `2026-10-06 19:33:35 INFO precursorintelligence.ingestion.download [download nursing-homes_2021-12-27.zip] stored …`. With `console_format: json` (gcp env) it emits JSON to stdout/stderr for Cloud Logging. |
-| File handler | DEBUG, JSON lines, `RotatingFileHandler` (50 MB × 5) at `logs/<run_id>.jsonl`. Copied to `reports/step1/run=<run_id>/run.jsonl` at the end of the run. |
+| File handler | DEBUG, JSON lines, `RotatingFileHandler` (50 MB × 5), one file per CLI process: `logs/<command>_<ts>-<hex>.jsonl` (every line still carries `run_id`). `step1` copies it to `reports/step1/run=<run_id>/logs/` at the end. |
 | Context | `ContextFilter` adds `run_id, env, task, entry_id, zip_name` to every record from a `contextvars` variable. `log_context(...)` nests, and worker threads run in a copied context, so parallel download logs stay attributable. |
 | Redaction | `RedactFilter` masks URL credentials, signed-URL parameters (`X-Amz-Signature`, `X-Goog-Signature`, `token`, …), `Authorization` headers (including `Bearer <token>`), and `*_key`/`*token`/`password`/`secret` values, in both the message and string `extra` fields. |
 | JSON format | `{"ts", "level", "logger", "msg", "run_id", "env", "task", "entry_id", "zip_name", …extra, "exc"}` |
@@ -668,17 +684,18 @@ Logging uses only the standard-library **`logging`** module, configured by `logg
 
 | Key | Local (development) | GCP (test and production) |
 |---|---|---|
-| `env` | `local` | `gcp` |
+| `env` | `dev` | `prod` |
 | `object_store.kind` | `local` (`memory` in unit tests) | `gcs` |
 | `object_store.root` | `./data` | `${PI_BUCKET_URI}` (e.g. `gs://precursorintelligence-landing`) |
-| `object_store.immutable` | `chmod` | `bucket_retention_policy` |
+| `object_store.immutable` | `chmod` | `object_versioning` (informational; no retention policy, §9.9) |
 | `object_store.storage_options` | — | passed to gcsfs (e.g. `{project: my-proj}`) |
-| `metadata_store` | **(current code)** `url: sqlite:///./data/ops/metadata.db`. **Decided:** `url: ${PI_DATABASE_URL}` (local Postgres) | **Decided:** `kind: bigquery`, `project`, `dataset: precursorintelligence_ops`, `location` |
+| `metadata_store` | `url: ${PI_DATABASE_URL:-sqlite:///./data/ops/metadata.db}`: Postgres for Airflow and parallel tasks; the SQLite fallback for single-process CLI runs only | `url: ${PI_DATABASE_URL}` (Postgres on the VM, `precursor_meta`) until the BigQuery adapter (`precursorintelligence_ops`) exists (D4) |
+| `run_lock.stale_after_hours` | `12` | `12`: a lock older than this was left by a killed run and is taken over with a WARNING (`null` = never) |
 | `table_sink.kind` / `.prefix` | `parquet` / `bronze` | `parquet` / `bronze` |
 | `warehouse` (planned, final dataset only) | `kind: postgres`, `url: ${PI_DATABASE_URL}`, `schema: gold` | `kind: bigquery`, `dataset: precursorintelligence_gold`, `location` |
 | `logging.config` / `.log_dir` / `.console_format` | `configs/logging.yaml` / `./logs` / `text` | same / `/tmp/…` / `json` (Cloud Logging) |
 
-`${VAR}` and `${VAR:-default}` are expanded from the environment. A missing required variable is a config error. **(current code)** `configs/aws.yaml (not carried into this repo)` still exists; it is to be deleted (§0.3).
+`${VAR}` and `${VAR:-default}` are expanded from the environment. A missing required variable is a config error (exit 3).
 
 ---
 
@@ -694,7 +711,8 @@ Logging uses only the standard-library **`logging`** module, configured by `logg
 ### 12.2 Local development with Postgres
 1. Start Postgres in Docker, for example the team's `docker compose` stack (`postgres:16`). Create a database with schemas `ops` (pipeline metadata) and `gold` (final dataset).
 2. Run `export PI_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/precursorintelligence`. The SQLAlchemy metadata adapter works unchanged.
-3. Unit tests keep using in-memory SQLite and need no database.
+3. Unit tests keep using in-memory SQLite and need no database. Set `PI_TEST_POSTGRES_URL` to a **throwaway** database to also run the run-lock tests on Postgres (they drop and recreate the metadata tables).
+4. **Use Postgres, not SQLite, whenever tasks run in separate containers** (Airflow). Parallel processes on one SQLite file only work by waiting on each other (30 s busy timeout). `ensure_schema` takes a Postgres advisory lock, so parallel tasks can start against an empty database: without it, 7 of 8 simultaneous processes failed with `duplicate key … pg_type_typname_nsp_index` (measured 2026-10-13, Postgres 17).
 
 ### 12.3 The final dataset table (warehouse port, planned)
 - **What:** only the final facility × month dataset is loaded into a warehouse (D3). Bronze and silver stay as Parquet.
@@ -703,44 +721,145 @@ Logging uses only the standard-library **`logging`** module, configured by `logg
 - **Type discipline:** use only DATE, TIMESTAMP, FLOAT64/INT64, BOOL and STRING, so the schema is identical in both. Keep pipeline logic in Python/Polars, not SQL, so dialect differences never matter.
 
 ### 12.4 Add a new backend
-The port/adapter structure still allows it (write a class satisfying the Protocol, register it, add an env file, run the parametrised conformance tests in `tests/test_stores.py`). Per D1, though, only local disk and GCS are supported and tested.
+The port/adapter structure still allows it (write a class satisfying the Protocol, register it, add an env file, run the parametrised conformance tests in `tests/common/test_stores.py`). Per D1, though, only local disk and GCS are supported and tested.
 
 ### 12.5 Add a new source or table
 - **New table from the same archive:** add an entry under `tables:` with patterns for each layout.
 - **New source** (e.g. the PBJ daily staffing API): implement `CatalogSource.fetch()` returning `CatalogEntry` items, add its download path prefix to a source-specific allow-list, and pass the source to `discover(ctx, source=...)`.
 
-### 12.6 Run as a DAG (future)
-The tasks are already DAG-shaped:
-```
-discover ─▶ select ─▶ download[entry]* ─▶ extract[entry]* ─▶ inventory[entry]* ─▶ resolve ─▶ report ─▶ (human approval gate)
-```
+### 12.6 Run in Airflow: the `ingestion` node of `cms_nh_pipeline`
 
-**Orchestrator: Airflow 3** (team tech-stack document). Airflow runs on the VM, and each task runs the shared `precursor-pipeline` Docker image through `DockerOperator`. The same tested CLI therefore runs in CI, locally and in production. Sketch:
+> **Superseded in part (2026-10-15/16).** Step 1 is not a DAG of its own. It is the `ingestion` TaskGroup of the one DAG `cms_nh_pipeline` (`DATA_PIPELINE_SPEC.md` §0.7, §15; decision §14 #19). The commands below are unchanged. What changed: **`release_lock` is the last task of the whole DAG** (after gold), so bronze, silver and gold run under the same lock; `check_release` (spec §2.0) gates the DAG instead of `@daily` alone; and exits 2/3 are not retried (`PipelineDockerOperator`, spec §15.5). The `ingest_vintage` DAG further down is kept only as the parse-checked reference for `docker_kwargs` and `mapped_commands`, which spec §15.5 reuses.
+
+The CLI is the task interface: every task runs the `precursor-pipeline` image with one `precursor-ingest` command through `DockerOperator`. **All tasks of one DAG run pass the same `--run-id {{ run_id }}`**, so they share one run lock, one `run_log` run id and one `reports/step1/run=<id>/` folder.
+
+**Task contract (the ingestion TaskGroup):**
+
+| # | Task | Command | Notes |
+|---|---|---|---|
+| 1 | `acquire_lock` | `lock acquire --run-id R` | Takes the `data_pipeline` lock for the whole DAG run. Exit 1 (retried) while another run holds it; a lock older than `run_lock.stale_after_hours` (12) is taken over with a WARNING. |
+| 2 | `discover_download` | `step1 --run-id R --steps discover,download` | One task: the downloads already run 3 in parallel inside it, and unchanged zips cost one `HEAD` each. |
+| 3 | `pending_entries` | `entries --run-id R --pending` | Read-only. **Last stdout line = JSON list of entry ids** whose stored zip still needs extract + inventory. Empty on a quiet day. |
+| 4 | `extract_inventory` (mapped, one per id) | `step1 --run-id R --steps extract,inventory --entry-ids <id>` | Entry ids are exact catalog keys (`theme:2026-08-26:nursing-homes_2026-08-26.zip`); an unknown id exits 3. If extract fails, inventory is skipped and the zip stays pending. |
+| 5 | `resolve_report` | `step1 --run-id R --steps resolve,report` | Duplicates, gaps, anomalies, Checkpoint 1 report, run manifest. `trigger_rule="none_failed"`, so it also runs when nothing was pending. Emits the `cms_nh_landing` asset; the next node is `bronze` in the same DAG. |
+| — | `release_lock` (end of the DAG, after gold) | `lock release --run-id R` | `trigger_rule="all_done"`, `retries=0`: always runs, also after failures and short-circuits. Releasing a free lock is not an error. |
+
+**Rules the code enforces:**
+- **Run id:** 1–64 characters from `A-Z a-z 0-9 _ . : + -`; Airflow ids such as `scheduled__2026-10-13T00:00:00+00:00` are valid. Anything else exits 3.
+- **Run lock (D8):** a row in the metadata store's `run_lock` table.
+  - `step1` **with** `--run-id` (a DAG task) requires that its run already holds the lock and never takes or releases it. If not, it exits 3 (a wiring error). So no Step 1 task can free the lock before gold has run.
+  - `step1` **without** `--run-id` (a manual run) takes the lock and releases it at the end; while a DAG run holds it, it exits 1.
+  - `catalog` is **read-only**: it prints what CMS advertises and stores nothing, so it never interferes with a running DAG and never hides a change from `check_release`.
+  - **A lock left by a killed run** (e.g. the VM's overnight stop) is taken over by the next `lock acquire` or manual run once it is older than `run_lock.stale_after_hours` (default 12; `holder` records the takeover). Sooner: `precursor-ingest lock status`, then `lock release --run-id <any> --force`.
+- **Retries are safe** with the same run id: every task is idempotent; `report` rewrites `run=<id>/` and adds a manifest; `resolve` replaces that run's anomaly rows. "Clear" on a whole DAG run therefore replaces that run's report and anomalies rather than keeping both.
+- **Exit codes** (§2): 1 = error, retried; 2 = data/validation problem and 3 = config, both failed at once without retries (spec §14 #21).
+- **Logs:** each task process writes its own `logs/<command>_<ts>-<hex>.jsonl` and ships it to `reports/step1/run=<id>/logs/`; Airflow also captures the container's stdout/stderr.
+- **Metadata store: Postgres** (`PI_DATABASE_URL`, the `precursor_meta` database on the VM), never a SQLite file, when tasks run in separate containers (§12.2).
+- **Between tasks 4 and 5, `inventory` is mid-update:** re-inventoried zips have `status='pending'` until `resolve` runs. Bronze refuses to start while any row is `pending` (exit 2); the shared lock keeps everything else out.
+- **Landing backlog for `check_release`** (spec §2.0): `inventory.landing_backlog(ctx, select(ctx))` is read-only and lists (a) entries never stored, or re-published since their last good download, (b) stored zips not yet extracted and inventoried, and (c) the number of `pending` inventory rows. It compares with `download_log`, not `catalog`. `discover` stores the new catalog before downloading, so a failed or quarantined download would otherwise disappear from a catalog-only comparison. `check_release` should proceed (CHANGED / RESUME) while the backlog is not empty.
+
+**Superseded reference DAG** (`ingest_vintage`, 2026-10-13). Kept for the parse-checked `docker_kwargs` and `mapped_commands` that spec §15.5 reuses; the real DAG is `cms_nh_pipeline` (spec §15.5). In it, `release_lock` moves to the end of the DAG, and every task, **including the mapped `extract_inventory`**, uses `PipelineDockerOperator`. Parse-checked with Airflow 3.1.8 + `apache-airflow-providers-docker` 4.6.1; never run against real containers.
 
 ```python
-from airflow.sdk import dag, Asset
+"""ingest_vintage: Step 1 (CMS archive landing) as Airflow 3 tasks. Reference DAG, not yet deployed.
+
+Every task runs the `precursor-pipeline` image with the `precursor-ingest` CLI; no logic lives here.
+All tasks of one DAG run pass the same --run-id, so they share one run lock, one run_log id and one
+reports/step1/run=<id>/ folder. Exit codes: 1 = error (retry may help), 2 = data/validation problem,
+3 = config. Replace the @daily schedule with the release sensor (STEP1_TODO T1) when it exists.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timedelta
+
 from airflow.providers.docker.operators.docker import DockerOperator
+from airflow.sdk import Asset, dag, get_current_context, task
 
-LANDING = Asset("gs://precursorintelligence-landing/landing/cms_nh")      # emitted when new landing data is ready
+IMAGE = os.environ.get("PI_PIPELINE_IMAGE", "precursor-pipeline:latest")
+CLI = ["precursor-ingest"]
+ENV_ARGS = [
+    "--env",
+    "prod",
+]  # GCS + PI_DATABASE_URL; use "dev" with a ./data volume for local Airflow
+LANDING = Asset("cms_nh_landing")  # Step 2's build_silver DAG is scheduled on this asset
 
-def step(task_id, steps, **kw):
+docker_kwargs = dict(
+    image=IMAGE,
+    docker_url="unix://var/run/docker.sock",
+    network_mode=os.environ.get("PI_DOCKER_NETWORK", "bridge"),  # the compose network with Postgres
+    environment={"PYTHONUNBUFFERED": "1", "PI_BUCKET_URI": os.environ.get("PI_BUCKET_URI", "")},
+    private_environment={"PI_DATABASE_URL": os.environ.get("PI_DATABASE_URL", "")},  # hidden in UI
+    mount_tmp_dir=False,
+    auto_remove="success",
+)
+
+
+def ingest(task_id: str, *args: str, **kwargs) -> DockerOperator:
     return DockerOperator(
-        task_id=task_id, image="…/precursor-pipeline:latest",
-        command=f"precursor-ingest step1 --env prod --steps {steps}", **kw)
+        task_id=task_id,
+        command=[*CLI, *args, *ENV_ARGS, "--run-id", "{{ run_id }}"],
+        **docker_kwargs,
+        **kwargs,
+    )
 
-@dag(schedule="@daily", catchup=False, max_active_runs=1)          # max_active_runs=1 complements the run lock (D8)
+
+@task
+def mapped_commands(raw: str) -> list[list[str]]:
+    """`entries --pending` prints a JSON list as its last line; one extract+inventory command per zip."""
+    run_id = get_current_context()["run_id"]
+    return [
+        [*CLI, "step1", "--steps", "extract,inventory", "--entry-ids", entry_id, *ENV_ARGS]
+        + ["--run-id", run_id]
+        for entry_id in json.loads(raw)
+    ]
+
+
+@dag(
+    schedule="@daily",
+    start_date=datetime(2026, 10, 1),
+    catchup=False,
+    max_active_runs=1,
+    default_args={"retries": 2, "retry_delay": timedelta(minutes=5)},
+    tags=["step1", "ingestion"],
+)
 def ingest_vintage():
-    discover = step("discover", "discover")
-    land     = step("download_extract_inventory", "download,extract,inventory")
-    resolve  = step("resolve_report", "resolve,report", outlets=[LANDING])   # triggers Step 2's DAG
-    discover >> land >> resolve
+    lock = ingest("acquire_lock", "lock", "acquire")
+    fetch = ingest("discover_download", "step1", "--steps", "discover,download")
+    pending = ingest("pending_entries", "entries", "--pending", do_xcom_push=True)
+    per_zip = DockerOperator.partial(
+        task_id="extract_inventory", max_active_tis_per_dagrun=3, **docker_kwargs
+    ).expand(command=mapped_commands(pending.output))
+    report = ingest(
+        "resolve_report",
+        "step1",
+        "--steps",
+        "resolve,report",
+        outlets=[LANDING],
+        trigger_rule="none_failed",  # also runs when no zip was pending (mapped task skipped)
+    )
+    unlock = ingest("release_lock", "lock", "release", trigger_rule="all_done", retries=0)
+    lock >> fetch >> pending
+    per_zip >> report >> unlock
+
 
 ingest_vintage()
 ```
 
-- **Schedule:** CMS publishes about once a month (`nextUpdateDate` in `source_datasets`). A daily run is cheap: when nothing changed, it costs one catalog fetch plus `HEAD` requests.
-- **Finer tasks:** to give each zip its own Airflow task, add `--zip-dates` and use dynamic task mapping (`.expand`). The functions already take one catalog entry each.
-- **Next DAG:** Step 2 (`build_silver`) subscribes to the `LANDING` asset, so a new release flows through without a manual step.
+**Verified (2026-10-13):**
+- `tests/ingestion/test_dag_tasks.py` runs this exact task sequence in-process, with a fresh `Context` per task and a shared Airflow-style run id. The result is identical to a single `step1` run; a quiet day maps 0 tasks; a new zip maps exactly 1; retries are no-ops; a failed extract stays pending.
+- `tests/ingestion/test_cli.py` checks the same through the real CLI: exit codes, the JSON line, lock commands, and one shipped log per task.
+- **On real Postgres 17:** 5 mapped tasks ran as parallel processes with one run id. All exited 0, nothing was left pending, and the inventory was identical to a single-process SQLite run.
+- The `DockerOperator` pushes the **last line of combined stdout/stderr** to XCom (provider 4.6.1 source), which is why `entries` prints its JSON last and the DAG sets `PYTHONUNBUFFERED=1`.
+
+**Still needed before deploying:** the `precursor-pipeline` image, the local Airflow compose (`docker/airflow-local/`), the `check_release` node (spec §2.0), and `tests/dags`.
+
+**What `tests/dags` must cover for exit codes (spec §14 #21).** Provider 4.6.1 raises `DockerContainerFailedException(f"Docker container failed: {result!r}")`, where `result` is docker's `wait()` dict, e.g. `{'Error': None, 'StatusCode': 2}`. `PipelineDockerOperator` matches `'StatusCode': [23]` in that message, so it depends on the message text. The test needs Airflow 3.1.8 + `apache-airflow-providers-docker==4.6.1` in a **separate** uv dependency group or CI job (Airflow is deliberately not in the main lock). It should:
+- patch `DockerOperator.cli` (a `MagicMock`: `create_container` → `{'Id': 'x'}`, `attach` → log bytes, `wait` → `{'Error': None, 'StatusCode': n}`) and `hook`, then call `execute`;
+- assert `AirflowFailException` for 2 and 3, `DockerContainerFailedException` (retried) for 1, and the last log line as the XCom for 0;
+- import the DAG with `DagBag` (no import errors, no cycles), including a check that the mapped task's operator class is `PipelineDockerOperator`.
 
 ---
 
@@ -748,16 +867,19 @@ ingest_vintage()
 
 | Suite | File | What it proves |
 |---|---|---|
-| Config safety | `tests/test_config.py` | All env files load (**(current code)** local, aws, gcp; aws to be removed). `verify_tls=false`, an `http://` base URL and an unanchored allow-list are rejected. `${VAR}` / `${VAR:-default}` expansion works, and a missing required variable fails. |
-| HTTP security | `tests/test_http_security.py` | The allow-list rejects 10 hostile URL forms (other host, `//host`, `..`, query, fragment, `%2e`, non-archive path, `.exe`, empty). Cross-host redirects are refused. A wrong `Content-Type` or `Content-Length`, or a body that isn't a zip, is rejected. The size cap holds. A connection reset mid-download **resumes with `Range`** and yields the identical bytes. A 503 with `Retry-After` is retried. |
-| Archive safety | `tests/test_zipsafe.py` | Zip-slip (5 variants), symlinks, compression-ratio bombs, member-count and total-size limits, nested zips, bad zips and CRC corruption are all caught. Junk is detected. |
-| Layout knowledge | `tests/test_layout.py` | 25 **real** member names from all three layouts classify correctly. Layout detection, month tokens, date formats, `Processing Date` with a UTF-8 BOM, and manifest parsing work. |
-| Port conformance | `tests/test_stores.py` | The same assertions pass on `LocalObjectStore` **and** `FsspecObjectStore(memory://)`: put/read/stat/list, no silent overwrite, key validation, move, deletes restricted to quarantine, no partial object after a failed stream, cross-backend copy, Parquet sink. SQLite in-memory and file metadata stores also pass. |
-| Logging | `tests/test_logging.py` | Redaction, context fields, the JSON formatter, `setup_logging` writing valid JSON lines with `run_id`. |
-| End-to-end (offline) | `tests/test_pipeline_offline.py` | Against a fake CMS server with L2, sub-folder L2, L3+junk+manifest, partial-release and current zips: duplicate resolution (later wins; archive beats current), the gap, the partial-zip anomaly, row counts, the earliest survey date, an empty quarantine after success. **Idempotent re-run** (0 re-downloads, identical inventory). **Re-publication** stored side by side. A **corrupt zip is quarantined**. An **unsafe catalog URL is rejected without a request**. **Swapping the backend** (local disk + SQLite file vs `memory://` + in-memory SQLite) gives an identical inventory. |
-| Live contract | `tests/test_contract_network.py` (`-m network`) | The archive endpoint shape is as expected; ≥89 monthly entries all pass the allow-list; the current zip `HEAD` shows `Accept-Ranges` and `application/zip`. |
+| Config safety | `tests/common/test_config.py` | Both env files load (dev, prod; the run-lock default; prod has no retention policy). `verify_tls=false`, an `http://` base URL and an unanchored allow-list are rejected. `${VAR}` / `${VAR:-default}` expansion works, and a missing required variable fails. |
+| HTTP security | `tests/ingestion/test_http_security.py` | The allow-list rejects 10 hostile URL forms (other host, `//host`, `..`, query, fragment, `%2e`, non-archive path, `.exe`, empty). Cross-host redirects are refused. A wrong `Content-Type` or `Content-Length`, or a body that isn't a zip, is rejected. The size cap holds. A connection reset mid-download **resumes with `Range`** and yields the identical bytes. A 503 with `Retry-After` is retried. |
+| Archive safety | `tests/ingestion/test_zipsafe.py` | Zip-slip (5 variants), symlinks, compression-ratio bombs, member-count and total-size limits, nested zips, bad zips and CRC corruption are all caught. Junk is detected. |
+| Layout knowledge | `tests/ingestion/test_layout.py` | 25 **real** member names from all three layouts classify correctly. Layout detection, month tokens, date formats, `Processing Date` with a UTF-8 BOM, and manifest parsing work. |
+| Port conformance | `tests/common/test_stores.py` | The same assertions pass on `LocalObjectStore` **and** `FsspecObjectStore(memory://)`: put/read/stat/list, no silent overwrite, key validation, move, deletes restricted to quarantine, no partial object after a failed stream, cross-backend copy, Parquet sink. SQLite in-memory and file metadata stores also pass. |
+| Logging | `tests/common/test_logging.py` | Redaction, context fields, the JSON formatter, `setup_logging` writing valid JSON lines with `run_id`. |
+| End-to-end (offline) | `tests/ingestion/test_pipeline_offline.py` | Against a fake CMS server with L2, sub-folder L2, L3+junk+manifest, partial-release and current zips: duplicate resolution (later wins; archive beats current), the gap, the partial-zip anomaly, row counts, the earliest survey date, an empty quarantine after success. **Idempotent re-run** (0 re-downloads, identical inventory). **Re-publication** stored side by side, and the new copy is the one `selected`. A **corrupt zip is quarantined**. An **unsafe catalog URL is rejected without a request**. **Swapping the backend** (local disk + SQLite file vs `memory://` + in-memory SQLite) gives an identical inventory. |
+| Run lock | `tests/common/test_run_lock.py` | Exclusive between runs, re-entrant within a run, only the holder releases, `--force` breaks a lock, 8 concurrent acquirers give exactly one winner, a lock older than the threshold is taken over (and a younger one is not). Also runs on Postgres with `PI_TEST_POSTGRES_URL`. |
+| DAG tasks | `tests/ingestion/test_dag_tasks.py` | The §12.6 task sequence with one Context per task and a shared Airflow run id: same inventory as a single run; a quiet day maps 0 zips, a new zip maps 1; retries are no-ops; a failed extract stays pending; a failed or quarantined re-publication stays in the landing backlog until it succeeds; another run is blocked; a task without its run's lock is refused; a stale lock is taken over; the run manifest (and a retry adds one); deterministic tie-breaking; exit codes 0/1/2. |
+| CLI | `tests/ingestion/test_cli.py` | Through `main()`: the `entries --pending` JSON last line, mapped-task commands, one shipped log per task, report retry, the `lock` commands and stale takeover, a read-only `catalog` (stores nothing, ignores the lock, contract change → 2), exit 3 for bad run ids, steps, dates, flags, commands, empty or stale `--entry-ids`. |
+| Live contract | `tests/ingestion/test_contract_network.py` (`-m network`) | The archive endpoint shape is as expected; ≥89 monthly entries all pass the allow-list; the current zip `HEAD` shows `Accept-Ranges` and `application/zip`. |
 
-Run: `pytest` (offline, under 1 s) and `pytest -m network`.
+Run: `uv run pytest` (offline: 149 passed, 6 Postgres variants skipped; `tests/ingestion/conftest.py` fails any test that tries real HTTP), `PI_TEST_POSTGRES_URL=… uv run pytest` (155) and `uv run pytest -m network` (2).
 
 ---
 
@@ -766,7 +888,9 @@ Run: `pytest` (offline, under 1 s) and `pytest -m network`.
 | Situation | Action |
 |---|---|
 | First run | `precursor-ingest step1`. It downloads about 3.1 GB of zips and extracts about 18 GB of in-scope CSVs into `data/`. Review `data/reports/step1/latest/01_inventory_summary.md` (Checkpoint 1). |
-| Monthly refresh | `precursor-ingest step1`. Unchanged zips are `skipped`; only new zips (and a new `current` entry) are downloaded. A catalog diff shows what changed. |
+| Monthly refresh | In production, the `cms_nh_pipeline` DAG runs it when `check_release` proceeds (spec §15). By hand: `precursor-ingest step1`. Unchanged zips are `skipped`; only new zips (and a new `current` entry) are downloaded. A catalog diff shows what changed. |
+| Run lock held (`lock status`) | A DAG run is active, or one was killed. A lock older than 12 h is taken over automatically; otherwise `lock release --run-id x --force` once you are sure no run is active. |
+| Exit 2 in Airflow | Not retried (data problem). Read the stderr list and `anomalies`, fix the cause (e.g. a quarantined zip), then let the next scheduled run proceed (the landing backlog keeps it pending) or trigger a run with `run_check_release=false`. |
 | `republished` warning | Compare the two zips' inventories (`header_hash`, `row_count`). The newest copy is what downstream uses, and the original is kept for audit. |
 | `quarantined` / `failed` | Inspect `quarantine/cms_nh/<run_id>/…` and the `download_log.detail`. Re-run; transient network failures resolve on their own. |
 | `rejected` | The catalog advertised a URL outside the allow-list. **Do not widen the regex without review.** |
@@ -843,12 +967,13 @@ There were **no** failed, quarantined, rejected or re-published downloads, and n
 
 **Limitations:**
 - **Archive coverage** is whatever CMS kept. Seven data months are permanently missing (§4.2). L1 zips (before 2020-08) have no `Processing Date` and are outside scope.
-- **Immutability on GCS** depends on the landing bucket's retention policy, which must be set up with Terraform (§9.9).
+- **Immutability on GCS** comes from the code's never-overwrite rule plus object versioning, not from a retention policy (§9.9).
 - **The archive endpoints are undocumented.** The contract tests detect changes but can't prevent them.
 - **Row counts for `other` (out-of-scope) files** aren't computed, because those files aren't extracted. Set `extract.only_in_scope: false` if needed.
 - **`annual_theme` bundles** are not processed; they only duplicate the monthly zips.
 - **Stale refreshes are not detected in Step 1.** Vintage 2025-09 repeats 2025-07 content for four tables (§0.4). Step 2 adds the check.
-- **The 2026-10-08 decisions (§0) are not yet in the code:** BigQuery metadata adapter, append-only writes, run lock, warehouse port, DuckDB/AWS removal, per-run manifests. See §0.3.
+- **Not yet in the code** (§0.3): BigQuery metadata adapter, append-only writes (D5), warehouse port. Done: run lock (D8), DuckDB/S3 removal (D1/D2), the ingestion manifest (D11).
+- **A killed run blocks for up to 12 h** (`run_lock.stale_after_hours`) before its lock is taken over (§12.6).
 
 **What Step 2 consumes:**
 - **Files to load:** `inventory` rows with `status = 'selected'` give exactly one extracted CSV per `(table, vintage_month)`, with `extracted_key`, `processing_date` (the guide's `cutoff_date`), `header_hash` and `row_count`. These row counts are the reconciliation targets for the bronze load.

@@ -1,8 +1,19 @@
 # Step 1: to-do backlog
 
-These are improvements to the built Step 1 pipeline, borrowed from an earlier per-table ingestion design (2026-10-08 comparison). Status: **not started.**
+These are improvements to the built Step 1 pipeline, borrowed from an earlier per-table ingestion design (2026-10-08 comparison).
 
-They come on top of the architecture changes already listed in `STEP1_DATA_INGESTION_PIPELINE.md` §0.3: BigQuery metadata adapter, append-only writes, run lock, warehouse port, DuckDB/AWS removal, per-run manifests.
+**Status after the recheck against `DATA_PIPELINE_SPEC.md` (2026-10-16).** The spec wins where this file differs.
+
+| Item | Status | What the spec changed |
+|---|---|---|
+| T1 release sensor | **Moved** to the `check_release` node (spec §2.0), outside Step 1 | Decisions READY / RESUME / CHANGED / PARTIAL / NO_CHANGE; it gates the one DAG `cms_nh_pipeline` and can be skipped (`run_check_release=false`). Step 1 provides `inventory.landing_backlog()` for its CHANGED / RESUME inputs. |
+| T2 metastore CSV fallback | Parked | The spec keeps one zip code path for history and new months (§0.8). Revisit only if the archive endpoints break. |
+| T3 `--dry-run` | Exit codes **done**; `--dry-run` **dropped** | Development runs use `run_check_release=false`, and every node is idempotent, so a dry run adds little. |
+| T4 drift check at ingest | **Narrowed** | The spec fails on unmapped headers in silver (fail closed, exit 2). At most, add a report-only header-set check to Checkpoint 1, which already lists the header sets. |
+| T5 GCS | Retention part **decided**; race open | No bucket retention policy (spec §0.6 single root; `STEP1_DATA_INGESTION_PIPELINE.md` §9.9). The `if_generation_match=0` precondition is still open, and low-risk under the run lock. |
+| T6 | Lock expiry **done**; `resolve` write-back **moot**; run ids with `:`/`+` kept as a nit | The one-DAG lock leaves no concurrent `resolve`. |
+
+They come on top of the architecture changes still open in `STEP1_DATA_INGESTION_PIPELINE.md` §0.3: BigQuery metadata adapter, append-only writes, warehouse port. (Done: run lock, DuckDB/S3 removal, the ingestion manifest.)
 
 **Explicitly not adopted from that design:**
 - loading raw tables into BigQuery (conflicts with decision D3: BigQuery holds only the final dataset);
@@ -11,7 +22,9 @@ They come on top of the architecture changes already listed in `STEP1_DATA_INGES
 
 ---
 
-## T1. Metastore release sensor (the trigger)
+## T1. Metastore release sensor (the trigger): moved to the `check_release` node (spec §2.0)
+
+> The text below is the original 2026-10-08 idea. The spec's §2.0 replaces it: it adds RESUME and CHANGED, appends to `vintage_registry`, and gates `cms_nh_pipeline` instead of starting `ingest_vintage`.
 
 **Why.** Detect a new monthly release cheaply, through the documented API, before starting a full run. Today the pipeline always runs the archive discovery; this tells it *when* to.
 
@@ -29,7 +42,7 @@ They come on top of the architecture changes already listed in `STEP1_DATA_INGES
 
 ---
 
-## T2. Per-table download fallback
+## T2. Per-table download fallback (parked)
 
 **Why.** The archive endpoints are undocumented. If CMS changes them, monthly runs should continue while the archive path is fixed.
 
@@ -49,7 +62,7 @@ They come on top of the architecture changes already listed in `STEP1_DATA_INGES
 
 ---
 
-## T3. CLI polish: `--dry-run` and clearer exit codes
+## T3. CLI polish: `--dry-run` and clearer exit codes (exit codes done; `--dry-run` dropped 2026-10-16)
 
 **Why.** Safe previews, and an orchestrator that can tell "data problem" apart from "bug".
 
@@ -62,15 +75,17 @@ They come on top of the architecture changes already listed in `STEP1_DATA_INGES
   | 0 | Success, or nothing new |
   | 1 | Error (exception, network failure after retries, storage error) |
   | **2** | **Validation / drift failure:** quarantined zip, rejected URL, unmapped header (T4), missing in-scope table in a new release |
-  | 3 | Config error (today this is 2; it moves to 3) |
+  | 3 | Config or usage error |
 
 - Document the codes in `--help` and in the Step 1 doc §2. Airflow treats any non-zero code as a failure, but alerts can say which kind.
 
 **Done when:** tests assert each exit code on the matching fixture, and `--dry-run` leaves the object store byte-identical.
 
+**Done (2026-10-13):** the codes above are implemented for every command (`pipeline.py` `EXIT_*`; click's own usage errors are mapped from 2 to 3) and tested in `tests/ingestion/test_cli.py` and `test_dag_tasks.py`. "Unmapped header" waits for T4, and "missing in-scope table" is still only an anomaly. **Open:** `--dry-run`.
+
 ---
 
-## T4. Early schema-contract (drift) check after extraction
+## T4. Early schema-contract (drift) check after extraction (narrowed: silver owns the failure, spec §3.2)
 
 **Why.** Catch CMS column renames or additions at ingest time, before Step 2 runs, with the same effective-dated contract Step 2 uses.
 
@@ -89,10 +104,18 @@ They come on top of the architecture changes already listed in `STEP1_DATA_INGES
 
 ## T5. Follow-ups from the PR #1 review (not blocking)
 
-- **GCS "never overwrite" can race.** `exists()` then upload is two calls; two concurrent runs could both write. Use a GCS precondition (`if_generation_match=0`) in the fsspec adapter, plus the run lock (D8).
-- **Immutability relies on a bucket retention policy** (`immutable: bucket_retention_policy` in `configs/prod.yaml`) that `infra/terraform/modules/gcs` does not provision yet. Add it to the infra list.
+- **GCS "never overwrite" can race.** `exists()` then upload is two calls; two concurrent runs could both write. The run lock (D8, done 2026-10-13) now stops two runs from overlapping. Inside one run, keys are per-entry, so the race needs a bug to happen. A GCS precondition (`if_generation_match=0`) in the fsspec adapter is still the belt-and-braces fix.
+- ~~**Immutability relies on a bucket retention policy**~~ **Decided 2026-10-16:** no retention policy on the single root (spec §0.6). Object versioning on, a 30-day lifecycle rule on `quarantine/`, and the code's never-overwrite rule for `landing/`. `prod.yaml` says `immutable: object_versioning`. Terraform (`infra/terraform/modules/gcs`) must provision versioning and the lifecycle rule.
 
 ---
 
-## Suggested order
-**T4 → T3 → T1 → T2.** T4 and T3 are small and protect every run. T1 is needed for the automated monthly trigger (Airflow). T2 is insurance and can follow last.
+## T6. Follow-ups from the Airflow-readiness review (2026-10-13, not blocking)
+
+- **Lock expiry: done (2026-10-16).** `lock acquire` and standalone runs take over a lock older than `run_lock.stale_after_hours` (default 12) with a WARNING; `holder` records it.
+- **Moot under the one-DAG lock (2026-10-16):** `resolve` writes back whole inventory rows it read at its start. If someone runs `resolve` by hand with a DAG's run id while that run's mapped inventory tasks are still running, it can overwrite their fresh rows. The next run flags such a zip as pending again. Fix: update only `status` / `status_detail`.
+- **Run ids with `:` and `+`** (Airflow's) appear in object keys (`reports/step1/run=…/`). This works on GCS and POSIX disks. If it ever bothers a tool, map them to `-` when building keys.
+
+## Suggested order (2026-10-16)
+1. T1 as the `check_release` node (with the bronze/silver/gold port, spec §15), using `landing_backlog()`.
+2. T5 `if_generation_match=0`, when the GCS adapter is exercised for real.
+3. T4 report-only, if wanted. T2 stays parked.

@@ -109,7 +109,9 @@ inventory = Table(
     Column("compressed_size_bytes", BigInteger),
     Column("crc32", String(8)),
     Column("in_manifest", Boolean),
-    Column("status", String(32)),  # selected|duplicate_vintage|out_of_scope|other
+    # pending (inventoried, not yet resolved) | selected | duplicate_vintage | out_of_scope | other |
+    # junk | unresolved. Downstream reads only `selected`, and only when no row is `pending`.
+    Column("status", String(32)),
     Column("status_detail", Text),
     Column("run_id", String(64)),
     Column("inventoried_at", String(32)),
@@ -140,6 +142,16 @@ run_log = Table(
     Column("finished_at", String(32)),
     Column("duration_s", String(16)),
     Column("detail", Text),
+)
+
+# Run lock (decision D8): at most one row per lock name; the primary key makes acquiring atomic.
+run_lock = Table(
+    "run_lock",
+    metadata,
+    Column("lock_name", String(64), primary_key=True),
+    Column("run_id", String(64)),
+    Column("holder", String(255)),  # host:pid of the process that acquired it
+    Column("acquired_at", String(32)),
 )
 
 TABLES = {t.name: t for t in metadata.sorted_tables}

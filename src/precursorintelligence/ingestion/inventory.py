@@ -16,12 +16,13 @@ import json
 import logging
 import zipfile
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
 import polars as pl
 
 from .context import Context, utc_now
-from .download import last_good_download
+from .download import download_backlog, last_good_download
 from .layout import (
     OTHER,
     TableClassifier,
@@ -198,3 +199,50 @@ def iter_good_downloads(
             log.warning("no successful download for %s; skipping downstream tasks", e.entry_id)
             continue
         yield e, row
+
+
+def pending_entries(ctx: Context, entries: list[CatalogEntry]) -> list[CatalogEntry]:
+    """Entries whose latest stored zip still needs ``extract`` + ``inventory``.
+
+    This is the work list for the per-zip DAG tasks: it is empty when nothing new was downloaded, so a
+    quiet day maps zero tasks. A zip counts as done only when its inventory rows carry the same sha256,
+    every in-scope CSV row points at an extracted file, and those ``extracted_files`` rows still exist.
+    """
+    extracted = {(r["entry_id"], r["zip_sha256"]) for r in ctx.metadata.read("extracted_files")}
+    inventoried, incomplete = set(), set()
+    for r in ctx.metadata.read("inventory"):
+        key = (r["entry_id"], r["zip_sha256"])
+        inventoried.add(key)
+        in_scope_csv = r["table_name"] not in (OTHER, JUNK) and r["file_name"].lower().endswith(
+            ".csv"
+        )
+        if in_scope_csv and (not r.get("extracted_key") or key not in extracted):
+            incomplete.add(key)
+    out = []
+    for e, row in iter_good_downloads(ctx, entries):
+        key = (e.entry_id, row["sha256"])
+        if key not in inventoried or key in incomplete:
+            out.append(e)
+    return out
+
+
+@dataclass(frozen=True)
+class LandingBacklog:
+    """Landing work not finished yet. ``check_release`` proceeds (CHANGED / RESUME) while it is not empty."""
+
+    downloads: list[str]  # entry ids: never stored, or re-published since the last good download
+    extractions: list[str]  # entry ids: stored zip not yet extracted + inventoried
+    pending_inventory_rows: int  # inventoried but not yet resolved
+
+    @property
+    def empty(self) -> bool:
+        return not (self.downloads or self.extractions or self.pending_inventory_rows)
+
+
+def landing_backlog(ctx: Context, entries: list[CatalogEntry]) -> LandingBacklog:
+    """Read-only summary of unfinished landing work for ``entries`` (usually ``select(ctx)``)."""
+    return LandingBacklog(
+        downloads=[e.entry_id for e in download_backlog(ctx, entries)],
+        extractions=[e.entry_id for e in pending_entries(ctx, entries)],
+        pending_inventory_rows=len(ctx.metadata.read("inventory", {"status": "pending"})),
+    )

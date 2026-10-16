@@ -22,6 +22,8 @@ def test_repo_configs_load_for_every_env(monkeypatch):
         s = load_settings(env)
         assert s.sources.security.verify_tls is True
         assert s.env.env == env
+        assert s.env.run_lock.stale_after_hours == 12
+    assert load_settings("prod").env.object_store.immutable != "bucket_retention_policy"  # §0.6
 
 
 def test_tls_verification_cannot_be_disabled(tmp_path):

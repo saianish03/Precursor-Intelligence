@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -186,7 +186,7 @@ class SourcesConfig(BaseModel):
 
 
 class ObjectStoreCfg(BaseModel):
-    kind: str  # local | memory | s3 | gcs | <any registered adapter>
+    kind: str  # local | memory (tests) | gcs | <any registered adapter>
     root: str
     immutable: str | None = None
     storage_options: dict[str, Any] = Field(default_factory=dict)
@@ -208,12 +208,22 @@ class LoggingCfg(BaseModel):
     console_format: Literal["text", "json"] = "text"
 
 
+class RunLockCfg(BaseModel):
+    # A lock older than this was left by a killed run and may be taken over; null = never.
+    stale_after_hours: float | None = Field(default=12.0, gt=0)
+
+    @property
+    def stale_after(self) -> timedelta | None:
+        return None if self.stale_after_hours is None else timedelta(hours=self.stale_after_hours)
+
+
 class EnvConfig(BaseModel):
     env: str
     object_store: ObjectStoreCfg
     metadata_store: MetadataStoreCfg
     table_sink: TableSinkCfg = Field(default_factory=TableSinkCfg)
     logging: LoggingCfg = Field(default_factory=LoggingCfg)
+    run_lock: RunLockCfg = Field(default_factory=RunLockCfg)
 
 
 class Settings(BaseModel):

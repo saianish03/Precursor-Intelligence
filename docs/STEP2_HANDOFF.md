@@ -1,7 +1,12 @@
 # Step 2 handoff: bronze load, schema harmonisation, column pruning
 
+> **Read [`DATA_PIPELINE_SPEC.md`](DATA_PIPELINE_SPEC.md) first.** It is the implementation reference since 2026-10-15; where this handoff's *recommendations* differ from it, the spec wins.
+> - The *measured facts* below still stand, except the ones marked *(corrected 2026-10-15)*: the penalty event key, the stale-refresh rule, MDS freshness, bronze republish status, and how Step 2 is orchestrated (one DAG, not an asset-scheduled `build_silver` DAG).
+> - The sample run that tested every rule is `../sample_run_log.md` (project folder, outside the repo).
+
 **Audience:** whoever designs and builds Step 2 of `dataset/Dataset_build_guide_v1.md` (§3: "Load to bronze, harmonize schemas, prune columns").
 **Status of inputs:** Step 1 is complete. 427 selected CSVs cover 7 tables × 61 vintages (2021-01 → 2026-08). Checkpoint 1 is awaiting approval.
+**Orchestration:** since 2026-10-13 Step 1 runs as Airflow tasks: a shared run id, a run lock, a per-zip task list and exit codes. **§14 says how Step 2 plugs in; read it before writing the Step 2 CLI or DAG.**
 **How this was produced:**
 - every fact below was **measured on the 427 extracted files** (full scans, not samples);
 - the CMS data dictionary (July 2026) was cross-checked;
@@ -19,7 +24,7 @@
 - **No warehouse for intermediate layers:** bronze and silver are never loaded into BigQuery or any database, and there is no DuckDB table adapter.
 - **Metadata writes:** append-only with a "latest version" view; batch load jobs, never streaming inserts.
 - **Access pattern:** read once and write once per task.
-- **Concurrency:** one run at a time, enforced by a run lock.
+- **Concurrency:** one run at a time, enforced by the run lock. **Implemented:** the `data_pipeline` lock in the metadata store; Step 2 must take the same lock (§14.2).
 - **Audit:** a per-run JSON manifest is written by each layer.
 
 ---
@@ -37,10 +42,10 @@
 | 7 | **Inspection Dates has 5 survey types**, including fire safety. It also lists **complaint surveys only if they resulted in a citation** (data dictionary). | Map them to the guide's enum. Note in the feature registry that "complaint surveys" means *cited* complaint surveys. |
 | 8 | **Every date is ISO `YYYY-MM-DD`** in all 427 files: Survey, Correction, Penalty, Denial start, Date First Approved, Rating-cycle and Processing Dates. | One date parser. Anything unparseable is a real anomaly and should be counted. |
 | 9 | **`Processing Date` is constant within each file and always the 1st of the month.** Events in a file are dated on or before it, except in **3 vintages**: up to 9 days later in survey_dates 2025-10 and 2025-12, and health_citations 2025-12. They are never later than the zip's publish date. | `cutoff_date = processing_date` (guide). Feature filters must use `event_date <= cutoff_date`; those few later events then correctly fall into labels. |
-| 10 | **Quality-measure codes change:** 405→480 and 453→479 (2025-02), 471 dropped (2024-11), and **419→481 (antipsychotic, 2026-02)**. That last one is *not* stable, despite what guide §6 expects. MDS values were also **frozen for about a year**: `Measure Period = 2023Q3-2024Q2` in every vintage from 2024-10 to 2025-09. | Store `measure_code` as is in silver; do the bridging in Step 5. Keep `measure_period` so freshness is visible. |
+| 10 | **Quality-measure codes change:** 405→480 and 453→479 (2025-02), 471 dropped (2024-11), and **419→481 (antipsychotic, 2026-02)**. That last one is *not* stable, despite what guide §6 expects. ~~MDS values were also frozen for about a year~~ *(corrected 2026-10-15)*: MDS measure periods **advance quarterly, per measure**. Only the annual flu-vaccine measures 454 and 472 stayed at `2023Q3-2024Q2` for vintages 2024-10 → 2025-09; in 2024, the function measures (401, 405, 451, 453, 471) lagged 2–3 quarters. | Store `measure_code` as is in silver; do the bridging in Step 5. Keep `measure_period` (start/end) per row so freshness is visible. |
 | 11 | **The 2026-07 Provider Info file selected by Step 1 comes from the 2026-08-06 partial re-release.** Against the 2026-07-29 original it changes case-mix and adjusted staffing for about 14,200 of 14,693 facilities. Reported staffing changed for 1 facility. | See §7.4. The 2026-07 vintage only appears in **scoring** rows, so this choice does not affect training. |
 | 12 | **No numeric column contains text tokens.** There is no `Data Not Available` in numeric fields and no thousands separators. Missing values are empty strings. The **only** text sentinel is `Automatic Sprinkler Systems…` = `Data Not Available`. | Empty → null. The sentinel → null plus a flag. Keep footnote columns: they hold the missing reason. |
-| 13 | **Stale refresh:** vintage **2025-09** carries a new `Processing Date`, but its health citations, penalties, survey dates and claims QMs are **identical to 2025-07**, ignoring the date column. Only Provider Info and MDS QMs changed; 2025-08 was never published. | Hash each table's content (excluding `Processing Date`). Flag `stale_refresh` per (table, vintage) and keep the data, because it is what CMS published at that cutoff (§7.6). |
+| 13 | **Stale refresh:** vintage **2025-09** carries a new `Processing Date`, but its health citations, penalties, survey dates and claims QMs are **identical to 2025-07**, ignoring the date column. Only Provider Info and MDS QMs changed; 2025-08 was never published. | Hash each table's content (excluding `Processing Date`). *(corrected 2026-10-15)* Record `content_unchanged` per (table, vintage) as information only: it is normal for the citation lookup and the QM tables. Flag **`stale_refresh` per vintage**, only when **all three event tables** (citations, survey dates, penalties) are unchanged; that is 2025-09 alone. Keep the data, because it is what CMS published at that cutoff (§7.6; spec §3.1). |
 
 ---
 
@@ -73,7 +78,7 @@ In code, reuse Step 1's ports instead of opening paths directly:
 from precursorintelligence.common.config import load_settings
 from precursorintelligence.ingestion.context import build_context
 ctx = build_context(load_settings("dev"))
-rows = ctx.metadata.read("inventory", {"status": "selected"})
+rows = ctx.metadata.read("inventory", {"status": "selected"})   # only while holding the run lock (§14.2)
 with ctx.object_store.open_read(rows[0]["extracted_key"]) as f:
     raw = f.read()                                     # bytes; decode per §3
 ctx.table_sink.write_partition("provider_info", {"vintage": "2021-01"}, df)   # -> bronze/provider_info/vintage=2021-01/
@@ -150,7 +155,7 @@ Constant-per-file columns compress to almost nothing in Parquet.
 - a CMS re-upload of the same zip;
 - or a newer zip for that month.
 
-The selected `zip_sha256` then differs from the bronze partition's. Bronze **reloads that partition** (overwrite) and appends a `superseded` record, and the matching silver partition (and anything downstream) is marked for rebuild. Old bronze versions are not kept, because landing retains both raw zips.
+The selected `zip_sha256` then differs from the bronze partition's. Bronze **reloads that partition** (overwrite) and records status `reloaded` *(corrected 2026-10-15)*: there is no `superseded` status. When the content differs too, it sets `revised_after_publication` for that (table, vintage). The matching silver partition, and everything downstream, is rebuilt. Old bronze versions are not kept, because landing retains both raw zips. A file that fails a check is written nowhere and recorded `failed` (spec §3.1, fail closed).
 
 ---
 
@@ -328,7 +333,8 @@ Domains below are **observed across all 61 vintages**. Counts are rows, and the 
 - **Rule for silver:**
   1. Keep every row.
   2. Add `dup_seq` = occurrence number within `(ccn, penalty_date, penalty_type, fine_amount, payment_denial_start_date)` in that vintage.
-  3. Use `penalty_event_key = fine_id` when present, else `(…5 fields…, dup_seq)`.
+  3. *(corrected 2026-10-15)* Use `penalty_event_key = (…5 fields…, dup_seq)` **always**. **Never** key on `fine_id`: from 2026-06 the same fine would get a new key, and the ledger would count it twice (38 of 190 sample events). Keep `fine_id` as an attribute.
+  4. *(corrected 2026-10-15)* For labels and posting lag, the **event** is the revision group `(ccn, penalty_date, penalty_type)`. CMS revises fine amounts (23k of 37k fines show more than one amount), so any key containing `fine_amount` dates a fine from its last amount (spec §3.5, §4.2, §5).
 - **Regime shift:** per-survey fine counts step up from 2025-10. Flag this for the enforcement features (`era`) and for `y_pen12`.
 
 ---
@@ -401,7 +407,10 @@ The most recent survey in a vintage is typically 1–3 weeks before `processing_
 2025-08 was never published, so CMS appears to have re-stamped the July event files as September.
 
 **Rule for Step 2:**
-- **Detect:** compute `content_hash` per (table, vintage) over the data columns only, and set `stale_refresh = (content_hash == previous vintage's content_hash)`. Record it in the metadata store and in Checkpoint 2.
+- **Detect** *(corrected 2026-10-15)*: compute `content_hash` per (table, vintage) over the data columns only, and set `content_unchanged = (content_hash == previous vintage's content_hash)`.
+  - **Do not** call that per-table flag "stale": `citation_lookup` is byte-identical to the previous vintage in 50 of 60 cases, and the QM tables refresh quarterly.
+  - Set **`stale_refresh` per vintage** when all three event tables are unchanged. On the full archive, only 2025-09 qualifies.
+  - Record both in the metadata store and in Checkpoint 2.
 - **Keep the data.** It is what CMS published as of that cutoff, so point-in-time features for t = 2025-09 are still correct.
 - **Ledgers (Step 3):** stale vintages add no new events, and `first_seen_vintage` is unaffected.
 - **Monitoring and automation:** the team plan treats a stale release as "no new labels, skip retraining". The flag makes that decision possible.
@@ -423,7 +432,7 @@ The most recent survey in a vintage is typically 1–3 weeks before `processing_
 | 521, 522, 551, 552 | claims | all 61 | stable | Rehospitalisation, ED visits, hospitalisations |
 
 **Freshness warning.** `Measure Period` shows how stale each value is:
-- **MDS stayed at `2023Q3-2024Q2` from 2024-10 to 2025-09**, so 11 vintages share the same underlying quarters.
+- *(corrected 2026-10-15)* MDS periods advance quarterly per measure. The annual flu-vaccine measures 454 and 472 stayed at `2023Q3-2024Q2` for 2024-10 → 2025-09; the function measures lagged 2–3 quarters in 2024. An earlier version of this line wrongly said every MDS measure was frozen.
 - Claims periods also advance in jumps of 3–6 months.
 
 Store `measure_period_start/end` in silver. Step 7 can then compute `qm_age_months = cutoff − measure_period_end`, so the model isn't fooled by repeated values.
@@ -434,7 +443,7 @@ Store `measure_period_start/end` in silver. Step 7 can then compute `qm_age_mont
 
 | Guide reference | What the guide says | What the data shows → recommendation |
 |---|---|---|
-| §2e | "penalties … count exact-duplicate rows and drop them" | They are distinct fines (§6). **Keep them**, add `dup_seq`, and key on `fine_id` when available. |
+| §2e | "penalties … count exact-duplicate rows and drop them" | They are distinct fines (§6). **Keep them** and add `dup_seq`. *(corrected 2026-10-15)* Row key = 5 fields + `dup_seq`, never `fine_id`; event = `(ccn, penalty_date, type)`. |
 | §2d `survey_type` | Map to an enum "from observed values" | For **citations**, `Survey Type` is always `Health`; use the 3 flag columns. The enum applies to `survey_dates.Type of Survey`. |
 | §2d `scope_severity` | "A–L" | Only B–L occurs. A stays valid, but its count is 0. |
 | §2d `ccn` | "left-pad to 6" | Source CCNs are already 6 characters and may be alphanumeric. Padding is a no-op; validate `^[0-9A-Z]{6}$`. |
@@ -477,9 +486,9 @@ acquire run lock ─▶ select_files ─▶ load_bronze[file]* ─▶ map_check 
 | Inputs | `inventory where status='selected'` (§1.2). Never re-derive vintages. |
 | Bronze | As in §2.1. `ctx.table_sink.write_partition(table, {"vintage": vm}, df_all_string)` on local disk or GCS. Skip when the partition's `_zip_sha256`/`_header_hash` match the selected file; reload (overwrite) when they differ (D10). |
 | Silver | One Parquet dataset per table on the same object store, partitioned by `vintage_month`, keep-list columns only, typed. **Not loaded into BigQuery or Postgres** (D2/D3). Silver partitions marked stale by a bronze reload are rebuilt. |
-| Metadata | New append-only tables in the metadata store (Postgres locally, BigQuery `precursorintelligence_ops` in GCP): `bronze_files` (rows in/out, blank rows, encoding, fingerprints, status `loaded`/`skipped`/`superseded`), `silver_partitions` (table, vintage, source fingerprints, `content_hash`, `stale_refresh`, rebuild flag), `harmonize_checks`. Each task **reads these once and writes once in batch**; BigQuery writes use load jobs. |
-| Run lock and manifest | Use Step 1's run lock (GCS lock object / Postgres advisory lock). Write `metadata/silver/run_date=YYYY-MM-DD/silver_run_<ts>.json` with inputs, outputs, fingerprints and counts (D11). |
-| Orchestration | Airflow 3 `build_silver` DAG triggered by the Step 1 landing Asset; tasks run the `precursor-pipeline` image via `DockerOperator` (team tech stack). |
+| Metadata | New append-only tables in the metadata store (Postgres locally, BigQuery `precursorintelligence_ops` in GCP): `bronze_files` (rows in/out, blank rows, encoding, fingerprints, `content_unchanged`, status `loaded`/`reloaded`/`failed`), `vintage_flags` (`stale_refresh`, `revised_after_publication`), `silver_partitions` (table, vintage, source fingerprints, config hash, status `built`/`failed`), `dq_results` *(corrected 2026-10-15)*. Each task **reads these once and writes once in batch**; BigQuery writes use load jobs. |
+| Run lock and manifest | Use Step 1's run lock: `RunLock(ctx.metadata, LOCK_NAME)`, the same `data_pipeline` lock, implemented as a `run_lock` row (§14.2). Write `metadata/silver/run_date=YYYY-MM-DD/silver_run_<ts>.json` with inputs, outputs, fingerprints and counts (D11). |
+| Orchestration | *(corrected 2026-10-15)* **One DAG** `cms_nh_pipeline` with 5 TaskGroups: `check_release → ingestion → bronze → silver → gold` (spec §15, decision §14 #19). Bronze and silver are nodes in it, **not** a separate asset-scheduled `build_silver` DAG. Tasks run the `precursor-pipeline` image via `DockerOperator`. Copy Step 1's CLI contract: `--run-id`, a JSON task list, exit codes (2/3 not retried). |
 | Logging | Reuse `obs.logging` and `pipeline.task_scope` (adds `run_id`, `task`, `table`, `vintage` context). |
 | Performance | Each file fits in memory. Use 3–4 parallel workers. Expect minutes, not hours, for the 18 GB. |
 | Tests | Fixtures from real headers (`raw_headers_by_vintage.csv`): one per era, a cp1252 file with `0x92`, a blank-row file, a penalties file with duplicate fines, an alphanumeric CCN, a stale-refresh pair, and a republished file forcing a partition reload. The metadata tests run on SQLite and on local Postgres. |
@@ -502,7 +511,7 @@ acquire run lock ─▶ select_files ─▶ load_bronze[file]* ─▶ map_check 
 | Column availability | Matches §4.2: turnover and weekend from 2022-01, chain from 2023-06, IDR from 2023-01, lat/long from 2023-08, `fine_id` from 2026-06, `urban` from 2025-10 |
 | Post-cutoff events | 217 rows in 3 vintages (§7.2), reported, not dropped |
 | 2026-07 provider decision | Recorded (§7.4) |
-| Stale refresh | Exactly 4 flags, all in vintage 2025-09 (health_citations, penalties, survey_dates, claims_qm vs 2025-07); none elsewhere (§7.6) |
+| Stale refresh | *(corrected 2026-10-15)* `stale_refresh` for exactly one vintage, 2025-09. There, health_citations, penalties and survey_dates (and claims_qm) equal 2025-07. `content_unchanged` is also expected for many citation_lookup and QM vintages (§7.6). |
 | Lineage columns | Present on every bronze row; lineage types as in §2.1; `_zip_sha256` matches `inventory.zip_sha256` for every partition |
 | Idempotency | A second run loads 0 bronze partitions and rebuilds 0 silver partitions; a forced republish reloads exactly the affected partition |
 | Run manifest | `metadata/silver/run_date=…/silver_run_<ts>.json` written, with input and output fingerprints |
@@ -510,6 +519,11 @@ acquire run lock ─▶ select_files ─▶ load_bronze[file]* ─▶ map_check 
 ---
 
 ## 12. Open decisions for the team
+
+> *(corrected 2026-10-15)* The current status of every decision is in [`DATA_PIPELINE_SPEC.md`](DATA_PIPELINE_SPEC.md) §14.
+> - **Decided 2026-10-15:** #2 (the later zip wins: keep the corrected 08-06 file) and #8 (`landing/` + `bronze/`).
+> - **Recommended:** #1 (`dup_seq`, key never `fine_id`) and #5 (per-vintage partitions + `citation_lookup_versions`).
+> - **Still open:** #3, #4, #6, #7.
 
 1. **Penalties:** confirm the "keep duplicates + `dup_seq`" rule (recommended). This overrides guide §2e.
 2. **2026-07 Provider Info:** keep the corrected 08-06 file (recommended; affects scoring rows only) or the original 07-29.
@@ -541,6 +555,68 @@ acquire run lock ─▶ select_files ─▶ load_bronze[file]* ─▶ map_check 
 | `value_maps.draft.yaml` | Survey-type enum, SFF / sprinkler / council maps, ownership group rule, Y/N map, citation survey-type rule |
 
 Related documents:
-- `docs/STEP1_DATA_INGESTION_PIPELINE.md`: Step 1 design and results.
+- `docs/STEP1_DATA_INGESTION_PIPELINE.md`: Step 1 design and results; §12.6 has the ingestion TaskGroup's task contract (the standalone `ingest_vintage` DAG there is superseded by `DATA_PIPELINE_SPEC.md` §15).
 - `data/reports/step1/latest/01_inventory_summary.md`: the Checkpoint 1 report.
 - `dataset/Nursing Homes Current Data/NH_Data_Dictionary.pdf`: CMS data dictionary, July 2026; Tables 2–15 cover columns and footnotes, Table 16 the revision history.
+
+---
+
+## 14. Running in Airflow: what Step 1 provides and how Step 2 plugs in (added 2026-10-13)
+
+Step 1 is the `ingestion` TaskGroup of the one DAG `cms_nh_pipeline` (`DATA_PIPELINE_SPEC.md` §15). Its task contract is in `STEP1_DATA_INGESTION_PIPELINE.md` §12.6 (rechecked against the spec 2026-10-16). This section lists what Step 2 (the `bronze` and `silver` nodes) must do so the nodes work together. **Everything here is implemented and tested on the Step 1 side.**
+
+### 14.1 The ingestion TaskGroup at a glance (one DAG, `cms_nh_pipeline`)
+
+```
+[check_release] ─▶ ingestion: acquire_lock ─▶ discover_download ─▶ pending_entries ─▶ extract_inventory[zip]* ─▶ resolve_report
+                                                                   (JSON list)        (0 tasks on a quiet day)   (emits cms_nh_landing)
+                ─▶ bronze ─▶ silver ─▶ gold ─▶ release_lock (all_done; end of the DAG)
+```
+
+- **Every task:** `precursor-ingest <command> --env prod --run-id {{ run_id }}` in the `precursor-pipeline` image.
+- **Hand-over to Step 2** *(corrected 2026-10-15)*: in the one-DAG design, the bronze node runs right after `resolve_report`, in the same DAG run, under the **same lock**. `resolve_report` still emits the `cms_nh_landing` asset, for observers.
+- **The lock is released only after gold** (`release_lock`, `all_done`), not after `resolve`. So `inventory.status` is final when bronze starts, and no other run can interleave.
+
+### 14.2 The run lock: Step 2 must take the same one
+
+**Why.** During a Step 1 run, the re-inventoried zips have `inventory.status = 'pending'` until `resolve` runs. For example, a corrective re-release can still show the superseded file as `selected`. If Step 2 reads `status='selected'` at that moment, it loads the wrong file. Holding the same lock makes the two steps take turns.
+
+**How (reuse, don't copy):**
+
+```python
+from precursorintelligence.common.io.run_lock import RunLock
+from precursorintelligence.ingestion.pipeline import LOCK_NAME      # "data_pipeline"
+
+lock = RunLock(ctx.metadata, LOCK_NAME)
+lock.acquire(run_id)    # the DAG's first ingestion task, acquire_lock (one DAG; corrected 2026-10-15)
+lock.require(run_id)    # every other task of that DAG run: RunLockNotHeldError if the run doesn't hold it
+lock.release(run_id)    # last task, trigger_rule="all_done"
+```
+
+- **Guard at the start of `select_files`:** `ctx.metadata.read("inventory", {"status": "pending"})` must be empty. Otherwise a Step 1 run failed before `resolve`; stop with exit 2.
+- **Effect** *(corrected 2026-10-15)*: with `max_active_runs=1` and one DAG, a second run waits or fails its `acquire_lock` with exit 1 and is retried, which is the intended behaviour.
+- **Stale lock** *(updated 2026-10-16)*: a lock older than `run_lock.stale_after_hours` (default 12, env config) is taken over by the next `acquire` with a WARNING; pass `stale_after=ctx.settings.env.run_lock.stale_after` if Step 2 ever acquires itself. Sooner: `precursor-ingest lock status`, then `lock release --run-id x --force`. `lock release` refuses a lock it doesn't hold unless `--force` is given.
+- **`check_release` input** *(added 2026-10-16)*: `ingestion.inventory.landing_backlog(ctx, select(ctx))` lists unfinished landing work (failed or new downloads, unextracted zips, `pending` rows). It compares with `download_log`, not `catalog`, so a failed download never disappears from the CHANGED / RESUME decision.
+
+### 14.3 CLI contract to copy for Step 2
+
+| Concern | Step 1 implementation to reuse |
+|---|---|
+| Run id | `--run-id`, validated by `ingestion.context.validate_run_id` (1–64 chars of `A-Za-z0-9_.:+-`; Airflow ids pass). `build_context(settings, run_id=...)`. With `--run-id` a task *requires* the lock; without it, a manual run takes and releases the lock itself (`run_step1(own_lock=...)`). |
+| Fan-out | A read-only command that prints the work list as a **JSON list on the last stdout line** (like `entries --pending`; the DockerOperator pushes the last line to XCom), plus a per-item option (like `--entry-ids`) that fails on unknown ids. For Step 2: items = `(table, vintage)` pairs whose bronze partition is missing or has a different `_zip_sha256` (D10). |
+| Exit codes | Import `EXIT_OK, EXIT_ERROR, EXIT_VALIDATION, EXIT_CONFIG` from `ingestion.pipeline`. **Unmapped header, failed reconciliation or a pending-inventory guard → 2;** bugs and I/O → 1; config, usage and stale task lists → 3. Map click's usage errors (code 2) to 3, as `ingestion.cli.main` does. In Airflow, 2 and 3 fail without retry (`PipelineDockerOperator`, spec §15.5). |
+| Idempotency and retries | Airflow retries a task with the **same** run id: writes must be overwrite-safe per partition, and run-scoped reports must be rewritable by that run. Manifests carry a timestamp in the name (`report.write_manifest` in ingestion), so a retry adds one rather than overwriting. |
+| Logs | `setup_logging(..., file_stem=<command>_<new_run_id()>)`: one log file per process; ship it to `reports/<step>/run=<id>/logs/`. Wrap each unit of work in `pipeline.task_scope` (`run_log` rows). |
+| Metadata store | **Postgres in Airflow** (`PI_DATABASE_URL`; `precursor_meta` on the VM). A SQLite file is only for single-process local runs. New Step 2 tables (`bronze_files`, `silver_partitions`, …) go into `common/io/schemas.py`. `ensure_schema` creates them, and is safe when parallel tasks start on an empty database (it takes a Postgres advisory lock). |
+| Tests | Follow `tests/ingestion/test_dag_tasks.py`: run the task sequence with one `Context` per task and a shared Airflow-style run id, then assert the same result as a single run, retry no-ops, and the lock rules. `PI_TEST_POSTGRES_URL=<throwaway db>` runs the lock tests on Postgres. Keep unit tests offline (`tests/ingestion/conftest.py` fails any real HTTP request). |
+
+### 14.4 Not done yet (needed before any DAG runs for real)
+
+| Item | Where | Note |
+|---|---|---|
+| `precursor-pipeline` image | `docker/ingestion.Dockerfile` (planned) | uv, `uv sync --frozen --no-dev --extra pipeline`, non-root, `PI_PROJECT_ROOT` pointing at the copied `configs/`, `PYTHONUNBUFFERED=1` |
+| Local Airflow + Postgres | `docker/airflow-local/docker-compose.yaml` (planned) | Postgres databases `airflow` and `precursor_meta`; the DockerOperator needs the Docker socket and the compose network (`PI_DOCKER_NETWORK` in the reference DAG) |
+| The DAG | `dags/cms_nh_pipeline.py` + `tests/dags/` | Spec §15.5 sketch; every task, including the mapped `extract_inventory`, as `PipelineDockerOperator`. The exit-code test plan is in `STEP1_DATA_INGESTION_PIPELINE.md` §12.6. |
+| `check_release` node | spec §2.0 | Replaces plain `@daily`; uses `landing_backlog()` for CHANGED / RESUME |
+| Layer naming | §12 #8 | Decided: `landing/` + `bronze/` (spec §14 #6) |
+

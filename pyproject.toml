@@ -71,7 +71,7 @@ mlflow-server = [
 ]
 
 [project.scripts]
-precursor-ingest = "precursorintelligence.ingestion.cli:app"
+precursor-ingest = "precursorintelligence.ingestion.cli:main"
 
 # Airflow is deliberately NOT a dependency: apache-airflow pins conflict with the ML stack, and DAGs run in
 # the official Airflow 3 image. DAG tests (tests/dags) run in CI inside that image, e.g.

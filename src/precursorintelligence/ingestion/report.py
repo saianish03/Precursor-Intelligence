@@ -8,15 +8,17 @@ reports/step1/latest/...                             copy of the most recent run
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import logging
-from collections import defaultdict
+import os
+from collections import Counter, defaultdict
 from typing import Any
 
 import polars as pl
 
-from .context import Context, utc_now
+from .context import Context, utc_now, utc_stamp
 from .inventory import JUNK
 from .layout import OTHER, parse_date
 from .resolve import ResolveOutput
@@ -331,13 +333,71 @@ def report(ctx: Context, res: ResolveOutput) -> dict[str, str]:
     csv_bytes = _csv_bytes(rows)
     md = build_summary(ctx, res, inv).encode("utf-8")
     out = {}
+    # overwrite: `latest` is replaced by every run; `run=<id>` only by a retry of the same run (an
+    # orchestrator retries a failed task with the same run id).
     for base in (f"reports/step1/run={ctx.run_id}", "reports/step1/latest"):
-        overwrite = base.endswith("latest")
-        ctx.object_store.put_bytes(f"{base}/01_inventory.csv", csv_bytes, overwrite=overwrite)
-        ctx.object_store.put_bytes(f"{base}/01_inventory_summary.md", md, overwrite=overwrite)
+        ctx.object_store.put_bytes(f"{base}/01_inventory.csv", csv_bytes, overwrite=True)
+        ctx.object_store.put_bytes(f"{base}/01_inventory_summary.md", md, overwrite=True)
         out[base] = ctx.object_store.uri_for(f"{base}/01_inventory_summary.md")
+    out["manifest"] = write_manifest(ctx, res, inv)
     log.info("report: %d inventory rows; summary at %s", len(rows), out["reports/step1/latest"])
     return out
 
 
-__all__ = ["INVENTORY_COLUMNS", "build_summary", "report"]
+def write_manifest(ctx: Context, res: ResolveOutput, inv: list[dict[str, Any]]) -> str:
+    """Per-run landing manifest (decision D11): what this run selected, with fingerprints.
+
+    ``metadata/ingestion/run_date=<UTC date>/ingestion_run_<run_id>_<ts>.json``; the timestamp (plus a
+    random suffix) is in the name, so a retry adds a manifest instead of overwriting one.
+    """
+    now = utc_now()
+    selected = sorted(
+        (r for r in inv if r["status"] == "selected"),
+        key=lambda r: (r["table_name"], r["vintage_month"]),
+    )
+    downloads = Counter(
+        r["status"] for r in ctx.metadata.read("download_log", {"run_id": ctx.run_id})
+    )
+    manifest = {
+        "layer": "ingestion",
+        "run_id": ctx.run_id,
+        "written_at": now,
+        "env": ctx.settings.env.env,
+        "code_version": os.environ.get("PI_GIT_SHA"),  # set by the image build; null locally
+        "sources_config_sha256": hashlib.sha256(ctx.cfg.model_dump_json().encode()).hexdigest(),
+        "latest_vintage": res.latest_vintage,
+        "counts": {
+            "downloads_this_run": dict(sorted(downloads.items())),
+            "selected_files": len(selected),
+            "duplicates": len(res.duplicates),
+            "anomalies_by_kind": dict(sorted(Counter(a["kind"] for a in res.anomalies).items())),
+        },
+        "gaps": {t: g for t, g in res.gaps.items() if g},
+        "selected": [
+            {
+                k: r[k]
+                for k in (
+                    "table_name",
+                    "vintage_month",
+                    "processing_date",
+                    "zip_name",
+                    "zip_sha256",
+                    "member_path",
+                    "extracted_key",
+                    "header_hash",
+                    "row_count",
+                )
+            }
+            for r in selected
+        ],
+    }
+    key = (
+        f"metadata/ingestion/run_date={now[:10]}/"
+        f"ingestion_run_{ctx.run_id}_{utc_stamp()}-{os.urandom(3).hex()}.json"
+    )
+    body = json.dumps(manifest, indent=2, ensure_ascii=False, default=str).encode("utf-8")
+    ctx.object_store.put_bytes(key, body)
+    return ctx.object_store.uri_for(key)
+
+
+__all__ = ["INVENTORY_COLUMNS", "build_summary", "report", "write_manifest"]

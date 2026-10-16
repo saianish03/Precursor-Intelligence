@@ -13,7 +13,7 @@ from collections.abc import Callable
 from ..config import ObjectStoreCfg, Settings, TableSinkCfg
 from .metadata_store import MetadataStore, SqlAlchemyMetadataStore
 from .object_store import FsspecObjectStore, LocalObjectStore, ObjectStore
-from .table_sink import DuckDBTableSink, ParquetTableSink, TableSink
+from .table_sink import ParquetTableSink, TableSink
 
 ObjectStoreFactory = Callable[[ObjectStoreCfg, Settings], ObjectStore]
 TableSinkFactory = Callable[[TableSinkCfg, Settings, ObjectStore], TableSink]
@@ -43,7 +43,6 @@ def _local(cfg: ObjectStoreCfg, settings: Settings) -> ObjectStore:
 
 
 @register_object_store("memory")
-@register_object_store("s3")
 @register_object_store("gcs")
 def _fsspec(cfg: ObjectStoreCfg, settings: Settings) -> ObjectStore:
     return FsspecObjectStore(cfg.root, immutable=cfg.immutable, storage_options=cfg.storage_options)
@@ -52,13 +51,6 @@ def _fsspec(cfg: ObjectStoreCfg, settings: Settings) -> ObjectStore:
 @register_table_sink("parquet")
 def _parquet(cfg: TableSinkCfg, settings: Settings, store: ObjectStore) -> TableSink:
     return ParquetTableSink(store, prefix=cfg.prefix)
-
-
-@register_table_sink("duckdb")
-def _duckdb(cfg: TableSinkCfg, settings: Settings, store: ObjectStore) -> TableSink:
-    return DuckDBTableSink(
-        str(settings.resolve_path(cfg.options.get("path", "./data/warehouse.duckdb")))
-    )
 
 
 def build_object_store(settings: Settings) -> ObjectStore:

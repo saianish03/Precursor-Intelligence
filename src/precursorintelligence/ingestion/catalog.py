@@ -12,13 +12,17 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any
 
-from .context import Context, utc_now
+from .context import Context, utc_now, utc_stamp
 from .sources.base import CatalogEntry, CatalogSource
 from .sources.cms_pdc import CmsPdcArchiveSource
 
 log = logging.getLogger(__name__)
 
 CATALOG_PREFIX = "landing/cms_nh/catalog"
+
+
+class UnknownEntryError(ValueError):
+    """``entry_ids`` named an entry that is not in scope: a stale DAG task list (exit code 3)."""
 
 
 @dataclass
@@ -44,8 +48,7 @@ def discover(ctx: Context, source: CatalogSource | None = None) -> DiscoverOutpu
     source = source or default_source(ctx)
     snap = source.fetch()
     now = utc_now()
-    stamp = ctx.run_id.split("-")[0]
-    prefix = f"{CATALOG_PREFIX}/fetched_at={stamp}"
+    prefix = f"{CATALOG_PREFIX}/fetched_at={utc_stamp()}"  # not the run id: Airflow ids differ
     for name, payload in snap.raw_payloads.items():
         key = f"{prefix}/{name}"
         if not ctx.object_store.exists(key):
@@ -109,8 +112,14 @@ def _row_to_entry(r: dict[str, Any]) -> CatalogEntry:
 
 
 def select(
-    ctx: Context, *, zip_dates: list[date] | None = None, limit: int | None = None
+    ctx: Context,
+    *,
+    zip_dates: list[date] | None = None,
+    limit: int | None = None,
+    entry_ids: list[str] | None = None,
 ) -> list[CatalogEntry]:
+    """In-scope catalog entries, oldest first. ``entry_ids`` narrows to exact entries (one mapped DAG
+    task each); an id that is not an in-scope entry is an error, so a stale task list fails loudly."""
     scope = ctx.cfg.scope
     entries = [_row_to_entry(r) for r in ctx.metadata.read("catalog", {"active": True})]
     chosen = [
@@ -121,6 +130,11 @@ def select(
         and (scope.max_zip_date is None or e.zip_date <= scope.max_zip_date)
         and (not zip_dates or e.zip_date in zip_dates)
     ]
+    if entry_ids is not None:
+        wanted = set(entry_ids)
+        if unknown := wanted - {e.entry_id for e in chosen}:
+            raise UnknownEntryError(f"not in-scope catalog entries: {sorted(unknown)}")
+        chosen = [e for e in chosen if e.entry_id in wanted]
     # deterministic order: oldest first; archive before current on the same date
     chosen.sort(key=lambda e: (e.zip_date, e.source_endpoint != "archive", e.zip_name))
     if limit:
