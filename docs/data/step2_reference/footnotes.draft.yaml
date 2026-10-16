@@ -1,0 +1,73 @@
+_source: CMS NH Data Dictionary (updated July 2026), Table 15; retired codes from Table 16 revision history
+codes:
+  1: Newly certified / opened <6 months; no data or claims for this measure
+  2: Not enough data available to calculate a star rating
+  6: Submitted data did not meet criteria to calculate a staffing measure
+  7: CMS determined the percentage was not accurate, or data suppressed for one or more quarters
+  9: Number of residents or stays too small to report
+  10: Data missing or not submitted
+  12: RETIRED 2025-01 (staffing rating downgrade; replaced by 23-25) - still present in 2021-2024 vintages
+  13: Results based on a shorter time period than required
+  14: Not required to submit SNF QRP data
+  18: 'Not rated: Special Focus Facility (history of serious quality issues)'
+  19: RETIRED 2023-01 (annual-only measure flag, pre-2023)
+  20: Accuracy of the data for this rating could not be validated by CMS
+  21: Accuracy of the data for this measure could not be validated by CMS
+  22: Address not geocoded; lat/long based on ZIP code
+  23: Facility did not submit staffing data
+  24: High number of days without an RN onsite
+  25: Accuracy of staffing data could not be validated by CMS
+  26: No/invalid staffing data for turnover; minimum points assigned
+  27: Staffing data did not meet criteria for a turnover measure; excluded and rescaled
+  28: Annual measure; quarterly values not available
+missing_reason_groups:
+  too_small:
+  - 9
+  not_submitted:
+  - 10
+  - 23
+  - 26
+  invalid_or_unvalidated:
+  - 6
+  - 7
+  - 20
+  - 21
+  - 25
+  - 27
+  new_facility:
+  - 1
+  sff_not_rated:
+  - 18
+  insufficient_data:
+  - 2
+  - 13
+  structural:
+  - 12
+  - 14
+  - 19
+  - 22
+  - 24
+  - 28
+observed_in_scope_files:
+  provider_info:
+  - 1
+  - 2
+  - 6
+  - 10
+  - 12
+  - 18
+  - 20
+  - 22
+  - 23
+  - 24
+  - 25
+  - 26
+  - 27
+  mds_qm:
+  - 9
+  - 10
+  - 21
+  - 28
+  claims_qm:
+  - 9
+  - 10

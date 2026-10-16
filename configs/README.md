@@ -1,11 +1,13 @@
 # configs/
 
-| Path | Purpose |
-|---|---|
-| `base.yaml` (planned) | project, region, bucket names, BigQuery datasets |
-| `dev.yaml`, `prod.yaml` (planned) | environment overrides (local disk + Postgres for dev; GCS + BigQuery for prod) |
-| `ingestion/datasets.yaml` | dataset registry: which CMS tables, file prefixes, dataset IDs |
-| `contracts/` | expected schemas per dataset, versioned by effective month, e.g. `provider_info.v2026-07.yaml` |
-| `prompts/` | versioned LLM prompt YAML used by `src/precursorintelligence/agents` |
+| Path | Status | Purpose |
+|---|---|---|
+| `dev.yaml` | ✅ in use | Development backends: local disk for files, SQLite for metadata (local Postgres planned) |
+| `prod.yaml` | ✅ in use | Test / production backends: GCS for files (BigQuery metadata planned) |
+| `logging.yaml` | ✅ in use | Standard-library logging config (console text/JSON + per-run JSON-lines file) |
+| `ingestion/sources.yaml` | ✅ in use | Step 1: CMS endpoints, scope dates, the 7 in-scope tables (file patterns, dataset IDs), HTTP and security limits |
+| `base.yaml` | planned | Shared project settings: project, region, bucket names, BigQuery datasets |
+| `contracts/` | planned | Expected schemas per dataset, versioned by effective month (draft: `docs/data/step2_reference/column_map.draft.yaml`) |
+| `prompts/` | planned | Versioned LLM prompt YAML used by `src/precursorintelligence/agents` |
 
-No secrets here. Use environment variables or Secret Manager.
+Select an environment with `--env dev|prod`. No secrets in these files: `${VAR}` placeholders are filled from environment variables or Secret Manager.

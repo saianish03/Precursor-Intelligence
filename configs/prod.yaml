@@ -1,0 +1,17 @@
+# Test / production (GCP): GCS bucket for files (gcsfs, `pipeline` extra). Metadata: Postgres via PI_DATABASE_URL
+# (the Postgres on the Airflow VM) until the BigQuery metadata adapter lands (decision D4).
+# Credentials come from Application Default Credentials / workload identity, never from this file.
+env: prod
+object_store:
+  kind: gcs
+  root: ${PI_BUCKET_URI:-gs://precursorintelligence-bronze}
+  immutable: bucket_retention_policy       # enforced by bucket policy (see docs §9)
+metadata_store:
+  url: ${PI_DATABASE_URL}
+table_sink:
+  kind: parquet
+  prefix: bronze
+logging:
+  config: configs/logging.yaml
+  log_dir: /tmp/precursorintelligence-logs
+  console_format: json                     # stdout JSON -> Cloud Logging

@@ -1,0 +1,1090 @@
+_meta:
+  generated_from: Step 1 inventory (status=selected, 427 files, vintages 2021-01..2026-08)
+  rule: every raw header in every vintage is either an alias below or listed under ignored; valid ranges are inclusive vintage_month
+  status: DRAFT - review at Checkpoint 2
+provider_info:
+  columns:
+    ccn:
+      dtype: ccn
+      aliases:
+      - raw: Federal Provider Number
+        from: 2021-01
+        to: 2023-05
+      - raw: CMS Certification Number (CCN)
+        from: 2023-06
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    state:
+      dtype: str
+      aliases:
+      - raw: Provider State
+        from: 2021-01
+        to: 2023-05
+      - raw: State
+        from: 2023-06
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    county_name:
+      dtype: str
+      aliases:
+      - raw: Provider County Name
+        from: 2021-01
+        to: 2023-05
+      - raw: County/Parish
+        from: 2023-06
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    ownership_type:
+      dtype: str
+      aliases:
+      - raw: Ownership Type
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    certified_beds:
+      dtype: float
+      aliases:
+      - raw: Number of Certified Beds
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    avg_residents_per_day:
+      dtype: float
+      aliases:
+      - raw: Average Number of Residents per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    avg_residents_per_day_fn:
+      dtype: footnote
+      aliases:
+      - raw: Average Number of Residents per Day Footnote
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    provider_type:
+      dtype: str
+      aliases:
+      - raw: Provider Type
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    provider_in_hospital:
+      dtype: bool_yn
+      aliases:
+      - raw: Provider Resides in Hospital
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    date_first_approved:
+      dtype: date
+      aliases:
+      - raw: Date First Approved to Provide Medicare and Medicaid Services
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    ccrc:
+      dtype: bool_yn
+      aliases:
+      - raw: Continuing Care Retirement Community
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    special_focus_status:
+      dtype: enum
+      aliases:
+      - raw: Special Focus Status
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    abuse_icon:
+      dtype: bool_yn
+      aliases:
+      - raw: Abuse Icon
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    most_recent_inspection_over_2y:
+      dtype: bool_yn
+      aliases:
+      - raw: Most Recent Health Inspection More Than 2 Years Ago
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    changed_ownership_12m:
+      dtype: bool_yn
+      aliases:
+      - raw: Provider Changed Ownership in Last 12 Months
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    resident_family_council:
+      dtype: enum
+      aliases:
+      - raw: With a Resident and Family Council
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    sprinkler_status:
+      dtype: enum
+      aliases:
+      - raw: Automatic Sprinkler Systems in All Required Areas
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    overall_rating:
+      dtype: float
+      aliases:
+      - raw: Overall Rating
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    overall_rating_fn:
+      dtype: footnote
+      aliases:
+      - raw: Overall Rating Footnote
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    health_inspection_rating:
+      dtype: float
+      aliases:
+      - raw: Health Inspection Rating
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    health_inspection_rating_fn:
+      dtype: footnote
+      aliases:
+      - raw: Health Inspection Rating Footnote
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    qm_rating:
+      dtype: float
+      aliases:
+      - raw: QM Rating
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    qm_rating_fn:
+      dtype: footnote
+      aliases:
+      - raw: QM Rating Footnote
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    staffing_rating:
+      dtype: float
+      aliases:
+      - raw: Staffing Rating
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    staffing_rating_fn:
+      dtype: footnote
+      aliases:
+      - raw: Staffing Rating Footnote
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    reported_staffing_fn:
+      dtype: footnote
+      aliases:
+      - raw: Reported Staffing Footnote
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    pt_staffing_fn:
+      dtype: footnote
+      aliases:
+      - raw: Physical Therapist Staffing Footnote
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    hprd_aide:
+      dtype: float
+      aliases:
+      - raw: Reported Nurse Aide Staffing Hours per Resident per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    hprd_lpn:
+      dtype: float
+      aliases:
+      - raw: Reported LPN Staffing Hours per Resident per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    hprd_rn:
+      dtype: float
+      aliases:
+      - raw: Reported RN Staffing Hours per Resident per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    hprd_licensed:
+      dtype: float
+      aliases:
+      - raw: Reported Licensed Staffing Hours per Resident per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    hprd_total:
+      dtype: float
+      aliases:
+      - raw: Reported Total Nurse Staffing Hours per Resident per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    hprd_weekend_total:
+      dtype: float
+      aliases:
+      - raw: Total number of nurse staff hours per resident per day on the weekend
+        from: 2022-01
+        to: 2026-08
+      available_from: 2022-01
+      complete: false
+    hprd_weekend_rn:
+      dtype: float
+      aliases:
+      - raw: Registered Nurse hours per resident per day on the weekend
+        from: 2022-01
+        to: 2026-08
+      available_from: 2022-01
+      complete: false
+    hprd_pt:
+      dtype: float
+      aliases:
+      - raw: Reported Physical Therapist Staffing Hours per Resident Per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    adj_hprd_aide:
+      dtype: float
+      aliases:
+      - raw: Adjusted Nurse Aide Staffing Hours per Resident per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    adj_hprd_lpn:
+      dtype: float
+      aliases:
+      - raw: Adjusted LPN Staffing Hours per Resident per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    adj_hprd_rn:
+      dtype: float
+      aliases:
+      - raw: Adjusted RN Staffing Hours per Resident per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    adj_hprd_total:
+      dtype: float
+      aliases:
+      - raw: Adjusted Total Nurse Staffing Hours per Resident per Day
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    turnover_total:
+      dtype: float
+      aliases:
+      - raw: Total nursing staff turnover
+        from: 2022-01
+        to: 2026-08
+      available_from: 2022-01
+      complete: false
+    turnover_total_fn:
+      dtype: footnote
+      aliases:
+      - raw: Total nursing staff turnover footnote
+        from: 2022-01
+        to: 2026-08
+      available_from: 2022-01
+      complete: false
+    turnover_rn:
+      dtype: float
+      aliases:
+      - raw: Registered Nurse turnover
+        from: 2022-01
+        to: 2026-08
+      available_from: 2022-01
+      complete: false
+    turnover_rn_fn:
+      dtype: footnote
+      aliases:
+      - raw: Registered Nurse turnover footnote
+        from: 2022-01
+        to: 2026-08
+      available_from: 2022-01
+      complete: false
+    admin_departures:
+      dtype: float
+      aliases:
+      - raw: Number of administrators who have left the nursing home
+        from: 2022-01
+        to: 2026-08
+      available_from: 2022-01
+      complete: false
+    admin_departures_fn:
+      dtype: footnote
+      aliases:
+      - raw: Administrator turnover footnote
+        from: 2022-01
+        to: 2026-08
+      available_from: 2022-01
+      complete: false
+    chain_id:
+      dtype: str
+      aliases:
+      - raw: Affiliated Entity ID
+        from: 2023-06
+        to: 2025-06
+      - raw: Chain ID
+        from: 2025-07
+        to: 2026-08
+      available_from: 2023-06
+      complete: false
+    chain_name:
+      dtype: str
+      aliases:
+      - raw: Affiliated Entity Name
+        from: 2023-06
+        to: 2025-06
+      - raw: Chain Name
+        from: 2025-07
+        to: 2026-08
+      available_from: 2023-06
+      complete: false
+    provider_name:
+      dtype: str
+      aliases:
+      - raw: Provider Name
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    provider_address:
+      dtype: str
+      aliases:
+      - raw: Provider Address
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    city:
+      dtype: str
+      aliases:
+      - raw: Provider City
+        from: 2021-01
+        to: 2023-05
+      - raw: City/Town
+        from: 2023-06
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    zip:
+      dtype: str
+      aliases:
+      - raw: Provider Zip Code
+        from: 2021-01
+        to: 2023-05
+      - raw: ZIP Code
+        from: 2023-06
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    latitude:
+      dtype: float
+      aliases:
+      - raw: Latitude
+        from: 2023-08
+        to: 2026-08
+      available_from: 2023-08
+      complete: false
+    longitude:
+      dtype: float
+      aliases:
+      - raw: Longitude
+        from: 2023-08
+        to: 2026-08
+      available_from: 2023-08
+      complete: false
+    processing_date:
+      dtype: date
+      aliases:
+      - raw: Processing Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+  ignored:
+  - Adjusted Weekend Total Nurse Staffing Hours per Resident per Day
+  - Case-Mix LPN Staffing Hours per Resident per Day
+  - Case-Mix Nurse Aide Staffing Hours per Resident per Day
+  - Case-Mix RN Staffing Hours per Resident per Day
+  - Case-Mix Total Nurse Staffing Hours per Resident per Day
+  - Case-Mix Weekend Total Nurse Staffing Hours per Resident per Day
+  - Chain Average Health Inspection Rating
+  - Chain Average Overall 5-star Rating
+  - Chain Average QM Rating
+  - Chain Average Staffing Rating
+  - Geocoding Footnote
+  - Legal Business Name
+  - Location
+  - Long-Stay QM Rating
+  - Long-Stay QM Rating Footnote
+  - Number of Citations from Infection Control Inspections
+  - Number of Facilities in Chain
+  - Number of Facility Reported Incidents
+  - Number of Fines
+  - Number of Payment Denials
+  - Number of Substantiated Complaints
+  - Nursing Case-Mix Index
+  - Nursing Case-Mix Index Ratio
+  - Provider Phone Number
+  - Provider SSA County Code
+  - RN Staffing Rating
+  - RN Staffing Rating Footnote
+  - Rating Cycle 1 Health Deficiency Score
+  - Rating Cycle 1 Health Revisit Score
+  - Rating Cycle 1 Number of Complaint Health Deficiencies
+  - Rating Cycle 1 Number of Health Revisits
+  - Rating Cycle 1 Number of Standard Health Deficiencies
+  - Rating Cycle 1 Standard Survey Health Date
+  - Rating Cycle 1 Total Health Score
+  - Rating Cycle 1 Total Number of Health Deficiencies
+  - Rating Cycle 2 Health Deficiency Score
+  - Rating Cycle 2 Health Revisit Score
+  - Rating Cycle 2 Number of Complaint Health Deficiencies
+  - Rating Cycle 2 Number of Health Revisits
+  - Rating Cycle 2 Number of Standard Health Deficiencies
+  - Rating Cycle 2 Standard Health Survey Date
+  - Rating Cycle 2 Total Health Score
+  - Rating Cycle 2 Total Number of Health Deficiencies
+  - Rating Cycle 2/3 Health Deficiency Score
+  - Rating Cycle 2/3 Health Revisit Score
+  - Rating Cycle 2/3 Number of Complaint Health Deficiencies
+  - Rating Cycle 2/3 Number of Health Revisits
+  - Rating Cycle 2/3 Total Health Score
+  - Rating Cycle 2/3 Total Number of Health Deficiencies
+  - Rating Cycle 3 Health Deficiency Score
+  - Rating Cycle 3 Health Revisit Score
+  - Rating Cycle 3 Number of Complaint Health Deficiencies
+  - Rating Cycle 3 Number of Health Revisits
+  - Rating Cycle 3 Number of Standard Health Deficiencies
+  - Rating Cycle 3 Standard Health Survey Date
+  - Rating Cycle 3 Total Health Score
+  - Rating Cycle 3 Total Number of Health Deficiencies
+  - Short-Stay QM Rating
+  - Short-Stay QM Rating Footnote
+  - Telephone Number
+  - Total Amount of Fines in Dollars
+  - Total Number of Penalties
+  - Total Weighted Health Survey Score
+  - Urban
+health_citations:
+  columns:
+    ccn:
+      dtype: ccn
+      aliases:
+      - raw: Federal Provider Number
+        from: 2021-01
+        to: 2023-05
+      - raw: CMS Certification Number (CCN)
+        from: 2023-06
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    survey_date:
+      dtype: date
+      aliases:
+      - raw: Survey Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    survey_type_raw:
+      dtype: str
+      aliases:
+      - raw: Survey Type
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    deficiency_prefix:
+      dtype: str
+      aliases:
+      - raw: Deficiency Prefix
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    deficiency_category:
+      dtype: str
+      aliases:
+      - raw: Deficiency Category
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    deficiency_tag:
+      dtype: tag
+      aliases:
+      - raw: Deficiency Tag Number
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    scope_severity:
+      dtype: severity
+      aliases:
+      - raw: Scope Severity Code
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    deficiency_corrected:
+      dtype: str
+      aliases:
+      - raw: Deficiency Corrected
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    correction_date:
+      dtype: date
+      aliases:
+      - raw: Correction Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    is_standard:
+      dtype: bool_yn
+      aliases:
+      - raw: Standard Deficiency
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    is_complaint:
+      dtype: bool_yn
+      aliases:
+      - raw: Complaint Deficiency
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    is_infection_control:
+      dtype: bool_yn
+      aliases:
+      - raw: Infection Control Inspection Deficiency
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    inspection_cycle:
+      dtype: int
+      aliases:
+      - raw: Inspection Cycle
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    citation_under_idr:
+      dtype: bool_yn
+      aliases:
+      - raw: Citation under IDR
+        from: 2023-01
+        to: 2026-08
+      available_from: 2023-01
+      complete: false
+    citation_under_iidr:
+      dtype: bool_yn
+      aliases:
+      - raw: Citation under IIDR
+        from: 2023-01
+        to: 2026-08
+      available_from: 2023-01
+      complete: false
+    processing_date:
+      dtype: date
+      aliases:
+      - raw: Processing Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+  ignored:
+  - City/Town
+  - Deficiency Description
+  - Location
+  - Provider Address
+  - Provider City
+  - Provider Name
+  - Provider State
+  - Provider Zip Code
+  - State
+  - ZIP Code
+survey_dates:
+  columns:
+    ccn:
+      dtype: ccn
+      aliases:
+      - raw: Federal Provider Number
+        from: 2021-01
+        to: 2023-05
+      - raw: CMS Certification Number (CCN)
+        from: 2023-06
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    survey_date:
+      dtype: date
+      aliases:
+      - raw: Survey Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    survey_type:
+      dtype: survey_type_enum
+      aliases:
+      - raw: Type of Survey
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    survey_cycle:
+      dtype: int
+      aliases:
+      - raw: Survey Cycle
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    processing_date:
+      dtype: date
+      aliases:
+      - raw: Processing Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+  ignored: []
+penalties:
+  columns:
+    ccn:
+      dtype: ccn
+      aliases:
+      - raw: Federal Provider Number
+        from: 2021-01
+        to: 2023-05
+      - raw: CMS Certification Number (CCN)
+        from: 2023-06
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    penalty_date:
+      dtype: date
+      aliases:
+      - raw: Penalty Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    penalty_type:
+      dtype: str
+      aliases:
+      - raw: Penalty Type
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    fine_amount:
+      dtype: float
+      aliases:
+      - raw: Fine Amount
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    payment_denial_start_date:
+      dtype: date
+      aliases:
+      - raw: Payment Denial Start Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    payment_denial_length_days:
+      dtype: float
+      aliases:
+      - raw: Payment Denial Length in Days
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    fine_id:
+      dtype: str
+      aliases:
+      - raw: Fine ID
+        from: 2026-06
+        to: 2026-08
+      available_from: 2026-06
+      complete: false
+    processing_date:
+      dtype: date
+      aliases:
+      - raw: Processing Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+  ignored:
+  - City/Town
+  - Location
+  - Provider Address
+  - Provider City
+  - Provider Name
+  - Provider State
+  - Provider Zip Code
+  - State
+  - ZIP Code
+mds_qm:
+  columns:
+    ccn:
+      dtype: ccn
+      aliases:
+      - raw: Federal Provider Number
+        from: 2021-01
+        to: 2023-05
+      - raw: CMS Certification Number (CCN)
+        from: 2023-06
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    measure_code:
+      dtype: str
+      aliases:
+      - raw: Measure Code
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    measure_description:
+      dtype: str
+      aliases:
+      - raw: Measure Description
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    resident_type:
+      dtype: str
+      aliases:
+      - raw: Resident type
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    four_quarter_avg:
+      dtype: float
+      aliases:
+      - raw: Four Quarter Average Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    four_quarter_avg_fn:
+      dtype: footnote
+      aliases:
+      - raw: Footnote for Four Quarter Average Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    q1_score:
+      dtype: float
+      aliases:
+      - raw: Q1 Measure Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    q1_fn:
+      dtype: footnote
+      aliases:
+      - raw: Footnote for Q1 Measure Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    q2_score:
+      dtype: float
+      aliases:
+      - raw: Q2 Measure Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    q2_fn:
+      dtype: footnote
+      aliases:
+      - raw: Footnote for Q2 Measure Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    q3_score:
+      dtype: float
+      aliases:
+      - raw: Q3 Measure Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    q3_fn:
+      dtype: footnote
+      aliases:
+      - raw: Footnote for Q3 Measure Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    q4_score:
+      dtype: float
+      aliases:
+      - raw: Q4 Measure Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    q4_fn:
+      dtype: footnote
+      aliases:
+      - raw: Footnote for Q4 Measure Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    used_in_5star:
+      dtype: bool_yn
+      aliases:
+      - raw: Used in Quality Measure Five Star Rating
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    measure_period:
+      dtype: str
+      aliases:
+      - raw: Measure Period
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    processing_date:
+      dtype: date
+      aliases:
+      - raw: Processing Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+  ignored:
+  - City/Town
+  - Location
+  - Provider Address
+  - Provider City
+  - Provider Name
+  - Provider State
+  - Provider Zip Code
+  - State
+  - ZIP Code
+claims_qm:
+  columns:
+    ccn:
+      dtype: ccn
+      aliases:
+      - raw: Federal Provider Number
+        from: 2021-01
+        to: 2023-05
+      - raw: CMS Certification Number (CCN)
+        from: 2023-06
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    measure_code:
+      dtype: str
+      aliases:
+      - raw: Measure Code
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    measure_description:
+      dtype: str
+      aliases:
+      - raw: Measure Description
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    resident_type:
+      dtype: str
+      aliases:
+      - raw: Resident type
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    adjusted_score:
+      dtype: float
+      aliases:
+      - raw: Adjusted Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    observed_score:
+      dtype: float
+      aliases:
+      - raw: Observed Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    expected_score:
+      dtype: float
+      aliases:
+      - raw: Expected Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    measure_fn:
+      dtype: footnote
+      aliases:
+      - raw: Footnote for Score
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    used_in_5star:
+      dtype: bool_yn
+      aliases:
+      - raw: Used in Quality Measure Five Star Rating
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    measure_period:
+      dtype: str
+      aliases:
+      - raw: Measure Period
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    processing_date:
+      dtype: date
+      aliases:
+      - raw: Processing Date
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+  ignored:
+  - City/Town
+  - Location
+  - Provider Address
+  - Provider City
+  - Provider Name
+  - Provider State
+  - Provider Zip Code
+  - State
+  - ZIP Code
+citation_lookup:
+  columns:
+    deficiency_prefix:
+      dtype: str
+      aliases:
+      - raw: Deficiency Prefix
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    deficiency_tag:
+      dtype: tag
+      aliases:
+      - raw: Deficiency Tag Number
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    deficiency_prefix_and_number:
+      dtype: str
+      aliases:
+      - raw: Deficiency Prefix and Number
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    deficiency_description:
+      dtype: str
+      aliases:
+      - raw: Deficiency Description
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+    deficiency_category:
+      dtype: str
+      aliases:
+      - raw: Deficiency Category
+        from: 2021-01
+        to: 2026-08
+      available_from: 2021-01
+      complete: true
+  ignored: []
