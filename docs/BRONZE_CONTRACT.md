@@ -108,8 +108,7 @@ extras and the value set for `n_uncorrected` are open (§14 #4).
   vintage, the next vintage's stored value is not updated. `stale_refresh` does not have this problem.
 - Vintages are loaded in ascending order within a run, so the "previous vintage" of a file already exists. A
   vintage loaded later than its successors would be compared with whatever was published before it.
-- Memory: one file is read whole (the largest in-scope file, health citations, is about 165 MB of CSV).
-- Bronze has not yet been run on the full 61-vintage archive. See §9.
+- Memory: one file is read whole (the largest in-scope file, health citations, is about 165 MB of CSV). Peak memory over the full archive was about 2.2 GiB (§9).
 
 ## 8. Running it
 
@@ -131,11 +130,30 @@ Add `--env prod` or `--env-file <yaml>` to choose the backends.
 The manifest lists counts per status, each non-skipped file with its detail, the revised tables, the
 `stale_refresh` vintages and the every-file check.
 
-## 9. Measured and expected numbers
+## 9. Measured numbers
 
-**Measured** on the CMS "current" release of Aug 2026 (7 tables, UTF-8, no blank rows), staged outside the
-repo: 7 of 7 files loaded in 1.3 s into 13 MB of Parquet; the second run skipped all 7; for provider info,
-health citations and penalties the bronze data columns equal a plain read of the CSV.
+**Full archive, 2026-10-16.** Step 1 then bronze, run on a Compute Engine e2-standard-4 VM with the real
+backends: files in a GCS bucket (`--env prod`) and metadata in Postgres. Step 1 selected 68 zips and took
+57 minutes; bronze took 8 min 43 s for 413 files, after 14 had been loaded by an earlier smoke test, with
+a peak of 2,327,264 KB (about 2.2 GiB) resident memory. `precursor-pipeline bronze --verify` reported:
+
+| Check | Result | Spec expectation |
+|---|---|---|
+| Selected files, valid partitions | 427, 427 / 427 | 427 |
+| Decoded as cp1252, as UTF-8 | 151, 276 | 151, 276 |
+| Files with a blank row | 39 in each of the 7 tables | 39 vintages, 2021-01 to 2024-06, every table |
+| Vintages | 61 (2021-01 to 2026-08) | 61 |
+| `stale_refresh` | 2025-09 only | 2025-09 only |
+| `revised_after_publication`, pending inventory rows, failed files | none, 0, 0 | none |
+
+A rerun after the full load printed `loaded=0 reloaded=0 failed=0 skipped=427`: nothing is redone.
+
+The 151 count follows the decoder rule in §4: a file is cp1252 only if strict UTF-8 fails, so a plain-ASCII
+file from 2021 to 2023 counts as UTF-8.
+
+**Smoke test on the Aug 2026 "current" release** (7 tables, UTF-8, no blank rows, run locally): 7 of 7 files
+loaded in 1.3 s into 13 MB of Parquet; the second run skipped all 7; for provider info, health citations and
+penalties the bronze data columns equal a plain read of the CSV. Rows per table:
 
 | Table | Rows |
 |---|---|
@@ -146,8 +164,3 @@ health citations and penalties the bronze data columns equal a plain read of the
 | `penalties` | 15,696 |
 | `provider_info` | 14,690 |
 | `citation_lookup` | 643 |
-
-**Expected on the full archive, not yet verified by running bronze** (from `STEP2_HANDOFF.md` §0 and spec §3.1):
-427 selected files; 151 cp1252 files (2021-01 to 2023-04); a blank row in each of the 39 vintages from 2021-01
-to 2024-06, in every table; `stale_refresh` for 2025-09 only. `precursor-pipeline bronze --verify` prints
-these numbers for comparison.
