@@ -167,3 +167,22 @@ def test_the_process_log_is_shipped_next_to_the_run_reports(env, monkeypatch):
     RunLock(env.meta, LOCK_NAME).acquire(RUN)
     bronze(monkeypatch, env, "--run-id", RUN)
     assert len(env.store.list(f"reports/bronze/run={RUN}/logs")) == 1
+
+
+def test_verify_prints_the_report_and_changes_nothing(env, monkeypatch, capsys):
+    env.stage()
+    bronze(monkeypatch, env)
+    capsys.readouterr()
+    objects, rows = env.store.list(""), env.meta.read("bronze_files")
+    RunLock(env.meta, LOCK_NAME).acquire("another-run")  # verify takes no lock
+
+    assert bronze(monkeypatch, env, "--verify") == EXIT_OK
+    out = capsys.readouterr().out
+    assert "valid partitions          1 / 1" in out
+    assert env.store.list("") == objects and env.meta.read("bronze_files") == rows
+
+
+def test_verify_exits_2_when_a_selected_file_has_no_partition(env, monkeypatch, capsys):
+    env.stage()  # selected in the inventory, never loaded
+    assert bronze(monkeypatch, env, "--verify") == EXIT_VALIDATION
+    assert "provider_info 2025-06" in capsys.readouterr().out

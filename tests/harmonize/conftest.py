@@ -11,6 +11,7 @@ from precursorintelligence.common.io.table_sink import ParquetTableSink
 from precursorintelligence.harmonize.reader import decode_csv, parse_csv_text
 from precursorintelligence.ingestion.layout import header_hash, normalize_header
 
+ROWS = [("015009", "Oak Manor"), ("15E123", "Pine Court")]
 HEADER = '"CMS Certification Number (CCN)","Provider Name","Processing Date"\r\n'
 
 
@@ -124,3 +125,23 @@ def ctx(store, meta, sink, tmp_path):
         http=None,  # type: ignore[arg-type]  # bronze never touches the network
         run_id="R1",
     )
+
+
+@pytest.fixture
+def stage(meta, put_landing):
+    """Put a CSV in landing and record its (selected) inventory row, as Step 1 would."""
+
+    def put(table, vintage, rows=ROWS, status="selected", zip_sha="a" * 64, **over):
+        inv = put_landing(
+            csv_text(rows, processing=f"{vintage}-01", blank_tail=over.pop("blank_tail", False)),
+            table=table,
+            vintage=vintage,
+            processing_date=f"{vintage}-01",
+            member=over.pop("member", f"NH_{table}_{vintage}.csv"),
+            zip_sha=zip_sha,
+            **over,
+        )
+        meta.append("inventory", [inv | {"status": status}])
+        return inv
+
+    return put

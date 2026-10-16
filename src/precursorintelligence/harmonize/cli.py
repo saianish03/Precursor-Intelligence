@@ -19,8 +19,9 @@ import typer
 from ..common.io.run_lock import RunLockHeldError, RunLockNotHeldError
 from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init
 from ..ingestion.context import Context, build_context
-from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR
+from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR, EXIT_OK, EXIT_VALIDATION
 from .pipeline import run_bronze
+from .verify import verify_bronze
 
 app = typer.Typer(
     add_completion=False,
@@ -52,11 +53,19 @@ def bronze(
     env: str = ENV_OPT,
     env_file: Path | None = ENV_FILE_OPT,
     log_level: str | None = typer.Option(None, help="override the configured log level"),
+    verify: bool = typer.Option(
+        False,
+        help="read-only: report what bronze holds against the inventory (no lock, nothing written)",
+    ),
 ) -> None:
     """Load every selected CMS file into lossless all-text bronze Parquet (spec §3.1)."""
     orchestrated = run_id is not None
     settings, run_id, log_file = _init(env, env_file, log_level, run_id, label="bronze")
     ctx = build_context(settings, run_id=run_id)
+    if verify:
+        report = verify_bronze(ctx)
+        typer.echo(report.render())
+        raise typer.Exit(EXIT_OK if report.ok else EXIT_VALIDATION)
     try:
         res = run_bronze(ctx, own_lock=not orchestrated)
     except RunLockHeldError as exc:  # another run is busy: retry later

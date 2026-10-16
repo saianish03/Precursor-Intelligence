@@ -5,7 +5,6 @@ import re
 from datetime import UTC, datetime
 
 import pytest
-from conftest import csv_text
 
 from precursorintelligence.common.io.run_lock import RunLock, RunLockHeldError, RunLockNotHeldError
 from precursorintelligence.harmonize.flags import EVENT_TABLES
@@ -15,26 +14,6 @@ from precursorintelligence.ingestion.pipeline import EXIT_OK, EXIT_VALIDATION, L
 NOW = datetime(2026, 10, 16, 12, 0, tzinfo=UTC)
 ROWS = [("015009", "Oak Manor"), ("15E123", "Pine Court")]
 OTHER = [("015009", "Oak Manor"), ("15E123", "Changed")]
-
-
-@pytest.fixture
-def stage(meta, put_landing):
-    """Put a CSV in landing and record its (selected) inventory row, as Step 1 would."""
-
-    def put(table, vintage, rows=ROWS, status="selected", zip_sha="a" * 64, **over):
-        inv = put_landing(
-            csv_text(rows, processing=f"{vintage}-01", blank_tail=over.pop("blank_tail", False)),
-            table=table,
-            vintage=vintage,
-            processing_date=f"{vintage}-01",
-            member=over.pop("member", f"NH_{table}_{vintage}.csv"),
-            zip_sha=zip_sha,
-            **over,
-        )
-        meta.append("inventory", [inv | {"status": status}])
-        return inv
-
-    return put
 
 
 def statuses(meta, table, vintage):

@@ -81,7 +81,7 @@ def _run(ctx: Context, now: datetime) -> BronzeResult:
         for vintage in sorted({r["vintage_month"] for r in selected}):
             if refresh_stale_refresh(ctx.metadata, vintage, run_id=ctx.run_id, now=now):
                 result.stale_vintages.append(vintage)
-        result.missing = _files_without_valid_partition(ctx, selected)
+        result.missing = files_without_valid_partition(ctx, selected)
 
     result.manifest_key = _write_manifest(ctx, result, now)
     log.info("bronze finished: %s", dict(Counter(f.status for f in result.files)))
@@ -100,7 +100,7 @@ def _refusals(pending: int, selected: list[dict[str, Any]]) -> list[str]:
     ]
 
 
-def _files_without_valid_partition(ctx: Context, selected: list[dict[str, Any]]) -> list[str]:
+def files_without_valid_partition(ctx: Context, selected: list[dict[str, Any]]) -> list[str]:
     """The over-every-file check, not only the files touched in this run: each selected file needs a
     loaded or reloaded row for its current zip_sha256 and a partition that still exists."""
     done = {
