@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from conftest import csv_text
+from bronze_fakes import csv_text
 
 from precursorintelligence.common.io.run_lock import RunLock
 from precursorintelligence.harmonize.flags import EVENT_TABLES

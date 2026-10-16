@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 import polars as pl
-from conftest import csv_text
+from bronze_fakes import csv_text
 
 from precursorintelligence.harmonize.bronze import load_file
 

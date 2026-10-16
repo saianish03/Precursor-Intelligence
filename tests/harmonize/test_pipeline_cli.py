@@ -5,7 +5,7 @@ import sys
 
 import pytest
 import yaml
-from conftest import csv_text
+from bronze_fakes import csv_text
 
 from precursorintelligence.common.io.metadata_store import SqlAlchemyMetadataStore
 from precursorintelligence.common.io.object_store import LocalObjectStore

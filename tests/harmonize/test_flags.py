@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from conftest import csv_text
+from bronze_fakes import csv_text
 
 from precursorintelligence.harmonize.bronze import load_file
 from precursorintelligence.harmonize.flags import (

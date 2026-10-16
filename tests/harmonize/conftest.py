@@ -4,20 +4,13 @@ import uuid
 
 import polars as pl
 import pytest
+from bronze_fakes import ROWS, csv_text
 
 from precursorintelligence.common.io.metadata_store import SqlAlchemyMetadataStore
 from precursorintelligence.common.io.object_store import FsspecObjectStore, LocalObjectStore
 from precursorintelligence.common.io.table_sink import ParquetTableSink
 from precursorintelligence.harmonize.reader import decode_csv, parse_csv_text
 from precursorintelligence.ingestion.layout import header_hash, normalize_header
-
-ROWS = [("015009", "Oak Manor"), ("15E123", "Pine Court")]
-HEADER = '"CMS Certification Number (CCN)","Provider Name","Processing Date"\r\n'
-
-
-def csv_text(rows, *, blank_tail=False, processing="2025-06-01"):
-    body = "".join(f'"{ccn}","{name}","{processing}"\r\n' for ccn, name in rows)
-    return HEADER + body + ("\r\n" if blank_tail else "")
 
 
 @pytest.fixture(params=["local", "memory"])
