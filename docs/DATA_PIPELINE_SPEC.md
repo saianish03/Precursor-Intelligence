@@ -1,13 +1,13 @@
 # Precursor Intelligence: Data Pipeline Specification (v2)
 
-> **Purpose.** This is the single reference for building the Precursor Intelligence data pipeline. It goes from a new CMS release to a verified, frozen facility × month table of features and labels, published to the warehouse. It is written for Claude Code and for the team.
+> **Purpose.** This is the single reference for building the Precursor Intelligence data pipeline. It goes from a new CMS release to a verified, frozen facility × month table of features and labels, published to the warehouse. It is written for the engineers building and operating it.
 >
 > **It replaces `../dataset/Dataset_build_guide_v1.md` for implementation.** It keeps the guide's data logic, corrects the rules the archive analysis proved wrong, and organises every step under one of the **five DAG nodes**: `check_release → ingestion → bronze → silver → gold` (§0.7).
 >
 > **Precedence when sources disagree:**
 > 1. **measured facts only** (counts, domains, timelines) in `docs/STEP2_HANDOFF.md`, the Step 1 inventory and `../sample_run_log.md`;
 > 2. the rules and decisions in this file (§14), and D1–D11 in `docs/STEP1_DATA_INGESTION_PIPELINE.md` §0;
-> 3. the team documents (`PI_Tech_Stack.docx`, `Precursor_Intelligence_Data_Pipeline_Plan.docx`), the team Claude skills from `claude.setup.md` (e.g. `cms-data-domain`), and guide v1, as background only.
+> 3. the team documents (`PI_Tech_Stack.docx`, `Precursor_Intelligence_Data_Pipeline_Plan.docx`), the team's CMS domain notes (e.g. `cms-data-domain`), and guide v1, as background only.
 >    - Known skill conflicts, where this spec wins: dates are ISO only (not M/D/YYYY); severity B–L occurs; the later zip wins for a duplicate month (not "prefer the complete zip"); the dataset IDs live in `configs/ingestion/sources.yaml`.
 >
 > Where a **recommendation** in STEP2_HANDOFF or STEP1_DATA_INGESTION_PIPELINE differs from this file, this file wins. Examples: the `fine_id` event key, per-table stale flags, a `superseded` bronze status, and separate asset-scheduled DAGs.
@@ -75,8 +75,8 @@ Auxiliary label columns exist for analysis only (§9.4). **No label column may e
 - **Only the final gold dataset goes to a warehouse:** BigQuery in GCP, Postgres locally. Gold Parquet stays the source of truth.
 
 **Pipeline metadata** (D4–D8):
-- **Where:** a metadata store, Postgres locally and on the Airflow VM; BigQuery (`precursorintelligence_ops`) once that adapter exists; SQLite only in unit tests. Never Cloud SQL.
-- **How it is written:** append-only rows plus "latest" views; batch writes (BigQuery load jobs, never streaming); each task reads once and writes once.
+- **Where:** a metadata store, **Postgres** locally and, in GCP, the `precursor_meta` database on the Airflow VM (next to the `airflow` and `mlflow` databases); SQLite only in unit tests. Never Cloud SQL. **There is no BigQuery metadata adapter** (amended 2026-10-16 to follow `PI_Metadata_Storage_Plan`, 2026-10-09; this replaces D4's `precursorintelligence_ops`). BigQuery only holds a **read-only mirror** in the dataset `meta`, copied from Postgres by one task at the end of each DAG run (§15.3). The API and dashboard read a status snapshot, `status/latest.json` in GCS, written by the last task of the monitor DAG, so they never reach the VM.
+- **How it is written:** append-only rows plus "latest" views (D5); each task reads once and writes once; the BigQuery mirror is a batch load job, never streaming (D6). State that is a current value rather than an event (`vintage_flags`, `run_lock`) is one row per key and is upserted.
 - **Concurrency:** one run at a time (the `data_pipeline` run lock).
 
 ```
@@ -157,7 +157,7 @@ The task list per node, run modes, exit codes and the DAG sketch are in **§15**
 | Label status order | positive before immature | **immature first** | verifier: 43 immature-zone positives |
 | Censoring | observable until window end | until window **+ buffer** | sample: 11 g12 rows |
 | Buffers | 3 / 9 (guess) | **8 / 12** (measured) | full-archive lag |
-| Storage and metadata | Parquet on local disk | D1–D11: local/GCS files; Postgres/BigQuery metadata; only gold in the warehouse; run lock; manifests | decisions 2026-10-08 |
+| Storage and metadata | Parquet on local disk | D1–D11: local/GCS files; Postgres metadata with a BigQuery mirror (amended 2026-10-16); only gold in the warehouse; run lock; manifests | decisions 2026-10-08 |
 | Step references | "B measured in Step 5", "qm_measures filled at Step 6" | Step 4 and Step 5 | fixed |
 
 **Deviations from the team documents** (2026-10-08; the docx files are not edited):
@@ -169,7 +169,7 @@ The task list per node, run modes, exit codes and the DAG sketch are in **§15**
 | Bronze = raw files, never overwritten | Raw files in `landing/` are never overwritten (republished copies sit side by side); a bronze partition is **reloaded** when its source changes (D10) | Bronze is derived from landing |
 | Pandera checks | Named checks recorded in `dq_results` (the sample run); Pandera schemas can implement the same rules in the repo | — |
 | `vintage_registry` with sha256, row counts, stale flag and status per vintage | `vintage_registry` holds `check_release` decisions. Per-vintage facts sit in `inventory`, `bronze_files` and `vintage_flags`. | — |
-| Pipeline state in BigQuery | Postgres on the VM until the BigQuery metadata adapter exists (D4). The `run_lock` row needs an equivalent there. | Cost and latency |
+| Pipeline state in BigQuery (Tech Stack, 2026-10-08) | Postgres `precursor_meta` on the VM is the primary store and BigQuery `meta` a read-only mirror, as in `PI_Metadata_Storage_Plan` (2026-10-09). No BigQuery metadata adapter, so the `run_lock` row stays in Postgres. | Cost and latency: BigQuery is slow for small reads and writes |
 | Month-over-month row limits for citations, penalties and surveys | Rows per t for the spine only (§11.1). **Add the other limits to `checks.yaml`.** | Gap |
 | Ledgers updated incrementally | Ledgers rebuilt over all vintages every run | Small; deterministic |
 | DuckDB / Polars | Polars only (D2) | — |
@@ -841,7 +841,7 @@ The dataset counts as **frozen** only after a human approves this checkpoint. Th
 | 21 | Exit codes 2 and 3 | **Decided:** fail without retries | §15.4: a thin `DockerOperator` subclass raises `AirflowFailException` on exit 2 or 3; exit 1 keeps its retries |
 | 22 | Live CMS API in development and tests | **Decided:** allowed for read-only checks (the `network` tests, catalog and metastore reads). A real ingest of a new release (e.g. 2026-10-08) only when the user asks. | Unit tests stay offline (fake CMS) |
 | 10 | Spine start | **Decided 2026-10-15:** 2023-01. **Revisit:** with the measured buffers it leaves 3 training months for `y_g12` and 0 for `y_pen12` (§9.5). | Recommended: training rows from 2022-01; scoring and evaluation from 2023-01 |
-| 13 | Storage, metadata, warehouse, run lock, manifests | **Decided 2026-10-08** (D1–D11) | §0.6 |
+| 13 | Storage, metadata, warehouse, run lock, manifests | **Decided 2026-10-08** (D1–D11). **Metadata store amended 2026-10-16:** Postgres `precursor_meta` plus a BigQuery `meta` mirror and `status/latest.json`, no BigQuery adapter (D4, D8 and O2 in `STEP1_DATA_INGESTION_PIPELINE.md` §0 are superseded where they assume one) | §0.6, §15.3 |
 
 **Measured or changed by the sample run:**
 
@@ -922,6 +922,7 @@ check_release ──(short-circuit unless proceed)──▶ ┌ ingestion ──
 | bronze | `load_bronze` | `bronze --run-id R` | Refuses to start if any inventory row is `pending` (exit 2). Can later be mapped per (table, vintage). |
 | silver | `build_silver` | `silver --run-id R [--calibrate]` | `--calibrate` in backfill (Checkpoints 3–4); monthly runs read buffers and QMs from config |
 | gold | `build_gold` | `gold --run-id R` | Gate: any failed check → exit 2, nothing published. Emits `cms_nh_gold` only when published. |
+| — | `mirror_metadata` | `precursor-pipeline mirror-metadata --run-id R` | **Not built yet.** Copies the `precursor_meta` tables to BigQuery `meta` with a load job (seconds; a few thousand rows). `trigger_rule=all_done`, so a failed run is mirrored too; a failure here is retried but never blocks `release_lock`. |
 | — | `release_lock` | `precursor-ingest lock release --run-id R` | `trigger_rule=all_done`, `retries=0` |
 
 ### 15.4 Run modes and what each node does (measured on the sample)
