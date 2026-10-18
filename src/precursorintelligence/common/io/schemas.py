@@ -154,4 +154,42 @@ run_lock = Table(
     Column("acquired_at", String(32)),
 )
 
+# Bronze (spec §3.1 step 9): one row per file bronze loaded or failed; skipped files get no row.
+# Append-only, so a failed attempt stays visible after a later successful load.
+bronze_files = Table(
+    "bronze_files",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("run_id", String(64)),
+    Column("table_name", String(64)),
+    Column("vintage_month", String(7)),
+    Column("entry_id", String(255)),
+    Column("member_path", String(512)),
+    Column("zip_sha256", String(64)),
+    Column("header_hash", String(16)),
+    Column("status", String(16)),  # loaded | reloaded | failed
+    Column("row_count", BigInteger),
+    Column("blank_rows", BigInteger),
+    Column("encoding", String(16)),  # utf-8 | cp1252
+    Column("content_hash", String(64)),
+    Column("content_unchanged", Boolean),  # NULL for a table's first vintage
+    Column("object_uri", Text),
+    Column("detail", Text),
+    Column("loaded_at", String(32)),
+)
+
+# Bronze release flags (spec §3.1 steps 8 and "Republished data"): the current value per flag.
+# `table_name` is '' for the release-level stale_refresh flag, so it can be part of the key.
+vintage_flags = Table(
+    "vintage_flags",
+    metadata,
+    Column("vintage_month", String(7), primary_key=True),
+    Column("flag", String(32), primary_key=True),  # stale_refresh | revised_after_publication
+    Column("table_name", String(64), primary_key=True),
+    Column("value", Boolean),
+    Column("detail", Text),
+    Column("run_id", String(64)),
+    Column("updated_at", String(32)),
+)
+
 TABLES = {t.name: t for t in metadata.sorted_tables}
