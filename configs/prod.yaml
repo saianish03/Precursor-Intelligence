@@ -1,10 +1,10 @@
 # Test / production (GCP): GCS bucket for files (gcsfs, `pipeline` extra). Metadata: Postgres via PI_DATABASE_URL
-# (the Postgres on the Airflow VM) until the BigQuery metadata adapter lands (decision D4).
+# (the `precursor_meta` database on the Airflow VM; BigQuery only holds a read-only mirror, spec 0.6).
 # Credentials come from Application Default Credentials / workload identity, never from this file.
 env: prod
 object_store:
   kind: gcs
-  root: ${PI_BUCKET_URI:-gs://precursorintelligence-bronze}
+  root: ${PI_BUCKET_URI:-gs://precursor-intel-mlops-data}
   # No bucket retention policy: this one root also holds layers that are rewritten (bronze reloads,
   # gold promotion, reports) and quarantine files that are deleted. Landing is protected by the code's
   # never-overwrite rule plus bucket object versioning (spec §0.6; decided 2026-10-16).
