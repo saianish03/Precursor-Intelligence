@@ -120,6 +120,9 @@ def load_silver_config(config_dir: Path | None = None) -> SilverConfig:
             continue
         if spec.get("source") not in sources:
             raise ConfigError(f"keep_columns {name}: unknown source {spec.get('source')!r}")
+        for required in ("key", "columns"):
+            if required not in spec:
+                raise ConfigError(f"keep_columns {name}: missing {required!r}")
         missing_key = set(spec["key"]) - set(spec["columns"])
         if missing_key:
             raise ConfigError(f"keep_columns {name}: key columns {sorted(missing_key)} not kept")

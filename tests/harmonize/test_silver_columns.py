@@ -99,3 +99,18 @@ def test_a_keep_list_key_that_is_not_kept_is_a_config_error(tmp_path):
     )
     with pytest.raises(ConfigError, match="not kept"):
         load_silver_config(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "entry", ["  source: penalties\n  columns: [ccn]\n", "  source: penalties\n  key: [ccn]\n"]
+)
+def test_a_keep_list_entry_without_key_or_columns_is_a_config_error(tmp_path, entry):
+    from shutil import copy
+
+    from precursorintelligence.common.config import project_root
+
+    for name in ("column_map.yaml", "value_maps.yaml"):
+        copy(project_root() / "configs" / name, tmp_path / name)
+    (tmp_path / "keep_columns.yaml").write_text("t:\n" + entry, encoding="utf-8")
+    with pytest.raises(ConfigError, match="missing"):
+        load_silver_config(tmp_path)
