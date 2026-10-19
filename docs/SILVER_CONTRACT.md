@@ -90,7 +90,7 @@ dated up to 9 days after `cutoff_date`. Feature windows must use `event_date <= 
 | `facility_presence` | 15,636 | ccn | first_vintage, last_vintage, n_vintages, gap_vintages (published months missing in between), **exited** (`last_vintage < V`; 946) |
 | `facility_universe` | 914,352 | ccn, vintage_month | every facility in every published vintage (14,690–15,340 per month) |
 | `qm_inventory` | 26 | table, measure_code, resident_type, measure_description | first_vintage, last_vintage, n_vintages |
-| `citation_lookup_versions` | 664 | prefix, tag, valid_from_vintage | content runs; **valid_to looks into the future: not for features** |
+| `citation_lookup_versions` | 664 | deficiency_prefix, deficiency_tag, valid_from_vintage | content runs; **valid_to looks into the future: not for features** |
 | `gold/dim_facility_latest` | 15,636 | ccn | name, address, city, state, zip, lat/long, chain from the last vintage; last_vintage; is_active (14,690). **Product display only.** |
 
 Ledgers are rebuilt over all vintages every silver run; the stale vintage 2025-09 adds no events.
