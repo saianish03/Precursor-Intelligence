@@ -171,7 +171,7 @@ def fine_crosscheck(s: SilverReader) -> tuple[pl.DataFrame, float, float]:
     )
     mature = df.filter(pl.col("age").is_between(18, 36))
     p1, p0 = (
-        float(r or 0.0)
+        float("nan") if r is None else float(r)  # no mature surveys: unmeasured, not 0
         for r in mature.select(
             pl.col("fine").filter(pl.col("g")).mean().alias("p1"),
             pl.col("fine").filter(~pl.col("g")).mean().alias("p0"),

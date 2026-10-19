@@ -1,6 +1,7 @@
 """Steps 3-5 on hand-made silver partitions: the vintage fold, removed_by_cms, presence gaps, lookup versions,
 and the calibration maths (spec §4-§6, §9.3)."""
 
+import math
 import uuid
 from datetime import date
 
@@ -209,3 +210,28 @@ def test_qm_proposal_classifies_stable_bridged_and_dropped():
         "415": "dropped",
         "999": "dropped",
     }
+
+
+def test_fine_rates_with_no_mature_surveys_are_unmeasured_not_zero():
+    # One standard survey 3 months before the vintage: nothing falls in the 18-36 month window.
+    day = date(2026, 5, 4)
+    s = reader(
+        {
+            "surveys_by_vintage": {
+                "2026-08": pl.DataFrame(
+                    {"ccn": ["015009"], "survey_date": [day], "survey_type": ["HEALTH_STANDARD"]}
+                )
+            },
+            "citations_by_vintage": {
+                "2026-08": pl.DataFrame(
+                    {"ccn": ["015009"], "survey_date": [day], "scope_severity": ["G"]}
+                )
+            },
+            "penalties_by_vintage": {
+                "2026-08": pl.DataFrame({"ccn": ["015009"], "penalty_date": [day]})
+            },
+        }
+    )
+    table, p1, p0 = cal.fine_crosscheck(s)
+    assert math.isnan(p1) and math.isnan(p0)
+    assert table["exp_fine_share"].is_nan().all()
