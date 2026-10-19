@@ -1,6 +1,9 @@
 """Checkpoint 2 report: 02_harmonization.md, 02_column_availability.csv and 02_unmapped_headers.csv
 (docs/DATA_PIPELINE_SPEC.md §3.5). Built from the current state (latest bronze and silver rows), not only
-from this run, so a rerun that builds nothing still writes the full report."""
+from this run, so a rerun that builds nothing still writes the full report.
+
+Also the markdown of the Checkpoint 3 and 4 reports (lag_report, universe_report; spec §5-§6), which
+silver_steps.run_calibration writes."""
 
 from __future__ import annotations
 
@@ -11,6 +14,7 @@ from typing import Any
 import polars as pl
 
 from ..ingestion.context import Context
+from . import calibrate as cal
 from .columns import SilverConfig
 from .flags import REVISED, STALE_REFRESH
 from .silver import BUILT, PartitionResult, latest_bronze
@@ -281,3 +285,146 @@ def _flags(ctx: Context) -> list[str]:
         f"- `stale_refresh`: {', '.join(stale) or 'none'} (spec: 2025-09 only). Data kept.",
         f"- `revised_after_publication`: {', '.join(revised) or 'none'}.",
     ]
+
+
+def lag_report(
+    ctx: Context,
+    lags: dict[str, dict[str, Any]],
+    buffers: dict[str, int | None],
+    cross: pl.DataFrame,
+    p1: float,
+    p0: float,
+    vintages: list[str],
+    stale: list[str],
+) -> str:
+    rows = [[e, f"{r['n']:,}", r["median"], r["p90"], r["p95"], r["B"]] for e, r in lags.items()]
+    cdf_rows = [
+        [a, *[f"{lags[e]['cdf'][a]:.3f}" if lags[e]["cdf"] else "" for e in lags]]
+        for a in range(0, 13)
+    ]
+    return "\n".join(
+        [
+            "# Step 4 - Posting lag and maturity buffers (CHECKPOINT 3)",
+            "",
+            f"- **Run:** `{ctx.run_id}`; V = `{vintages[-1]}`; stale vintages: {', '.join(stale) or 'none'}",
+            f"- Events: citations from {cal.CITATIONS_FROM[:7]}, penalties from {cal.PENALTIES_FROM[:7]}, "
+            f"dated at least {cal.FULLY_OBSERVED_MONTHS} months before V (fully observed lags only).",
+            "- Lag = calendar months from the event date to the cutoff of the first vintage that shows it. "
+            f"B = smallest lag with c(B) >= {cal.COVERAGE}. Penalties are counted per revision group.",
+            "",
+            "## Lag by event type",
+            "",
+            md_table(["event", "n", "median", "p90", "p95", "B"], rows),
+            "",
+            "## Proposed buffers (spec measured: B_cit = 8, B_pen = 12)",
+            "",
+            f"- **B_cit = {buffers['B_cit']}** (covers every G+ subgroup; labels count all of them)",
+            f"- **B_pen = {buffers['B_pen']}** (covers fines and payment denials)",
+            "",
+            "Proposal only: a human commits the values to `configs/labels.yaml` after this checkpoint.",
+            "",
+            "## Resulting last labelable month (spec §9.3)",
+            "",
+            md_table(
+                ["label", "H", "buffer", "last_labeled_t", "last published t"],
+                cal.last_labeled(vintages[-1], buffers, vintages, stale),
+            ),
+            "",
+            "## CDF c(a) for a = 0..12 (full 0..24 in `04_lag_cdf.csv`)",
+            "",
+            md_table(["a", *lags], cdf_rows),
+            "",
+            "## Cross-check on the latest vintage (sanity view, not used to set B_pen)",
+            "",
+            f"Mature-period rates (standard surveys aged 18-36 months): p1 = P(fine | G+) = {p1:.3f}, "
+            f"p0 = P(fine | no G+) = {p0:.3f} (spec: 0.735 / 0.028). obs/exp reaches about 1 late because recent "
+            "cohorts are fined less often (spec §5 caveat).",
+            "",
+            md_table(
+                ["age (months)", "surveys", "obs fine share", "exp fine share", "obs/exp"],
+                [
+                    [
+                        r[0],
+                        r[1],
+                        f"{r[2]:.3f}",
+                        f"{r[4]:.3f}",
+                        f"{r[5]:.2f}" if r[5] is not None else "",
+                    ]
+                    for r in cross.iter_rows()
+                ],
+            ),
+            "",
+        ]
+    )
+
+
+def universe_report(
+    ctx: Context, frames: dict[str, pl.DataFrame], proposal: pl.DataFrame, vintages: list[str]
+) -> str:
+    per_v = frames["facility_universe"].group_by("vintage_month").len().sort("vintage_month")
+    presence = frames["facility_presence"]
+    exited = presence.filter(pl.col("exited")).height
+    led_c = frames["ledger_citations"]
+    status = proposal.group_by("status").len().sort("status")
+    show = proposal.select(
+        "status",
+        "table",
+        "measure_code",
+        "resident_type",
+        "feature",
+        "first_vintage",
+        "last_vintage",
+        "reason",
+        "measure_description",
+    )
+    return "\n".join(
+        [
+            "# Step 5 - Facility universe and quality measures (CHECKPOINT 4)",
+            "",
+            f"- **Run:** `{ctx.run_id}`; V = `{vintages[-1]}`",
+            "",
+            "## Facility universe",
+            "",
+            f"- Facilities per vintage: {min(per_v['len'].to_list()):,} - {max(per_v['len'].to_list()):,} (spec: about 14.5k - 15.4k)",
+            f"- Distinct facilities: {presence.height:,}; **exited** (last vintage before V): {exited:,}; "
+            f"with gaps: {presence.filter(pl.col('gap_vintages') > 0).height:,}",
+            f"- `gold/dim_facility_latest`: {frames['dim_facility_latest'].height:,} rows, "
+            f"{frames['dim_facility_latest'].filter(pl.col('is_active')).height:,} active",
+            "",
+            md_table(["vintage", "facilities"], [list(r) for r in per_v.iter_rows()]),
+            "",
+            "## Ledgers (Step 3)",
+            "",
+            md_table(
+                ["ledger", "rows", "notes"],
+                [
+                    [
+                        "ledger_citations",
+                        f"{led_c.height:,}",
+                        f"{led_c.filter(pl.col('final_scope_severity').is_in(cal.G_PLUS)).height:,} G+; "
+                        f"{led_c.filter(pl.col('severity_changed')).height:,} severity changed; {led_c.filter(pl.col('removed_by_cms')).height:,} removed by CMS",
+                    ],
+                    [
+                        "ledger_penalties",
+                        f"{frames['ledger_penalties'].height:,}",
+                        f"{frames['ledger_penalties']['revision_group'].n_unique():,} revision groups",
+                    ],
+                    [
+                        "ledger_surveys",
+                        f"{frames['ledger_surveys'].height:,}",
+                        f"{frames['ledger_surveys'].filter(~pl.col('in_inspection_dates')).height:,} known only from citations",
+                    ],
+                ],
+            ),
+            "",
+            "## Proposed `configs/qm_measures.yaml` (approve or edit, then commit)",
+            "",
+            md_table(["status", "measures"], [list(r) for r in status.iter_rows()]),
+            "",
+            md_table(list(show.columns), [list(r) for r in show.iter_rows()]),
+            "",
+            "Bridges get `qm_def_post_2025_02` / `qm_def_post_2026_02` indicators in gold. **405 -> 480 is doubtful** "
+            "(different definitions); decide here whether to bridge or drop it.",
+            "",
+        ]
+    )
