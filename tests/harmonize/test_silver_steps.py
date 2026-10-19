@@ -7,6 +7,7 @@ from datetime import date
 import polars as pl
 
 from precursorintelligence.harmonize import ledgers as led
+from precursorintelligence.harmonize.columns import load_silver_config
 from precursorintelligence.harmonize.flags import STALE_REFRESH
 from precursorintelligence.harmonize.silver_steps import build_ledgers_and_universe, run_calibration
 
@@ -145,7 +146,7 @@ def test_steps_3_to_5_build_the_ledgers_universe_and_checkpoint_reports(ctx):
         with ctx.object_store.open_read(led.KEYS[name]) as fh:
             assert pl.read_parquet(fh).height == f[name].height
 
-    keys = run_calibration(ctx, VINTAGES, built)
+    keys = run_calibration(ctx, VINTAGES, built, load_silver_config().calibration)
     written = {k.rsplit("/", 1)[-1] for k in keys if "/latest/" in k}
     assert written == {
         "04_lag_analysis.md",

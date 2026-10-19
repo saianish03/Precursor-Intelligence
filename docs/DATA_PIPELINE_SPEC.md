@@ -104,6 +104,7 @@ configs/
   column_map.yaml          # raw header → canonical name, with vintage ranges and dtype
   keep_columns.yaml        # canonical columns kept per table
   value_maps.yaml          # enums: survey type, SFF, sprinkler, council, ownership group, Y/N
+  calibration.yaml         # Steps 4-5 proposal settings: lag coverage, left-censoring floors, QM bridges and drops
   footnotes.yaml           # CMS footnote code → meaning and missing-reason group
   labels.yaml              # horizons, buffers, severity sets, due interval
   splits.yaml              # spine start; train/calib/purge/test rules per label

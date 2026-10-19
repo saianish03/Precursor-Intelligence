@@ -1,11 +1,13 @@
 """The silver node on bronze built by the real bronze node: build, skip, rebuild, fail closed (spec §3.5)."""
 
 from datetime import UTC, date, datetime
+from shutil import copy
 
 import polars as pl
 import pytest
 import yaml
 
+from precursorintelligence.common.config import project_root
 from precursorintelligence.harmonize import silver_pipeline
 from precursorintelligence.harmonize.columns import load_silver_config
 from precursorintelligence.harmonize.pipeline import run_bronze
@@ -42,6 +44,7 @@ def write_config(folder, *, extra_ignored=(), name_dtype="str"):
     (folder / "value_maps.yaml").write_text(
         yaml.safe_dump({"yes_no": {"Y": True, "N": False}}), encoding="utf-8"
     )
+    copy(project_root() / "configs" / "calibration.yaml", folder / "calibration.yaml")
     return load_silver_config(folder)
 
 

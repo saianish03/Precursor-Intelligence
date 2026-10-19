@@ -1,38 +1,54 @@
 """Silver calibration tasks (backfill or on demand; docs/DATA_PIPELINE_SPEC.md §5 and §6 item 3).
 
 They only write proposals to reports/. `configs/labels.yaml` (buffers) and `configs/qm_measures.yaml` change
-only through a human commit after Checkpoints 3 and 4.
+only through a human commit after Checkpoints 3 and 4. Their settings live in `configs/calibration.yaml`.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import polars as pl
 
+from ..common.config import ConfigError
 from .ledgers import SilverReader
 
 G_PLUS = list("GHIJKL")
-COVERAGE = 0.95  # B = smallest lag a with c(a) >= COVERAGE (spec §5 step 3)
-MAX_LAG = 24
-CITATIONS_FROM = "2021-06-01"  # earlier events are left-censored by the archive start (spec §5)
-PENALTIES_FROM = "2021-12-01"  # fines were posted only once paid until the 2021-11 vintage
-FULLY_OBSERVED_MONTHS = 24  # only events at least this old at V have a fully observed lag
 HORIZONS = {"y_g12": (12, "B_cit"), "y_g6": (6, "B_cit"), "y_pen12": (12, "B_pen")}
 
-# Spec §6 item 3: bridge pairs (old code -> new code, same resident type) and why. A proposal for a human.
-BRIDGES = {
-    ("453", "479"): ("ls_pressure_ulcer", "close: high-risk pressure ulcers -> pressure ulcers"),
-    ("419", "481"): ("ls_antipsychotic", "close: antipsychotic medication (long stay)"),
-    ("405", "480"): (
-        "ls_incontinence",
-        "DOUBTFUL: low-risk loss of bowel/bladder control -> new or worsened incontinence",
-    ),
-}
-DROP = {"415", "430", "454", "472", "471"}  # vaccination process measures, and 471 (ended 2024-11)
-STABLE_FROM = (
-    "2022-01"  # spine history start: a stable measure is present in every vintage from here to V
-)
+
+@dataclass(frozen=True)
+class CalibrationConfig:
+    """configs/calibration.yaml: what the Checkpoint 3 and 4 proposals are computed with."""
+
+    coverage: float
+    max_lag: int
+    citations_from: str
+    penalties_from: str
+    fully_observed_months: int
+    stable_from: str
+    bridges: dict[tuple[str, str], tuple[str, str]]  # (old code, new code) -> (feature, note)
+    drop: dict[str, str]  # code -> reason
+
+    @classmethod
+    def from_yaml(cls, raw: dict[str, Any]) -> CalibrationConfig:
+        try:
+            lag, qm = raw["lag"], raw["qm"]
+            return cls(
+                coverage=float(lag["coverage"]),
+                max_lag=int(lag["max_lag_months"]),
+                citations_from=str(lag["citations_from"]),
+                penalties_from=str(lag["penalties_from"]),
+                fully_observed_months=int(lag["fully_observed_months"]),
+                stable_from=str(qm["stable_from"]),
+                bridges={
+                    (str(b["old"]), str(b["new"])): (b["feature"], b["note"]) for b in qm["bridges"]
+                },
+                drop={str(code): why for code, why in qm["drop"].items()},
+            )
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise ConfigError(f"calibration.yaml: missing or bad setting {exc}") from None
 
 
 def month_index(col: pl.Expr) -> pl.Expr:
@@ -50,30 +66,30 @@ def _shift(vintage: str, months: int) -> str:
     return f"{n // 12:04d}-{n % 12 + 1:02d}"
 
 
-def lag_table(events: pl.DataFrame) -> dict[str, Any]:
-    """events: one row per event with `lag_months`. Returns n, median, p90, p95, B and the CDF c(0..24)."""
+def lag_table(events: pl.DataFrame, cfg: CalibrationConfig) -> dict[str, Any]:
+    """events: one row per event with `lag_months`. Returns n, median, p90, p95, B and the CDF c(0..max_lag)."""
     n = events.height
     if n == 0:
         return {"n": 0, "median": None, "p90": None, "p95": None, "B": None, "cdf": []}
     lag = pl.col("lag_months")
     row = events.select(
-        *[(lag <= a).mean().alias(f"c{a}") for a in range(MAX_LAG + 1)],
+        *[(lag <= a).mean().alias(f"c{a}") for a in range(cfg.max_lag + 1)],
         *[lag.quantile(p, interpolation="higher").alias(f"q{p}") for p in (0.5, 0.9, 0.95)],
     ).row(0)
-    cdf = [float(c) for c in row[: MAX_LAG + 1]]
-    median, p90, p95 = (int(q) for q in row[MAX_LAG + 1 :])
-    b = next((a for a, c in enumerate(cdf) if c >= COVERAGE), None)
+    cdf = [float(c) for c in row[: cfg.max_lag + 1]]
+    median, p90, p95 = (int(q) for q in row[cfg.max_lag + 1 :])
+    b = next((a for a, c in enumerate(cdf) if c >= cfg.coverage), None)
     return {"n": n, "median": median, "p90": p90, "p95": p95, "B": b, "cdf": cdf}
 
 
 def lag_analysis(
-    citations: pl.DataFrame, penalties: pl.DataFrame, latest: str
+    citations: pl.DataFrame, penalties: pl.DataFrame, latest: str, cfg: CalibrationConfig
 ) -> dict[str, dict[str, Any]]:
     """Spec §5. Lag = calendar months from the event date to the cutoff of the vintage it first appeared in.
     Only events old enough at V to have a fully observed lag are used."""
-    cutoff_idx = vintage_index(pl.lit(_shift(latest, -FULLY_OBSERVED_MONTHS)))
+    cutoff_idx = vintage_index(pl.lit(_shift(latest, -cfg.fully_observed_months)))
     cit = (
-        citations.filter(pl.col("survey_date") >= pl.lit(CITATIONS_FROM).str.to_date())
+        citations.filter(pl.col("survey_date") >= pl.lit(cfg.citations_from).str.to_date())
         .with_columns(
             (
                 vintage_index(pl.col("first_seen_vintage")) - month_index(pl.col("survey_date"))
@@ -85,7 +101,7 @@ def lag_analysis(
     # The penalty event is the revision group: CMS revises amounts, and a key with the amount would date a
     # fine from its last amount (spec §5).
     groups = (
-        penalties.filter(pl.col("penalty_date") >= pl.lit(PENALTIES_FROM).str.to_date())
+        penalties.filter(pl.col("penalty_date") >= pl.lit(cfg.penalties_from).str.to_date())
         .group_by("revision_group")
         .agg(
             pl.col("penalty_type").first(),
@@ -100,12 +116,16 @@ def lag_analysis(
         .filter(month_index(pl.col("penalty_date")) <= cutoff_idx)
     )
     return {
-        "G+ citations": lag_table(gplus),
-        "G+ citations, complaint-linked": lag_table(gplus.filter(pl.col("final_is_complaint"))),
-        "G+ citations, standard survey": lag_table(gplus.filter(pl.col("final_is_standard"))),
-        "All citations": lag_table(cit),
-        "Fines (revision group)": lag_table(groups.filter(pl.col("penalty_type") == "Fine")),
-        "Payment denials": lag_table(groups.filter(pl.col("penalty_type") == "Payment Denial")),
+        "G+ citations": lag_table(gplus, cfg),
+        "G+ citations, complaint-linked": lag_table(
+            gplus.filter(pl.col("final_is_complaint")), cfg
+        ),
+        "G+ citations, standard survey": lag_table(gplus.filter(pl.col("final_is_standard")), cfg),
+        "All citations": lag_table(cit, cfg),
+        "Fines (revision group)": lag_table(groups.filter(pl.col("penalty_type") == "Fine"), cfg),
+        "Payment denials": lag_table(
+            groups.filter(pl.col("penalty_type") == "Payment Denial"), cfg
+        ),
     }
 
 
@@ -194,30 +214,30 @@ def fine_crosscheck(s: SilverReader) -> tuple[pl.DataFrame, float, float]:
     return table, p1, p0
 
 
-def qm_proposal(inventory: pl.DataFrame, vintages: list[str]) -> pl.DataFrame:
-    """Spec §6 item 3: stable (every published vintage STABLE_FROM -> V), bridged (BRIDGES), dropped (the rest).
+def qm_proposal(
+    inventory: pl.DataFrame, vintages: list[str], cfg: CalibrationConfig
+) -> pl.DataFrame:
+    """Spec §6 item 3: stable (every published vintage stable_from -> V), bridged, dropped (the rest).
     `inventory` needs one row per (table, code, resident type, vintage): see qm_presence."""
     latest = vintages[-1]
-    needed = sum(v >= STABLE_FROM for v in vintages)
+    needed = sum(v >= cfg.stable_from for v in vintages)
     by_code = inventory.group_by("table", "measure_code", "resident_type").agg(
         pl.col("vintage_month").min().alias("first_vintage"),
         pl.col("vintage_month").max().alias("last_vintage"),
         pl.col("vintage_month")
-        .filter(pl.col("vintage_month") >= STABLE_FROM)
+        .filter(pl.col("vintage_month") >= cfg.stable_from)
         .n_unique()
         .alias("n_from_stable"),
         pl.col("measure_description").sort_by("vintage_month").last(),
     )
-    bridged = {c: (name, why) for (old, new), (name, why) in BRIDGES.items() for c in (old, new)}
+    bridged = {
+        c: (name, why) for (old, new), (name, why) in cfg.bridges.items() for c in (old, new)
+    }
     rows = []
     for r in by_code.sort("table", "measure_code").iter_rows(named=True):
         code = r["measure_code"]
-        if code in DROP:
-            status, feature, why = (
-                "dropped",
-                None,
-                "vaccination process measure" if code != "471" else "ended 2024-11",
-            )
+        if code in cfg.drop:
+            status, feature, why = "dropped", None, cfg.drop[code]
         elif code in bridged:
             status, (feature, why) = "bridged", bridged[code]
         elif r["n_from_stable"] == needed and r["last_vintage"] == latest:

@@ -1,4 +1,4 @@
-"""Silver configs (column map, keep-lists, value maps) and header resolution (docs/DATA_PIPELINE_SPEC.md §3.2-3.3)."""
+"""Silver configs (column map, keep-lists, value maps, calibration) and header resolution (docs/DATA_PIPELINE_SPEC.md §3.2-3.3)."""
 
 from __future__ import annotations
 
@@ -11,8 +11,9 @@ from typing import Any
 import yaml
 
 from ..common.config import ConfigError, project_root
+from .calibrate import CalibrationConfig
 
-CONFIG_FILES = ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml")
+CONFIG_FILES = ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml", "calibration.yaml")
 DTYPES = {
     "ccn",
     "str",
@@ -68,6 +69,7 @@ class SilverConfig:
     sources: dict[str, SourceMap]
     tables: dict[str, SilverTable]
     value_maps: dict[str, Any]
+    calibration: CalibrationConfig
     config_hash: str  # over the parsed files, so line endings or comments never change it
 
     def tables_for(self, source: str) -> list[SilverTable]:
@@ -110,7 +112,7 @@ def _source_map(table: str, spec: dict[str, Any]) -> SourceMap:
 
 
 def load_silver_config(config_dir: Path | None = None) -> SilverConfig:
-    """Read and validate the three silver configs. A broken config is a ConfigError (exit 3)."""
+    """Read and validate the four silver configs. A broken config is a ConfigError (exit 3)."""
     root = config_dir or project_root() / "configs"
     raw = {name: _load_yaml(root / name) for name in CONFIG_FILES}
     sources = {t: _source_map(t, s) for t, s in raw["column_map.yaml"].items() if t != "_meta"}
@@ -130,7 +132,8 @@ def load_silver_config(config_dir: Path | None = None) -> SilverConfig:
     digest = hashlib.sha256(
         json.dumps(raw, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
-    return SilverConfig(sources, tables, raw["value_maps.yaml"], digest)
+    calibration = CalibrationConfig.from_yaml(raw["calibration.yaml"])
+    return SilverConfig(sources, tables, raw["value_maps.yaml"], calibration, digest)
 
 
 def resolve_headers(source: SourceMap, headers: list[str], vintage: str) -> Resolution:

@@ -10,9 +10,12 @@ import polars as pl
 from precursorintelligence.common.io.object_store import FsspecObjectStore
 from precursorintelligence.harmonize import calibrate as cal
 from precursorintelligence.harmonize import ledgers as led
+from precursorintelligence.harmonize.columns import load_silver_config
 from precursorintelligence.harmonize.silver_pipeline import lookup_versions
 
 V = ["2024-01", "2024-02", "2024-04"]  # 2024-03 was never published
+
+CAL = load_silver_config().calibration
 
 
 def reader(tables: dict[str, dict[str, pl.DataFrame]]) -> led.SilverReader:
@@ -165,7 +168,7 @@ def test_lookup_versions_split_on_changes_and_gaps():
 
 def test_lag_table_picks_the_smallest_lag_with_95_percent_coverage():
     lags = pl.DataFrame({"lag_months": [2] * 80 + [5] * 15 + [9] * 5})
-    t = cal.lag_table(lags)
+    t = cal.lag_table(lags, CAL)
     assert (t["n"], t["median"], t["B"]) == (100, 2, 5)
     assert t["cdf"][4] == 0.80 and t["cdf"][5] == 0.95
 
@@ -202,7 +205,7 @@ def test_qm_proposal_classifies_stable_bridged_and_dropped():
             for v in months
         ]
     )
-    status = dict(cal.qm_proposal(presence, vs).select("measure_code", "status").rows())
+    status = dict(cal.qm_proposal(presence, vs, CAL).select("measure_code", "status").rows())
     assert status == {
         "410": "stable",
         "453": "bridged",

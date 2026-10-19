@@ -289,6 +289,7 @@ def _flags(ctx: Context) -> list[str]:
 
 def lag_report(
     ctx: Context,
+    cfg: cal.CalibrationConfig,
     lags: dict[str, dict[str, Any]],
     buffers: dict[str, int | None],
     cross: pl.DataFrame,
@@ -307,10 +308,10 @@ def lag_report(
             "# Step 4 - Posting lag and maturity buffers (CHECKPOINT 3)",
             "",
             f"- **Run:** `{ctx.run_id}`; V = `{vintages[-1]}`; stale vintages: {', '.join(stale) or 'none'}",
-            f"- Events: citations from {cal.CITATIONS_FROM[:7]}, penalties from {cal.PENALTIES_FROM[:7]}, "
-            f"dated at least {cal.FULLY_OBSERVED_MONTHS} months before V (fully observed lags only).",
+            f"- Events: citations from {cfg.citations_from[:7]}, penalties from {cfg.penalties_from[:7]}, "
+            f"dated at least {cfg.fully_observed_months} months before V (fully observed lags only).",
             "- Lag = calendar months from the event date to the cutoff of the first vintage that shows it. "
-            f"B = smallest lag with c(B) >= {cal.COVERAGE}. Penalties are counted per revision group.",
+            f"B = smallest lag with c(B) >= {cfg.coverage}. Penalties are counted per revision group.",
             "",
             "## Lag by event type",
             "",

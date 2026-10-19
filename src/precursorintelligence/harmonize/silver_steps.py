@@ -49,7 +49,9 @@ def _write(ctx: Context, step: str, files: dict[str, bytes]) -> list[str]:
     return keys
 
 
-def run_calibration(ctx: Context, vintages: list[str], built: dict[str, Any]) -> list[str]:
+def run_calibration(
+    ctx: Context, vintages: list[str], built: dict[str, Any], cfg: cal.CalibrationConfig
+) -> list[str]:
     """Checkpoint 3 (posting lag -> buffers) and Checkpoint 4 (universe and QM selection). Proposals only."""
     frames = built["frames"]
     s = led.SilverReader(ctx.object_store, vintages)
@@ -59,7 +61,7 @@ def run_calibration(ctx: Context, vintages: list[str], built: dict[str, Any]) ->
         if r["value"]
     )
 
-    lags = cal.lag_analysis(frames["ledger_citations"], frames["ledger_penalties"], s.latest)
+    lags = cal.lag_analysis(frames["ledger_citations"], frames["ledger_penalties"], s.latest, cfg)
     buffers = cal.proposed_buffers(lags)
     cross, p1, p0 = cal.fine_crosscheck(s)
     cdf = pl.DataFrame(
@@ -74,13 +76,13 @@ def run_calibration(ctx: Context, vintages: list[str], built: dict[str, Any]) ->
         "step4",
         {
             "04_lag_analysis.md": rep.lag_report(
-                ctx, lags, buffers, cross, p1, p0, vintages, stale
+                ctx, cfg, lags, buffers, cross, p1, p0, vintages, stale
             ).encode("utf-8"),
             "04_lag_cdf.csv": cdf.write_csv().encode("utf-8"),
         },
     )
 
-    proposal = cal.qm_proposal(built["qm_presence"], vintages)
+    proposal = cal.qm_proposal(built["qm_presence"], vintages, cfg)
     keys += _write(
         ctx,
         "step5",

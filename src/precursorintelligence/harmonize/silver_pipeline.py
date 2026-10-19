@@ -122,7 +122,7 @@ def _run(ctx: Context, cfg: SilverConfig, now: datetime, calibrate: bool) -> Sil
             result.tables = built["counts"]
             if calibrate:
                 with task_scope(ctx, "silver_calibrate"):
-                    result.report_keys += run_calibration(ctx, vintages, built)
+                    result.report_keys += run_calibration(ctx, vintages, built, cfg.calibration)
 
     result.report_keys = (
         write_reports(ctx, cfg, result.partitions, result.lookup_versions) + result.report_keys

@@ -80,7 +80,7 @@ def test_the_config_hash_ignores_comments_and_line_endings(tmp_path):
 
     from precursorintelligence.common.config import project_root
 
-    for name in ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml"):
+    for name in ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml", "calibration.yaml"):
         copy(project_root() / "configs" / name, tmp_path / name)
     vm = tmp_path / "value_maps.yaml"
     vm.write_bytes(b"# a new comment\r\n" + vm.read_bytes().replace(b"\n", b"\r\n"))
@@ -92,7 +92,7 @@ def test_a_keep_list_key_that_is_not_kept_is_a_config_error(tmp_path):
 
     from precursorintelligence.common.config import project_root
 
-    for name in ("column_map.yaml", "value_maps.yaml"):
+    for name in ("column_map.yaml", "value_maps.yaml", "calibration.yaml"):
         copy(project_root() / "configs" / name, tmp_path / name)
     (tmp_path / "keep_columns.yaml").write_text(
         "t:\n  source: penalties\n  key: [fine_id]\n  columns: [ccn]\n", encoding="utf-8"
@@ -109,8 +109,27 @@ def test_a_keep_list_entry_without_key_or_columns_is_a_config_error(tmp_path, en
 
     from precursorintelligence.common.config import project_root
 
-    for name in ("column_map.yaml", "value_maps.yaml"):
+    for name in ("column_map.yaml", "value_maps.yaml", "calibration.yaml"):
         copy(project_root() / "configs" / name, tmp_path / name)
     (tmp_path / "keep_columns.yaml").write_text("t:\n" + entry, encoding="utf-8")
     with pytest.raises(ConfigError, match="missing"):
         load_silver_config(tmp_path)
+
+
+def test_a_calibration_config_with_a_missing_setting_is_a_config_error(tmp_path):
+    from shutil import copy
+
+    from precursorintelligence.common.config import project_root
+
+    for name in ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml"):
+        copy(project_root() / "configs" / name, tmp_path / name)
+    (tmp_path / "calibration.yaml").write_text("lag:\n  coverage: 0.95\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="calibration.yaml"):
+        load_silver_config(tmp_path)
+
+
+def test_the_calibration_settings_are_read_from_the_config():
+    cal = load_silver_config().calibration
+    assert cal.coverage == 0.95 and cal.fully_observed_months == 24
+    assert cal.bridges[("453", "479")][0] == "ls_pressure_ulcer"
+    assert cal.drop["471"] == "ended 2024-11"
