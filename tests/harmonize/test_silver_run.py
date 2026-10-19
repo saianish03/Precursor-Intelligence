@@ -176,3 +176,45 @@ def test_a_wrong_processing_date_fails_the_partition():
     )
     with pytest.raises(PartitionError, match="Processing Date"):
         harmonize(frame, "penalties", "2026-08", cfg)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"penalty_date": "06/01/2026"},  # unparseable date
+        {"penalty_date": ""},  # missing date
+        {"penalty_type": ""},  # missing type
+        {"fine_amount": "lots"},  # unparseable amount
+    ],
+)
+def test_a_penalty_whose_key_does_not_parse_fails_the_partition(bad):
+    from precursorintelligence.harmonize.silver import PartitionError
+
+    row = {
+        "ccn": "015009",
+        "penalty_date": "2026-05-04",
+        "penalty_type": "Fine",
+        "fine_amount": "6500",
+        "processing_date": "2026-08-01",
+        "fine_id": "A1",
+    }
+    frame, cfg = _penalty_frame([row | bad])
+    with pytest.raises(PartitionError, match="key field"):
+        harmonize(frame, "penalties", "2026-08", cfg)
+
+
+def test_a_payment_denial_without_a_fine_amount_still_builds():
+    frame, cfg = _penalty_frame(
+        [
+            {
+                "ccn": "015009",
+                "penalty_date": "2026-05-04",
+                "penalty_type": "Payment Denial",
+                "payment_denial_start_date": "2026-05-10",
+                "processing_date": "2026-08-01",
+                "fine_id": "A1",
+            }
+        ]
+    )
+    outputs, _, _ = harmonize(frame, "penalties", "2026-08", cfg)
+    assert outputs["penalties_by_vintage"].height == 1

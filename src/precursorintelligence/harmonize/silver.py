@@ -115,6 +115,17 @@ def harmonize(
         )
         if wrong:
             raise PartitionError(f"{wrong} rows whose Processing Date is not {cutoff}")
+    if source == "penalties":
+        # A key that does not parse makes an event no label window can match: fail, never build it.
+        # fine_amount and payment_denial_start_date may be missing (a fine has no denial date), not unparseable.
+        broken = {c: invalid[c] for c in PENALTY_FIELDS if c in invalid}
+        broken |= {
+            c: typed[c].null_count()
+            for c in ("penalty_date", "penalty_type")
+            if typed[c].null_count()
+        }
+        if broken:
+            raise PartitionError(f"penalty rows with a missing or unparseable key field: {broken}")
     stats: dict[str, Any] = {"rows": typed.height, "invalid": invalid}
     typed = _derive(typed, source, cfg, stats, frame)
     if source in EVENT_DATES:
