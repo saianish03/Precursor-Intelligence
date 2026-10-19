@@ -148,7 +148,7 @@ Run 17 automatic checks. The most important:
 
 Two companion spreadsheets describe every column in detail:
 - `column_directory.xlsx`: what each column means and where it comes from;
-- `column_lineage.xlsx`: how each raw CMS column is counted, summed, or joined to produce each feature.
+- `column_lineage.xlsx` (in `docs/reference/`): how each raw CMS column is counted, summed, or joined to produce each feature.
 
 A manifest file (`dataset_manifest.json`) records exactly which zips (with fingerprints) and settings produced the dataset, so it can be rebuilt identically.
 
