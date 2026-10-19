@@ -556,7 +556,7 @@ health_citations:
       available_from: 2021-01
       complete: true
     deficiency_prefix:
-      dtype: str
+      dtype: code
       aliases:
       - raw: Deficiency Prefix
         from: 2021-01
@@ -738,7 +738,7 @@ penalties:
       available_from: 2021-01
       complete: true
     penalty_type:
-      dtype: str
+      dtype: code
       aliases:
       - raw: Penalty Type
         from: 2021-01
@@ -809,7 +809,7 @@ mds_qm:
       available_from: 2021-01
       complete: true
     measure_code:
-      dtype: str
+      dtype: code
       aliases:
       - raw: Measure Code
         from: 2021-01
@@ -960,7 +960,7 @@ claims_qm:
       available_from: 2021-01
       complete: true
     measure_code:
-      dtype: str
+      dtype: code
       aliases:
       - raw: Measure Code
         from: 2021-01
@@ -1052,7 +1052,7 @@ claims_qm:
 citation_lookup:
   columns:
     deficiency_prefix:
-      dtype: str
+      dtype: code
       aliases:
       - raw: Deficiency Prefix
         from: 2021-01

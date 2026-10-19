@@ -55,6 +55,12 @@ def test_empty_text_is_null_but_text_is_kept_verbatim():
     assert out["t"].to_list() == ["  Oak  Manor ", None, None]
 
 
+def test_a_code_is_trimmed_so_a_stray_space_does_not_fork_a_key():
+    out, bad = run({"c": ["Fine ", " F", "Fine", "  ", None]}, {"c": "code"})
+    assert out["c"].to_list() == ["Fine", "F", "Fine", None, None]
+    assert bad == {}
+
+
 def test_survey_types_map_to_the_enum_and_unknown_ones_to_other():
     out, bad = run(
         {"st": ["Health Standard", "Fire Safety Complaint", "Life Safety", None]},

@@ -384,6 +384,7 @@ Columns that exist only in later vintages are null in earlier ones; their availa
 | Field | Rule |
 |---|---|
 | `ccn` | Strip, upper-case. Assert length 6 and `^[0-9A-Z]{6}$` (not `^\d{6}$`). Never pad numbers that lost zeros; the source never loses them. |
+| Key codes (`code`) | Trim; empty → null. For identifiers that are part of a key (`deficiency_prefix`, `penalty_type`, `measure_code`), so a stray space in one vintage can't fork a key. Names and descriptions (`str`) keep the raw value. |
 | Dates | All dates in 2021+ files are ISO `YYYY-MM-DD`. Parse that format only; anything unparseable → null and counted (expected 0). |
 | `processing_date` | One value per file, equal to the 1st of `vintage_month`. Assert it. |
 | `scope_severity` | Single upper-case letter A–L (only B–L occurs). Anything else → null and counted. |

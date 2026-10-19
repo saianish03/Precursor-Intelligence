@@ -16,6 +16,7 @@ CONFIG_FILES = ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml")
 DTYPES = {
     "ccn",
     "str",
+    "code",
     "int",
     "float",
     "date",

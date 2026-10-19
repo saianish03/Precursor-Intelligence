@@ -20,6 +20,7 @@ CLAIMS_PERIOD = r"^(\d{8})-(\d{8})$"
 POLARS_TYPES: dict[str, pl.DataType] = {
     "ccn": pl.String(),
     "str": pl.String(),
+    "code": pl.String(),
     "footnote": pl.String(),
     "tag": pl.String(),
     "severity": pl.String(),
@@ -46,7 +47,8 @@ def _rule(name: str, dtype: str, value_maps: dict[str, Any]) -> pl.Expr:
     t = text(name)
     if dtype == "ccn":
         return t.str.to_uppercase()
-    if dtype in ("footnote",):
+    # code: trimmed text for keys and identifiers, so a stray space can't fork a key
+    if dtype in ("footnote", "code"):
         return t
     if dtype == "str":
         raw = pl.col(name)
