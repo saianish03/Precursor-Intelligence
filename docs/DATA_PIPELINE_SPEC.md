@@ -392,7 +392,7 @@ Columns that exist only in later vintages are null in earlier ones; their availa
 | Citation survey type | The `Survey Type` column is always "Health" and is ignored. Keep the three booleans `is_standard`, `is_complaint`, `is_infection_control`; one citation can carry several. |
 | `survey_type` (Inspection Dates) | Enum from `value_maps.yaml`: `Health Standard` → `HEALTH_STANDARD`, `Health Complaint` → `HEALTH_COMPLAINT`, `Infection Control` → `INFECTION_CONTROL`, `Fire Safety Standard` → `FIRE_STANDARD`, `Fire Safety Complaint` → `FIRE_COMPLAINT`, anything else → `OTHER` (counted). |
 | Y/N flags | `Y`/`N` → boolean. Anything else → null and counted. |
-| Numeric | Float. Empty → null. Keep the footnote column, which holds the missing reason. |
+| Numeric | Float. Empty → null; `nan`/`inf` → null and counted. Keep the footnote column, which holds the missing reason. |
 | `sprinkler_status` | `Yes` / `Partial` / `No` → enum; `Data Not Available` → null + flag (the only text sentinel in the data). |
 | `ownership_type` | Keep the raw value; add `ownership_group` ∈ {for_profit, non_profit, government} (the prefix before ` - `). |
 | `special_focus_status` | `SFF` → `SFF`, `SFF Candidate` → `SFF_CANDIDATE`, blank → `NONE`. |

@@ -61,7 +61,9 @@ def _rule(name: str, dtype: str, value_maps: dict[str, Any]) -> pl.Expr:
     if dtype == "int":
         return t.cast(pl.Int64, strict=False)
     if dtype == "float":
-        return t.cast(pl.Float64, strict=False)
+        # "nan"/"inf" parse as floats but are bad data: null, and counted as invalid
+        v = t.cast(pl.Float64, strict=False)
+        return pl.when(v.is_finite()).then(v)
     if dtype == "date":
         return t.str.strptime(pl.Date, "%Y-%m-%d", strict=False)
     if dtype == "bool_yn":

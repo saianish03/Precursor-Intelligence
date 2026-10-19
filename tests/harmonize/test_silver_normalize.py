@@ -55,6 +55,12 @@ def test_empty_text_is_null_but_text_is_kept_verbatim():
     assert out["t"].to_list() == ["  Oak  Manor ", None, None]
 
 
+def test_nan_and_inf_are_bad_numbers_not_values():
+    out, bad = run({"n": ["1.5", "nan", "inf", "-inf", "NaN", ""]}, {"n": "float"})
+    assert out["n"].to_list() == [1.5, None, None, None, None, None]
+    assert bad == {"n": 4}
+
+
 def test_a_code_is_trimmed_so_a_stray_space_does_not_fork_a_key():
     out, bad = run({"c": ["Fine ", " F", "Fine", "  ", None]}, {"c": "code"})
     assert out["c"].to_list() == ["Fine", "F", "Fine", None, None]
