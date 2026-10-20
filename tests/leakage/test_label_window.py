@@ -6,6 +6,7 @@ import polars as pl
 import pytest
 
 from precursorintelligence.common.config import LabelsConfig, LabelSpec
+from precursorintelligence.gold.build import events_published_by
 from precursorintelligence.gold.labels import build_labels
 
 CFG = LabelsConfig(
@@ -90,3 +91,18 @@ def test_positive_holds_even_if_the_facility_exits_before_window_plus_buffer():
 def test_window_not_yet_observed_is_immature_even_with_a_visible_event():
     # With fresh data only to 2024-08 (e.g. V is a stale refresh), t + 12 + 8 = 2024-09 > v.
     assert _status(date(2023, 6, 1), last_vintage="2025-03", v="2024-08") == ("immature", None)
+
+
+def test_an_event_published_after_v_does_not_label_earlier_rows():
+    # A G dated 2023-06-01 but first published in 2025-06 is invisible to a gold run at V = 2025-03.
+    ledger = pl.DataFrame(
+        {
+            "ccn": ["015001"],
+            "survey_date": [date(2023, 6, 1)],
+            "final_scope_severity": ["G"],
+            "removed_by_cms": [False],
+            "first_seen_vintage": ["2025-06"],
+        }
+    )
+    assert events_published_by(ledger, "2025-03").is_empty()
+    assert events_published_by(ledger, "2025-06").height == 1
