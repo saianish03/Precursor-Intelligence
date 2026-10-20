@@ -6,6 +6,8 @@
 | `prod.yaml` | ✅ in use | Test / production backends: GCS for files (BigQuery metadata planned) |
 | `logging.yaml` | ✅ in use | Standard-library logging config (console text/JSON + per-run JSON-lines file) |
 | `ingestion/sources.yaml` | ✅ in use | Step 1: CMS endpoints, scope dates, the 7 in-scope tables (file patterns, dataset IDs), HTTP and security limits |
+| `labels.yaml` | ✅ in use | Gold labels: G+ severities, horizons, maturity buffers (B_cit, B_pen), strict censoring |
+| `splits.yaml` | ✅ in use | Gold spine start (`spine_start`); split windows to follow |
 | `base.yaml` | planned | Shared project settings: project, region, bucket names, BigQuery datasets |
 | `contracts/` | planned | Expected schemas per dataset, versioned by effective month (draft: `docs/data/step2_reference/column_map.draft.yaml`) |
 | `prompts/` | planned | Versioned LLM prompt YAML used by `src/precursorintelligence/agents` |
