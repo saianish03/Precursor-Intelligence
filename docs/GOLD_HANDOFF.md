@@ -118,13 +118,14 @@ uv run python tests/gold/make_toy_silver.py data/toy --stale 2025-03 # try a sta
 
 1. **Get silver's output:** it comes as a zip from the silver owner (or from Sai). Unzip it so you have
    `data/silver/` and `data/gold/dim_facility_latest/`.
-2. **Get the metadata database:** until the real one is shared, copy the stand-in `data/ops/metadata.db` from
-   Sai (see the note below).
+2. **Get the metadata database:** copy bronze's real `data/ops/metadata.db` from Sai or the silver owner (it
+   holds `vintage_flags`).
 3. **Run gold:** make sure `PI_DATABASE_URL` is not set, then run `uv run precursor-pipeline gold`.
 
-> **`vintage_flags` stand-in.** The real-data run below used a **temporary** `data/ops/metadata.db` whose
-> `vintage_flags` marks only 2025-09 as `stale_refresh`. For the final run, use the metadata database that bronze
-> actually wrote.
+> **`vintage_flags`.** The first real-data run used a temporary stand-in `data/ops/metadata.db` (only 2025-09
+> marked `stale_refresh`). Gold was then rerun with the **real metadata database** that bronze wrote (61
+> `stale_refresh` rows, only 2025-09 true), and the output was **byte-for-byte identical**, so the results in
+> section 6 hold. Use the real database; the stand-in is no longer needed.
 
 > **Generate gold yourself.** Don't copy `gold/spine` or `gold/labels` from someone else: run
 > `uv run precursor-pipeline gold` to build them from silver (it takes seconds). That way they always match your
@@ -269,5 +270,4 @@ raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module
 | 5 | Silver freshness check (`partitions_without_current_silver`) in the gold run | Add once PR #7 is on `dev` (note in `gold/build.py`) |
 | 6 | Clean-up of `gold/_staging/run=<id>/` | Kept, because the object store only deletes under `quarantine/` and `tmp/` |
 | 7 | `--v` backtests | Final severity and `removed_by_cms` still come from the latest silver |
-| 8 | Real `vintage_flags` | The real-data run used a stand-in (§5) |
-| 9 | Is `y_pen12` a model or only a comparison? | Spec §14 |
+| 8 | Is `y_pen12` a model or only a comparison? | Spec §14 |
