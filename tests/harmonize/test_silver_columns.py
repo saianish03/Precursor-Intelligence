@@ -144,6 +144,30 @@ def test_a_calibration_config_with_a_missing_setting_is_a_config_error(tmp_path)
         load_silver_config(tmp_path)
 
 
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("coverage: 0.95", "coverage: 95"),
+        ("max_lag_months: 24", "max_lag_months: 0"),
+        ('citations_from: "2021-06-01"', 'citations_from: "2021-06"'),
+        ('stable_from: "2022-01"', 'stable_from: "2022-01-01"'),
+    ],
+)
+def test_a_calibration_setting_out_of_range_is_a_config_error(tmp_path, old, new):
+    from shutil import copy
+
+    from precursorintelligence.common.config import project_root
+
+    for name in ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml", "calibration.yaml"):
+        copy(project_root() / "configs" / name, tmp_path / name)
+    cal = tmp_path / "calibration.yaml"
+    text = cal.read_text(encoding="utf-8")
+    assert old in text
+    cal.write_text(text.replace(old, new), encoding="utf-8")
+    with pytest.raises(ConfigError, match="calibration.yaml"):
+        load_silver_config(tmp_path)
+
+
 def test_the_calibration_settings_are_read_from_the_config():
     cal = load_silver_config().calibration
     assert cal.coverage == 0.95 and cal.fully_observed_months == 24

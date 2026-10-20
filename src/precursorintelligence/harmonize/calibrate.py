@@ -6,7 +6,9 @@ only through a human commit after Checkpoints 3 and 4. Their settings live in `c
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import polars as pl
@@ -35,7 +37,7 @@ class CalibrationConfig:
     def from_yaml(cls, raw: dict[str, Any]) -> CalibrationConfig:
         try:
             lag, qm = raw["lag"], raw["qm"]
-            return cls(
+            cfg = cls(
                 coverage=float(lag["coverage"]),
                 max_lag=int(lag["max_lag_months"]),
                 citations_from=str(lag["citations_from"]),
@@ -47,6 +49,16 @@ class CalibrationConfig:
                 },
                 drop={str(code): why for code, why in qm["drop"].items()},
             )
+            # A typo such as coverage: 95 (meant 0.95) would otherwise load and leave every buffer None.
+            if not 0 < cfg.coverage <= 1:
+                raise ValueError(f"lag.coverage must be in (0, 1], got {cfg.coverage}")
+            if cfg.max_lag < 1:
+                raise ValueError(f"lag.max_lag_months must be at least 1, got {cfg.max_lag}")
+            for name in ("citations_from", "penalties_from"):
+                date.fromisoformat(getattr(cfg, name))  # YYYY-MM-DD
+            if not re.fullmatch(r"\d{4}-\d{2}", cfg.stable_from):
+                raise ValueError(f"qm.stable_from must be YYYY-MM, got {cfg.stable_from!r}")
+            return cfg
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             raise ConfigError(f"calibration.yaml: missing or bad setting {exc}") from None
 
