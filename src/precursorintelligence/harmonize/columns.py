@@ -14,6 +14,9 @@ from ..common.config import ConfigError, project_root
 from .calibrate import CalibrationConfig
 
 CONFIG_FILES = ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml", "calibration.yaml")
+# What decides whether a silver partition is current. calibration.yaml only shapes the Checkpoint 3/4
+# proposals, so editing it must not rebuild every partition.
+PARTITION_CONFIGS = ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml")
 DTYPES = {
     "ccn",
     "str",
@@ -70,7 +73,7 @@ class SilverConfig:
     tables: dict[str, SilverTable]
     value_maps: dict[str, Any]
     calibration: CalibrationConfig
-    config_hash: str  # over the parsed files, so line endings or comments never change it
+    config_hash: str  # over the parsed PARTITION_CONFIGS: comments and line endings never change it
 
     def tables_for(self, source: str) -> list[SilverTable]:
         return [t for t in self.tables.values() if t.source == source]
@@ -129,8 +132,9 @@ def load_silver_config(config_dir: Path | None = None) -> SilverConfig:
         if missing_key:
             raise ConfigError(f"keep_columns {name}: key columns {sorted(missing_key)} not kept")
         tables[name] = SilverTable(name, spec["source"], tuple(spec["key"]), tuple(spec["columns"]))
+    partition_configs = {name: raw[name] for name in PARTITION_CONFIGS}
     digest = hashlib.sha256(
-        json.dumps(raw, sort_keys=True, default=str).encode("utf-8")
+        json.dumps(partition_configs, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
     calibration = CalibrationConfig.from_yaml(raw["calibration.yaml"])
     return SilverConfig(sources, tables, raw["value_maps.yaml"], calibration, digest)

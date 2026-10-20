@@ -87,6 +87,22 @@ def test_the_config_hash_ignores_comments_and_line_endings(tmp_path):
     assert load_silver_config(tmp_path).config_hash == load_silver_config().config_hash
 
 
+def test_editing_the_calibration_settings_does_not_change_the_config_hash(tmp_path):
+    from shutil import copy
+
+    from precursorintelligence.common.config import project_root
+
+    for name in ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml", "calibration.yaml"):
+        copy(project_root() / "configs" / name, tmp_path / name)
+    cal = tmp_path / "calibration.yaml"
+    cal.write_text(
+        cal.read_text(encoding="utf-8").replace("coverage: 0.95", "coverage: 0.9"), encoding="utf-8"
+    )
+    edited = load_silver_config(tmp_path)
+    assert edited.calibration.coverage == 0.9
+    assert edited.config_hash == load_silver_config().config_hash
+
+
 def test_a_keep_list_key_that_is_not_kept_is_a_config_error(tmp_path):
     from shutil import copy
 
