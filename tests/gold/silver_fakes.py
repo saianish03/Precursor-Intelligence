@@ -27,6 +27,7 @@ from datetime import date, timedelta
 
 import polars as pl
 
+from precursorintelligence.common.io.metadata_store import MetadataStore
 from precursorintelligence.common.io.object_store import ObjectStore
 from precursorintelligence.common.io.table_sink import ParquetTableSink
 
@@ -549,3 +550,21 @@ def write_silver(store: ObjectStore, tables: dict[str, pl.DataFrame]) -> None:
         buf = io.BytesIO()
         df.write_parquet(buf)
         store.put_bytes(f"{layer}/{name}/part-0.parquet", buf.getvalue(), overwrite=True)
+
+
+def write_vintage_flags(meta: MetadataStore, *, stale: tuple[str, ...] = ()) -> None:
+    """The release-level stale_refresh rows bronze would have written (harmonize/flags.py), one per vintage."""
+    meta.upsert(
+        "vintage_flags",
+        [
+            {
+                "vintage_month": v,
+                "flag": "stale_refresh",
+                "table_name": "",
+                "value": v in stale,
+                "run_id": "toy",
+                "updated_at": "2026-10-19T00:00:00",
+            }
+            for v in VINTAGES
+        ],
+    )
