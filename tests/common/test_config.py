@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from precursorintelligence.common.config import MODULE_ROOT, ConfigError, load_settings
+from precursorintelligence.common.config import (
+    MODULE_ROOT,
+    ConfigError,
+    load_labels_config,
+    load_settings,
+)
 
 
 def _write(tmp: Path, name: str, data: dict) -> Path:
@@ -78,3 +83,21 @@ def test_project_root_override(tmp_path, monkeypatch):
     s = load_settings("dev")
     assert s.module_root == tmp_path.resolve()
     assert s.env.object_store.root == str((tmp_path / "data").resolve())
+
+
+def test_labels_config_rejects_negative_buffers_and_unknown_keys(tmp_path):
+    base = "gplus_severities: [G]\nlabels:\n  g12: {source: citations, horizon_months: 12}\n"
+    for bad in (
+        base + "buffers_months: {citations: -1}\n",
+        base + "buffers_months: {penalties: 12}\n",  # g12's source has no buffer
+        base + "buffers_months: {citations: 8}\ncensor_requires_bufer: false\n",  # typo
+    ):
+        f = tmp_path / "labels.yaml"
+        f.write_text(bad, encoding="utf-8")
+        with pytest.raises(ConfigError):
+            load_labels_config(f)
+
+
+def test_repo_labels_config_has_the_measured_buffers():
+    cfg = load_labels_config()
+    assert (cfg.buffer("g12"), cfg.buffer("g6"), cfg.buffer("pen12")) == (8, 8, 12)

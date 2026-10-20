@@ -4,6 +4,8 @@ Two files make up the settings:
   * ``configs/ingestion/sources.yaml`` - what to download and the security rules (same in every environment)
   * ``configs/<env>.yaml``             - which storage / database backends to use (dev, prod)
 
+The gold node also reads ``configs/labels.yaml`` and ``configs/splits.yaml`` (their own loaders below).
+
 ``${VAR}`` and ``${VAR:-default}`` placeholders are expanded from the process environment, so secrets
 (database URLs, bucket names) never have to be written into a config file.
 """
@@ -14,10 +16,10 @@ import os
 import re
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, TypeVar
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MODULE_ROOT = Path(__file__).resolve().parents[3]  # repository root (src layout, editable install)
 PROJECT_ROOT_ENV = "PI_PROJECT_ROOT"
@@ -234,6 +236,70 @@ class Settings(BaseModel):
     def resolve_path(self, p: str) -> Path:
         path = Path(p)
         return path if path.is_absolute() else (self.module_root / path).resolve()
+
+
+# --------------------------------------------------------------------------- gold: labels.yaml, splits.yaml
+
+
+class LabelSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["citations", "penalties"]
+    horizon_months: int = Field(gt=0)
+
+
+class LabelsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    gplus_severities: list[str]
+    buffers_months: dict[Literal["citations", "penalties"], Annotated[int, Field(ge=0)]]
+    censor_requires_buffer: bool = True
+    labels: dict[str, LabelSpec]
+
+    @model_validator(mode="after")
+    def _every_source_has_a_buffer(self) -> LabelsConfig:
+        missing = {s.source for s in self.labels.values()} - set(self.buffers_months)
+        if missing:
+            raise ValueError(f"buffers_months has no entry for {sorted(missing)}")
+        return self
+
+    def buffer(self, label: str) -> int:
+        return self.buffers_months[self.labels[label].source]
+
+
+class SplitsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    spine_start: str
+
+    @field_validator("spine_start")
+    @classmethod
+    def _yyyy_mm(cls, v: str) -> str:
+        if not re.fullmatch(r"\d{4}-\d{2}", v):
+            raise ValueError("spine_start must be YYYY-MM")
+        return v
+
+
+def load_labels_config(path: str | Path | None = None) -> LabelsConfig:
+    """Load and validate ``configs/labels.yaml``."""
+    return _load_model(LabelsConfig, path or project_root() / "configs" / "labels.yaml")
+
+
+def load_splits_config(path: str | Path | None = None) -> SplitsConfig:
+    """Load and validate ``configs/splits.yaml``."""
+    return _load_model(SplitsConfig, path or project_root() / "configs" / "splits.yaml")
+
+
+_M = TypeVar("_M", bound=BaseModel)
+
+
+def _load_model(model: type[_M], path: str | Path) -> _M:
+    try:
+        return model.model_validate(_read_yaml(Path(path)))
+    except ConfigError:
+        raise
+    except Exception as exc:  # pydantic.ValidationError and yaml errors
+        raise ConfigError(str(exc)) from exc
 
 
 def _absolutize(env: EnvConfig, root: Path) -> EnvConfig:
