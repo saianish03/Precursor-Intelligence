@@ -12,6 +12,7 @@ from ..ingestion.context import Context
 from . import calibrate as cal
 from . import ledgers as led
 from . import silver_report as rep
+from .columns import CalibrationConfig
 from .flags import STALE_REFRESH
 
 log = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ def _write(ctx: Context, step: str, files: dict[str, bytes]) -> list[str]:
 
 
 def run_calibration(
-    ctx: Context, vintages: list[str], built: dict[str, Any], cfg: cal.CalibrationConfig
+    ctx: Context, vintages: list[str], built: dict[str, Any], cfg: CalibrationConfig
 ) -> list[str]:
     """Checkpoint 3 (posting lag -> buffers) and Checkpoint 4 (universe and QM selection). Proposals only."""
     frames = built["frames"]

@@ -15,7 +15,7 @@ import polars as pl
 
 from ..ingestion.context import Context
 from . import calibrate as cal
-from .columns import SilverConfig
+from .columns import CalibrationConfig, SilverConfig
 from .flags import REVISED, STALE_REFRESH
 from .silver import BUILT, PartitionResult, latest_bronze
 
@@ -289,7 +289,7 @@ def _flags(ctx: Context) -> list[str]:
 
 def lag_report(
     ctx: Context,
-    cfg: cal.CalibrationConfig,
+    cfg: CalibrationConfig,
     lags: dict[str, dict[str, Any]],
     buffers: dict[str, int | None],
     cross: pl.DataFrame,

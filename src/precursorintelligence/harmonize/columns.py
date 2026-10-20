@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from ..common.config import ConfigError, project_root
-from .calibrate import CalibrationConfig
 
 CONFIG_FILES = ("column_map.yaml", "keep_columns.yaml", "value_maps.yaml", "calibration.yaml")
 # What decides whether a silver partition is current. calibration.yaml only shapes the Checkpoint 3/4
@@ -65,6 +66,49 @@ class SilverTable:
     source: str
     key: tuple[str, ...]
     columns: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CalibrationConfig:
+    """configs/calibration.yaml: what the Checkpoint 3 and 4 proposals are computed with."""
+
+    coverage: float
+    max_lag: int
+    citations_from: str
+    penalties_from: str
+    fully_observed_months: int
+    stable_from: str
+    bridges: dict[tuple[str, str], tuple[str, str]]  # (old code, new code) -> (feature, note)
+    drop: dict[str, str]  # code -> reason
+
+    @classmethod
+    def from_yaml(cls, raw: dict[str, Any]) -> CalibrationConfig:
+        try:
+            lag, qm = raw["lag"], raw["qm"]
+            cfg = cls(
+                coverage=float(lag["coverage"]),
+                max_lag=int(lag["max_lag_months"]),
+                citations_from=str(lag["citations_from"]),
+                penalties_from=str(lag["penalties_from"]),
+                fully_observed_months=int(lag["fully_observed_months"]),
+                stable_from=str(qm["stable_from"]),
+                bridges={
+                    (str(b["old"]), str(b["new"])): (b["feature"], b["note"]) for b in qm["bridges"]
+                },
+                drop={str(code): why for code, why in qm["drop"].items()},
+            )
+            # A typo such as coverage: 95 (meant 0.95) would otherwise load and leave every buffer None.
+            if not 0 < cfg.coverage <= 1:
+                raise ValueError(f"lag.coverage must be in (0, 1], got {cfg.coverage}")
+            if cfg.max_lag < 1:
+                raise ValueError(f"lag.max_lag_months must be at least 1, got {cfg.max_lag}")
+            for name in ("citations_from", "penalties_from"):
+                date.fromisoformat(getattr(cfg, name))  # YYYY-MM-DD
+            if not re.fullmatch(r"\d{4}-\d{2}", cfg.stable_from):
+                raise ValueError(f"qm.stable_from must be YYYY-MM, got {cfg.stable_from!r}")
+            return cfg
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise ConfigError(f"calibration.yaml: missing or bad setting {exc}") from None
 
 
 @dataclass(frozen=True)
