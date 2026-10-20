@@ -17,6 +17,7 @@ from pathlib import Path
 import typer
 
 from ..common.io.run_lock import RunLockHeldError, RunLockNotHeldError
+from ..gold.cli import gold
 from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init
 from ..ingestion.context import Context, build_context
 from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR, EXIT_OK, EXIT_VALIDATION
@@ -27,6 +28,7 @@ app = typer.Typer(
     add_completion=False,
     help="Precursor Intelligence pipeline nodes after ingestion (bronze, then silver and gold)",
 )
+app.command()(gold)  # the gold node; its code lives in src/precursorintelligence/gold/
 
 
 @app.callback()

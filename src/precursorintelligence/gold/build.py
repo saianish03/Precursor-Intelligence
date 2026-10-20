@@ -17,16 +17,20 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 import polars as pl
 
 from ..common.config import ConfigError, LabelsConfig, SplitsConfig
+from ..common.io.run_lock import RunLock
 from ..common.io.table_sink import ParquetTableSink
+from ..common.obs.logging import log_context
 from ..ingestion.context import Context
-from ..ingestion.pipeline import EXIT_OK, EXIT_VALIDATION
+from ..ingestion.pipeline import EXIT_OK, EXIT_VALIDATION, LOCK_NAME, task_scope
 from . import GoldCheckError
 from .labels import build_labels
 from .spine import build_spine
@@ -104,6 +108,36 @@ def events_published_by(ledger: pl.DataFrame, v: str) -> pl.DataFrame:
     return ledger.filter(pl.col("first_seen_vintage") <= v)
 
 
+def run_gold(
+    ctx: Context,
+    *,
+    labels_cfg: LabelsConfig,
+    splits_cfg: SplitsConfig,
+    v: str | None = None,
+    own_lock: bool = True,
+    now: datetime | None = None,
+) -> GoldResult:
+    """``own_lock=True``: take the run lock for this call (RunLockHeldError if another run holds it).
+    ``own_lock=False`` (DAG task): the run must already hold it (RunLockNotHeldError otherwise).
+    Data and gate problems are returned (exit 2); a bad ``v`` raises ConfigError (exit 3)."""
+    now = now or datetime.now(UTC)
+    lock = RunLock(ctx.metadata, LOCK_NAME)
+    with log_context(run_id=ctx.run_id, env=ctx.settings.env.env):
+        if own_lock:
+            acquired = lock.acquire(ctx.run_id, stale_after=ctx.settings.env.run_lock.stale_after)
+        else:
+            lock.require(ctx.run_id)
+            acquired = False
+        try:
+            with task_scope(ctx, "gold") as detail:
+                result = _run(ctx, labels_cfg, splits_cfg, v, now)
+                detail.update(rows=result.rows, failures=len(result.failures))
+                return result
+        finally:
+            if acquired:
+                lock.release(ctx.run_id)
+
+
 def _parquet(df: pl.DataFrame) -> bytes:
     buf = io.BytesIO()
     df.write_parquet(buf, compression="zstd")
@@ -118,7 +152,7 @@ def _read(ctx: Context, key: str) -> pl.DataFrame:
 
 
 def _run(
-    ctx: Context, labels_cfg: LabelsConfig, splits_cfg: SplitsConfig, v: str | None
+    ctx: Context, labels_cfg: LabelsConfig, splits_cfg: SplitsConfig, v: str | None, now: datetime
 ) -> GoldResult:
     result = GoldResult(run_id=ctx.run_id)
     published: list[str] = []
@@ -150,6 +184,9 @@ def _run(
         result.outputs = {n: hashlib.sha256(b).hexdigest() for n, b in staged.items()}
     except GoldCheckError as exc:
         result.failures.append(str(exc))
+    result.manifest_key = _write_manifest(
+        ctx, result, published, stale, labels_cfg, splits_cfg, now
+    )
     return result
 
 
@@ -175,3 +212,43 @@ def _staging_key(ctx: Context, name: str) -> str:
 def _promote(ctx: Context, staged: dict[str, bytes]) -> None:
     for name, data in staged.items():
         ctx.object_store.put_bytes(f"gold/{name}/part-0.parquet", data, overwrite=True)
+
+
+def _write_manifest(
+    ctx: Context,
+    result: GoldResult,
+    published: list[str],
+    stale: list[str],
+    labels_cfg: LabelsConfig,
+    splits_cfg: SplitsConfig,
+    now: datetime,
+) -> str:
+    """One JSON per run under metadata/gold/. The timestamp in the name means a retry never overwrites it."""
+    manifest = {
+        "run_id": ctx.run_id,
+        "started_at": ctx.started_at,
+        "finished_at": now.isoformat(timespec="seconds"),
+        "exit_code": result.exit_code,
+        "v": result.v,
+        "v_labels": result.v_labels,
+        "stale_refresh_skipped": stale,
+        "published_vintages": {
+            "n": len(published),
+            "first": published[0] if published else None,
+            "last": published[-1] if published else None,
+        },
+        "configs": {
+            "labels": labels_cfg.model_dump(mode="json"),
+            "splits": splits_cfg.model_dump(mode="json"),
+        },
+        "rows": result.rows,
+        "outputs_sha256": result.outputs,
+        "promoted": not result.failures,
+        "failures": result.failures,
+    }
+    stamp = datetime.now(
+        UTC
+    )  # the real clock, to the microsecond: a retry in the same second cannot collide
+    key = f"metadata/gold/run_date={stamp:%Y-%m-%d}/gold_run_{ctx.run_id}_{stamp:%Y%m%dT%H%M%S%fZ}.json"
+    ctx.object_store.put_bytes(key, json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8"))
+    return key
