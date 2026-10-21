@@ -103,6 +103,16 @@ release_lock  (teardown of acquire_lock)
   - A lock left by a killed run (for example, the VM stopped mid-run) is taken over after 12 h (`run_lock.stale_after_hours`).
   - Manual CLI runs without `--run-id` take and release the lock themselves.
 
+**Why a teardown, not `trigger_rule="all_done"`** (measured on the local stack):
+- **The rule:** Airflow sets a DAG run's state from its **leaf tasks**, the tasks with nothing downstream. The run is `failed` if a leaf failed or is `upstream_failed`, and `success` if every leaf succeeded or was skipped.
+- **With `release_lock` as a plain `all_done` task** at the end, it is the only leaf. It succeeds in every case (releasing the lock works even after silver failed), so **every run shows `success`**.
+  - Run E: `discover_download` failed with exit 3 and all downstream tasks were `upstream_failed`, yet the run showed `success`.
+  - Run B (silver exit 2) did the same.
+  - No alert would ever fire.
+- **As a teardown** (`release.as_teardown(setups=acquire)`), Airflow leaves it out of the leaves. The leaf becomes `build_silver`, so a failure anywhere upstream makes the run `failed`, while the release still runs (`ALL_DONE_SETUP_SUCCESS`). Runs E2 and E4: `failed`, lock released.
+- **Not with `on_failure_fail_dagrun=True`** either. That flag (meant to fail the run when the teardown fails) makes Airflow count the teardown as a leaf again, so its success hid the failure once more (run E3).
+- **What covers a release that fails:** 2 retries, and the next run's `acquire_lock` failing loudly (or taking over the lock after 12 h).
+
 ## 4. Exit codes and retries
 
 Every CLI command uses the same codes. `dags/utils/pipeline_operator.py` (`PipelineDockerOperator`) maps them onto Airflow:
@@ -197,7 +207,40 @@ Also: `run_log` marks a step failed only when it raises. Silver and bronze repor
 | `PI_TASK_MEM_LIMIT`, `PI_AUTO_REMOVE` | empty, `success` | `6g`, `force` |
 | credentials | none | the VM's service account `sa-pipeline` (no key files) |
 
-## 7. Files
+## 7. What makes it production-grade
+
+**A baseline version** of this DAG would:
+- use `PythonOperator`s that import the pipeline code into the scheduler;
+- retry every failure the same way;
+- release the lock in an `all_done` task;
+- read secrets from the DAG file;
+- run everything on one Docker network.
+
+It would work on a demo day. The table lists what this implementation does instead, and why it matters once the pipeline runs unattended every day on one shared VM.
+
+| Area | This pipeline | Why it matters | Where |
+|---|---|---|---|
+| **Isolation and packaging** | Every task is one CLI command in its own `precursor-pipeline` container; the DAG holds no logic | The pipeline's dependencies (polars, gcsfs, …) never mix with Airflow's. A task crash cannot take the scheduler down. The same tested command runs by hand, in CI and in Airflow | `dags/`, `docker/pipeline.Dockerfile` |
+| **Network segmentation** | Three networks: Airflow + Postgres; an internal Docker-API network (scheduler and proxy only); a task network (Postgres + internet egress only) | Task containers open untrusted zips from the internet. If one is compromised, it cannot reach the Airflow API, the scheduler or the Docker API, which would mean root on the VM | `docker-compose.yaml` (verified with connection tests) |
+| **Docker API through a proxy** | `docker-socket-proxy` exposes only the containers and images API sections | Airflow never holds the raw Docker socket | `docker-compose.yaml` |
+| **Least-privilege data access** | Separate login `pi_meta` that owns only `precursor_meta` (no CONNECT on `airflow` or `postgres`); containers run as non-root (uid 10001 / 50000) | A pipeline bug or compromise cannot touch Airflow's own state | `init-db.sh`, Dockerfiles |
+| **Secrets handling** | The stack refuses to start without its secrets (`${VAR:?}`); none in images, DAGs or logs; the DB URL is passed as `private_environment` (hidden in the UI); Fernet key set; ports bound to 127.0.0.1 | No default passwords in production; nothing secret lands in Git, image layers or the UI | `.env.example`, `pipeline_operator.py` |
+| **Input hardening** | The `entry_ids` param is pattern-checked; ids from `entries --pending` are validated before becoming commands; downloads go through an HTTPS allow-list with zip-safety limits | A trigger parameter cannot inject CLI arguments; a tampered catalog cannot make the pipeline fetch or unpack something dangerous | DAG, `ingestion/http.py`, `zipsafe.py` |
+| **Failure semantics** | Exit-code contract: **1** = transient, retried (2 × 5 min); **2** = bad data and **3** = config, failed at once (`AirflowFailException`) | Retrying a quarantined zip or an unmapped header only wastes ten minutes and hides the alert. Transient network or DB errors heal themselves | `PipelineDockerOperator` (tested against the pinned provider) |
+| **Fail-closed data checks** | Bronze and silver write nothing for a file or partition that fails a check, record it as `failed`, and retry it next run | Bad data never reaches gold silently. Run B proved it: 5 new CMS columns stopped silver for that month only | bronze and silver nodes |
+| **Concurrency control** | One `data_pipeline` lock row for the whole DAG run (re-entrant for the same run id, owner-checked release, stale takeover after 12 h) plus `max_active_runs=1` | A manual run and a scheduled run never write the same metadata at once. A run killed by the VM's nightly stop does not block the pipeline forever | `common/io/run_lock.py`, DAG |
+| **Honest run state** | `release_lock` is a **teardown** of `acquire_lock`: it always runs once the lock was taken, but does not decide the run's state | With an `all_done` cleanup leaf, every failed run shows green and no alert fires (verified, §3) | DAG |
+| **Safe retries and idempotency** | One run id per DAG run; every task skips work already done (HEAD-checked zips, sha-keyed bronze, content- and config-keyed silver) | Retrying a task, clearing it in the UI or re-running a day is always safe. A rerun with nothing new is a byte-identical no-op (verified) | all nodes |
+| **Incremental and parallel** | Per-zip mapped tasks (≤ 3 at a time) only for zips not yet processed; 0 tasks on a quiet day | A normal daily run costs one catalog fetch plus HEAD requests. A new release processes only its own zips (≈ 1 min) | ingestion TaskGroup |
+| **Republished data** | A changed zip is stored side by side, reloaded in bronze, and flagged `revised_after_publication`; only the affected partitions are rebuilt | CMS silently corrects old releases. The pipeline picks that up and records that history was rewritten | ingestion, bronze, silver |
+| **Resource governance** | Sized for an e2-standard-2: 1 API worker, parallelism 4, optional per-task memory limit, capped container logs, auto-removed containers | On a 2-vCPU/8 GB VM, one heavy task cannot starve Postgres or the scheduler, and logs cannot fill the disk | compose, `pipeline_operator.py` |
+| **Observability and audit** | One run id on every metadata row, log file, report folder and manifest; per-process JSON logs shipped to the bucket; per-node assets; Checkpoint reports | "What did run X do, and why did it fail?" is answerable from one id, after the containers are long gone | §5, §6 |
+| **Reproducibility** | Pinned base images and tools; `uv.lock --frozen`; Airflow installed under its own constraints; provider pinned, with a test that fails if its error format changes; `PI_GIT_SHA` in manifests | The same commit builds the same images. An Airflow or provider upgrade cannot silently break the exit-code handling | Dockerfiles, `tests/dags` |
+| **Environment parity** | The laptop and the VM use identical compose, images and DAG; only `.env` differs. On a laptop, manual runs only, so unpausing cannot start a full-archive run | What was tested locally is what runs in production | `.env.example` |
+| **Operability** | Params `mode` (backfill or monthly), `calibrate`, `stop_after` (node-by-node first backfill), `entry_ids` (development subsets); a runbook for build, run, inspect and clean up | Operators control the pipeline from the UI without code changes | DAG, runbook |
+| **Tested** | DAG integrity and operator tests in the Airflow image; repo unit tests; real end-to-end runs on CMS data (runbook §8) | Wiring mistakes are caught before deploy, not at 3 a.m. | `tests/dags`, runbook |
+
+## 8. Files
 
 | File | Purpose |
 |---|---|
