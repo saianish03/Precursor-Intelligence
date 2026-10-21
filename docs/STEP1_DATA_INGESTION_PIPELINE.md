@@ -729,6 +729,8 @@ The port/adapter structure still allows it (write a class satisfying the Protoco
 
 ### 12.6 Run in Airflow: the `ingestion` node of `cms_nh_pipeline`
 
+> **Implemented (2026-10-21):** `dags/cms_nh_pipeline.py` with `dags/utils/pipeline_operator.py`, the `precursor-pipeline` and `precursor-airflow` images, and `docker/airflow-local/`. Run end to end on real CMS data: `docs/runbooks/airflow-local.md` §8. Differences from the sketches below: the mapped `extract_inventory` is also a `PipelineDockerOperator`, and `release_lock` is a **teardown** of `acquire_lock`, not an `all_done` leaf. An `all_done` leaf made failed runs show `success`.
+
 > **Superseded in part (2026-10-15/16).** Step 1 is not a DAG of its own. It is the `ingestion` TaskGroup of the one DAG `cms_nh_pipeline` (`DATA_PIPELINE_SPEC.md` §0.7, §15; decision §14 #19). The commands below are unchanged. What changed: **`release_lock` is the last task of the whole DAG** (after gold), so bronze, silver and gold run under the same lock; `check_release` (spec §2.0) gates the DAG instead of `@daily` alone; and exits 2/3 are not retried (`PipelineDockerOperator`, spec §15.5). The `ingest_vintage` DAG further down is kept only as the parse-checked reference for `docker_kwargs` and `mapped_commands`, which spec §15.5 reuses.
 
 The CLI is the task interface: every task runs the `precursor-pipeline` image with one `precursor-ingest` command through `DockerOperator`. **All tasks of one DAG run pass the same `--run-id {{ run_id }}`**, so they share one run lock, one `run_log` run id and one `reports/step1/run=<id>/` folder.

@@ -1,0 +1,123 @@
+# Runbook: the data pipeline in Airflow (laptop and GCP VM)
+
+How it works (DAG, tasks, lock, exit codes, metadata DB schema): [`../AIRFLOW_PIPELINE.md`](../AIRFLOW_PIPELINE.md). This page is the how-to.
+
+One DAG, `cms_nh_pipeline` (spec §15), runs the implemented nodes **ingestion → bronze → silver**. Every task is one CLI command in a `precursor-pipeline` container. The same compose file, images and DAG run on a laptop and on the VM; only `docker/airflow-local/.env` differs.
+
+```
+docker compose (docker/airflow-local/)
+  postgres:16         databases airflow + precursor_meta (named volume)
+  airflow-*           precursor-airflow image: api-server, scheduler (LocalExecutor), dag-processor, triggerer
+  docker-proxy        the only Docker API access (containers + images), on an internal network only the
+                      scheduler joins
+  task containers     own network: Postgres + internet egress only (not Airflow, not the Docker API)
+DAG task → PipelineDockerOperator → precursor-pipeline container on the compose network
+  laptop: --env dev,  host folder bind-mounted at /app/data (the "bucket")
+  VM:     --env prod, gs://precursor-intel-mlops-data via the VM's service account (no mount)
+```
+
+## 1. Build the images (from the repo root)
+```bash
+docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse --short HEAD) -t precursor-pipeline:latest .
+docker build -f docker/airflow.Dockerfile -t precursor-airflow:latest .
+```
+Rebuild `precursor-pipeline` after any change to `src/` or `configs/`; a task runs whatever the image holds. The DAGs are mounted, so a DAG edit needs no rebuild.
+
+## 2. Configure and start
+```bash
+cd docker/airflow-local
+cp .env.example .env && chmod 600 .env   # set the 4 secrets (required; commands in the file), PI_HOST_DATA_DIR, PI_DAG_SCHEDULE
+mkdir -p "$PI_HOST_DATA_DIR"
+docker compose up -d --wait --pull never     # --pull never: the two precursor-* images are local builds
+```
+- **UI:** http://localhost:8080. User `admin`; the password is in the `airflow-config` volume:
+  `docker compose exec airflow-apiserver cat /opt/airflow/config/simple_auth_manager_passwords.json`
+- **Laptop:** set `PI_DAG_SCHEDULE=` (empty), so runs are manual only. With `@daily`, unpausing starts a run over **every** in-scope zip (about 2.5 GB).
+- **The DAG starts paused.** Unpause it: `docker compose exec airflow-scheduler airflow dags unpause cms_nh_pipeline`.
+
+## 3. Run it
+In the UI use "Trigger DAG w/ config", or from the CLI:
+```bash
+docker compose exec airflow-scheduler airflow dags trigger cms_nh_pipeline --run-id my-run-1 \
+  --conf '{"mode": "backfill", "entry_ids": "theme:2025-07-30:nursing-homes_2025-07-30.zip,theme:2025-09-24:nursing-homes_2025-09-24.zip"}'
+```
+| Param | Default | Meaning |
+|---|---|---|
+| `mode` | `monthly` | `backfill` also runs silver's calibration tasks (Checkpoints 3–4) |
+| `calibrate` | `false` | calibration in a monthly run |
+| `stop_after` | `null` | `ingestion` or `bronze`: skip the later nodes (first backfill, node by node) |
+| `entry_ids` | `""` | **development only:** ingest just these catalog entries. Empty = every in-scope zip. List them with `precursor-ingest catalog`. Ids are `theme:<zip date>:<zip name>` or `current:<date>:theme_nursing-homes_current.zip` |
+
+- **Exit codes:** 1 is retried (2 × 5 min); 2 (data or validation) and 3 (config or wiring) fail at once (`PipelineDockerOperator`).
+- **Lock:** `release_lock` is a **teardown** of `acquire_lock`. It runs whenever the lock was taken, also after a failure or a `stop_after` skip, and retries twice (release is owner-checked and idempotent). A failed run still shows as failed. Two things would break that, both verified:
+  - the spec sketch's `trigger_rule=all_done` leaf;
+  - `on_failure_fail_dagrun=True` on the teardown.
+
+  Either one lets the release's success decide the run state.
+
+## 4. Inspect
+```bash
+docker compose exec airflow-scheduler airflow tasks states-for-dag-run cms_nh_pipeline my-run-1
+docker compose exec postgres psql -U airflow -d precursor_meta -c "select status, count(*) from inventory group by 1"
+```
+- **Task logs:** in the UI, or `/opt/airflow/logs/dag_id=cms_nh_pipeline/run_id=…/task_id=…/attempt=N.log` inside the scheduler container.
+- **Pipeline logs:** each task also ships its own JSON log to `reports/<node>/run=<id>/logs/`.
+- **Outputs** (under `PI_HOST_DATA_DIR`):
+  - `landing/`, `bronze/`, `silver/`, and `gold/dim_facility_latest`;
+  - `reports/step1`, `step2`, `step4`, `step5` (Checkpoints 1–4);
+  - `metadata/<layer>/run_date=…/` (per-run manifests).
+- **Postgres from the host:** `127.0.0.1:${PI_POSTGRES_HOST_PORT}`.
+
+## 5. On the GCP VM
+Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
+
+- **`.env`:**
+  - `PI_PIPELINE_ENV=prod`;
+  - `PI_HOST_DATA_DIR=` (empty);
+  - `PI_BUCKET_URI=gs://precursor-intel-mlops-data`;
+  - `PI_DAG_SCHEDULE="0 15 * * *"` (inside the VM's up-window);
+  - `PI_TASK_MEM_LIMIT=6g`, `PI_AUTO_REMOVE=force`;
+  - git-SHA image tags.
+  - Render the secrets from Secret Manager at deploy time.
+- **Credentials:** the VM runs as `sa-pipeline` (`storage.objectAdmin` on the data bucket only). Task containers reach the GCE metadata server, so gcsfs gets its tokens and no key file is needed.
+- **Images:** push to Artifact Registry, then pre-pull on deploy (`gcloud auth configure-docker …`, `docker pull`). The Docker proxy sends no registry credentials, and `force_pull` is off.
+- **Access:** no firewall rule for 8080. Reach the UI with `gcloud compute ssh <vm> --tunnel-through-iap -- -L 8080:127.0.0.1:8080`.
+- **Disk:**
+  - a 30 GB boot disk;
+  - container logs are capped (10 MB × 3);
+  - prune Airflow task logs older than 30 days, or switch on remote logging to GCS;
+  - `docker image prune -f --filter until=168h` on deploy.
+
+## 6. Tests
+```bash
+uv run pytest      # repo tests; tests/dags is skipped (Airflow is not a repo dependency)
+docker compose run --rm --no-deps --entrypoint "" airflow-scheduler \
+  python -m pytest -p no:cacheprovider /opt/airflow/tests/dags     # DAG integrity + exit-code tests
+```
+
+## 7. Stop and clean up
+```bash
+docker compose down            # keep the databases
+docker compose down -v         # also delete Postgres + Airflow volumes (metadata is lost)
+rm -rf "$PI_HOST_DATA_DIR"     # the local bucket (landing files are chmod 444: chmod -R u+w first)
+```
+- **A lock left by a killed run** is taken over automatically after 12 h. To look at it sooner, use the pipeline CLI on the compose network:
+  ```bash
+  docker run --rm --network pi-airflow-tasks -e PI_DATABASE_URL=… precursor-pipeline:latest precursor-ingest lock status
+  ```
+
+## 8. Verified locally (2026-10-21, real CMS downloads, 18 zips, 15 vintages)
+| Run | Input | Result |
+|---|---|---|
+| A backfill | 14 zips (2021-07 → 2026-07) | 3.1 min. 14 downloaded; 91 files selected (13 × 7) and 7 `duplicate_vintage` (October). cp1252 only before 2023-05; blank rows only before 2024-07. `stale_refresh` only for 2025-09. 104 silver partitions plus ledgers, universe, QM inventory and Checkpoint 2–4 reports |
+| B monthly | + 2026-08-06, 2026-08-26, 2026-10-08 current | 3 downloaded and 14 skipped. 2026-07 Provider Info **reloaded + `revised_after_publication`**. 2026-09 ingested (version-suffix fix). **Silver exit 2, not retried:** 5 new CMS columns (issue #10) |
+| B2 | same, after the column-map fix | config hash changed, so all 120 silver partitions rebuilt; 64 s |
+| C monthly | + 2026-10-08 archive | archive beats current, so 2026-09 bronze reloaded (7) and only 2026-09 silver rebuilt (8); 53 s |
+| D rerun | same | no-op: 18 skipped; bronze and silver Parquet byte-identical |
+| E negative | a bogus entry id | `discover_download` exit 3 on attempt 1 (no retry); downstream upstream_failed; lock released. The run showed `success`, which led to the teardown fix; after it, the run is **failed** |
+| F | `stop_after=bronze` | silver skipped, lock released, run success |
+| G (hardened stack) | + 2024-06-26 | 1 downloaded and 18 skipped; result passing reads every output line; 1 mapped task; bronze 7 loaded; silver 8 built; 54 s |
+| Isolation check | — | a task container (network `pi-airflow-tasks`) reaches Postgres and data.cms.gov, but **not** the API server, the scheduler or `docker-proxy`; only the scheduler reaches the Docker API |
+| H (from the repo branch) | + 2022-01-27 | committed code and branch-built images: 1 downloaded and 19 skipped; 1 mapped task; bronze 7; silver 8; 63 s; 17 vintages in total |
+
+Disk: about 4.4 GB of data (4.2 GB extracted CSVs), plus images (pipeline about 0.9 GB, airflow about 2.2 GB).
