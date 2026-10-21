@@ -1,0 +1,64 @@
+# Silver tables: which canonical columns each keeps, in order (docs/DATA_PIPELINE_SPEC.md §3.3 and §3.5).
+# Read by the silver node. `source` is the bronze table; `key` must be unique within each vintage (exit 2
+# otherwise). Columns not in configs/column_map.yaml are derived in code:
+#   ownership_group, sprinkler_status_not_available (provider), ftag (citations),
+#   dup_seq, penalty_event_key (penalties), measure_period_start, measure_period_end (QMs).
+# Every silver table also gets vintage_month and cutoff_date.
+_meta:
+  version: 1
+
+provider_by_vintage:
+  source: provider_info
+  key: [ccn]
+  columns: [ccn, state, county_name, ownership_type, ownership_group, certified_beds, avg_residents_per_day,
+    avg_residents_per_day_fn, provider_type, provider_in_hospital, date_first_approved, ccrc,
+    special_focus_status, abuse_icon, most_recent_inspection_over_2y, changed_ownership_12m,
+    resident_family_council, sprinkler_status, sprinkler_status_not_available, overall_rating,
+    overall_rating_fn, health_inspection_rating, health_inspection_rating_fn, qm_rating, qm_rating_fn,
+    staffing_rating, staffing_rating_fn, reported_staffing_fn, pt_staffing_fn, hprd_aide, hprd_lpn, hprd_rn,
+    hprd_licensed, hprd_total, hprd_weekend_total, hprd_weekend_rn, hprd_pt, adj_hprd_aide, adj_hprd_lpn,
+    adj_hprd_rn, adj_hprd_total, turnover_total, turnover_total_fn, turnover_rn, turnover_rn_fn,
+    admin_departures, admin_departures_fn, chain_id, chain_name]
+
+# Product display only, kept apart so feature code cannot read it by accident (spec §3.3).
+provider_identity_by_vintage:
+  source: provider_info
+  key: [ccn]
+  columns: [ccn, provider_name, provider_address, city, state, zip, latitude, longitude, chain_id, chain_name]
+
+citations_by_vintage:
+  source: health_citations
+  key: [ccn, survey_date, deficiency_prefix, deficiency_tag]
+  columns: [ccn, survey_date, deficiency_prefix, deficiency_category, deficiency_tag, ftag, scope_severity,
+    deficiency_corrected, correction_date, is_standard, is_complaint, is_infection_control, inspection_cycle,
+    citation_under_idr, citation_under_iidr]
+
+surveys_by_vintage:
+  source: survey_dates
+  key: [ccn, survey_date, survey_type]
+  columns: [ccn, survey_date, survey_type, survey_cycle]
+
+# Exact-duplicate rows are distinct fines: all kept, told apart by dup_seq (spec §3.5).
+penalties_by_vintage:
+  source: penalties
+  key: [penalty_event_key]
+  columns: [ccn, penalty_date, penalty_type, fine_amount, payment_denial_start_date, payment_denial_length_days,
+    fine_id, dup_seq, penalty_event_key]
+
+mds_qm_by_vintage:
+  source: mds_qm
+  key: [ccn, measure_code]
+  columns: [ccn, measure_code, measure_description, resident_type, four_quarter_avg, four_quarter_avg_fn,
+    used_in_5star, measure_period, measure_period_start, measure_period_end]
+
+claims_qm_by_vintage:
+  source: claims_qm
+  key: [ccn, measure_code]
+  columns: [ccn, measure_code, measure_description, resident_type, adjusted_score, observed_score,
+    expected_score, measure_fn, used_in_5star, measure_period, measure_period_start, measure_period_end]
+
+citation_lookup:
+  source: citation_lookup
+  key: [deficiency_prefix, deficiency_tag]
+  columns: [deficiency_prefix, deficiency_tag, deficiency_prefix_and_number, deficiency_description,
+    deficiency_category]

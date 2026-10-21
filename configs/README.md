@@ -7,7 +7,12 @@
 | `logging.yaml` | ✅ in use | Standard-library logging config (console text/JSON + per-run JSON-lines file) |
 | `ingestion/sources.yaml` | ✅ in use | Step 1: CMS endpoints, scope dates, the 7 in-scope tables (file patterns, dataset IDs), HTTP and security limits |
 | `base.yaml` | planned | Shared project settings: project, region, bucket names, BigQuery datasets |
-| `contracts/` | planned | Expected schemas per dataset, versioned by effective month (draft: `docs/data/step2_reference/column_map.draft.yaml`) |
+| `column_map.yaml` | ✅ in use | Silver: raw CMS header → canonical column per table, with vintage ranges and dtype (`to: null` = still valid) |
+| `keep_columns.yaml` | ✅ in use | Silver: the columns each silver table keeps, and its within-vintage key |
+| `value_maps.yaml` | ✅ in use | Silver: Y/N, survey-type and enum maps, ownership groups, "not corrected" values |
+| `calibration.yaml` | ✅ in use | Silver calibration (Checkpoints 3-4): lag coverage, left-censoring floors, fully-observed window, QM bridge pairs and drops. Not part of the silver `config_hash`: it only shapes the reports, so editing it rebuilds no partition |
+| `labels.yaml`, `qm_measures.yaml` | planned | Committed by a human from the Checkpoint 3 and 4 proposals (`reports/step4`, `reports/step5`) |
+| `contracts/` | planned | Expected schemas per dataset, versioned by effective month (the column map now lives in `column_map.yaml`) |
 | `prompts/` | planned | Versioned LLM prompt YAML used by `src/precursorintelligence/agents` |
 
 Select an environment with `--env dev|prod`. No secrets in these files: `${VAR}` placeholders are filled from environment variables or Secret Manager.

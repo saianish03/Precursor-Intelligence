@@ -1,0 +1,37 @@
+# Silver calibration settings (docs/DATA_PIPELINE_SPEC.md §5 and §6 item 3). They only shape the Checkpoint 3
+# and 4 proposals in reports/; labels.yaml and qm_measures.yaml still change only through a human commit.
+_meta:
+  version: 1
+
+# Step 4: posting lag -> maturity buffers.
+lag:
+  coverage: 0.95 # B = smallest lag a with c(a) >= coverage (spec §5 step 3)
+  max_lag_months: 24 # the CDF c(a) is computed for a = 0..max_lag_months
+  citations_from: "2021-06-01" # earlier events are left-censored by the archive start
+  penalties_from: "2021-12-01" # fines were posted only once paid until the 2021-11 vintage
+  fully_observed_months: 24 # only events at least this old at V have a fully observed lag
+
+# Step 5: quality-measure selection.
+qm:
+  stable_from: "2022-01" # spine history start: a stable measure is present in every vintage from here to V
+  # Old code -> new code with the same resident type, bridged into one feature.
+  bridges:
+    - old: "453"
+      new: "479"
+      feature: ls_pressure_ulcer
+      note: "close: high-risk pressure ulcers -> pressure ulcers"
+    - old: "419"
+      new: "481"
+      feature: ls_antipsychotic
+      note: "close: antipsychotic medication (long stay)"
+    - old: "405"
+      new: "480"
+      feature: ls_incontinence
+      note: "DOUBTFUL: low-risk loss of bowel/bladder control -> new or worsened incontinence"
+  # Dropped whatever their history, with the reason shown in the proposal.
+  drop:
+    "415": vaccination process measure
+    "430": vaccination process measure
+    "454": vaccination process measure
+    "472": vaccination process measure
+    "471": ended 2024-11

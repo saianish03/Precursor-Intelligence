@@ -2,6 +2,7 @@
 
 One command per DAG task (docs/DATA_PIPELINE_SPEC.md §15.3), all sharing the DAG run's --run-id:
   precursor-pipeline bronze --run-id R
+  precursor-pipeline silver --run-id R
 
 Exit codes follow the pipeline contract: 0 ok, 1 error (retried), 2 data or validation failure,
 3 config or usage error. The DAG fails 2 and 3 without retry.
@@ -16,11 +17,14 @@ from pathlib import Path
 
 import typer
 
+from ..common.config import ConfigError
 from ..common.io.run_lock import RunLockHeldError, RunLockNotHeldError
 from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init
 from ..ingestion.context import Context, build_context
 from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR, EXIT_OK, EXIT_VALIDATION
+from .columns import load_silver_config
 from .pipeline import run_bronze
+from .silver_pipeline import CHECK_NAME, run_silver
 from .verify import verify_bronze
 
 app = typer.Typer(
@@ -34,14 +38,14 @@ def root() -> None:
     """Keeps `bronze` a named sub-command, as silver and gold will be (a lone command would collapse)."""
 
 
-def _ship_log(ctx: Context, log_file: Path) -> None:
-    """Copy this process's JSON log next to the run's other bronze outputs in the object store."""
+def _ship_log(ctx: Context, log_file: Path, node: str = "bronze") -> None:
+    """Copy this process's JSON log next to the run's other outputs of this node in the object store."""
     for h in logging.getLogger("precursorintelligence").handlers:
         h.flush()
     if log_file.exists():
         with log_file.open("rb") as f:
             ctx.object_store.put_stream(
-                f"reports/bronze/run={ctx.run_id}/logs/{log_file.name}",
+                f"reports/{node}/run={ctx.run_id}/logs/{log_file.name}",
                 iter(lambda: f.read(1 << 20), b""),
                 overwrite=True,
             )
@@ -81,6 +85,56 @@ def bronze(
         f"{status}={counts[status]}" for status in ("loaded", "reloaded", "failed", "skipped")
     )
     typer.echo(f"run {res.run_id}: {summary} stale_refresh={res.stale_vintages}")
+    typer.echo(f"  manifest: {res.manifest_key}")
+    if res.failures:
+        typer.echo(f"{len(res.failures)} failures:", err=True)
+        for f in res.failures[:20]:
+            typer.echo(f"  - {f}", err=True)
+        raise typer.Exit(res.exit_code)
+
+
+@app.command()
+def silver(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = typer.Option(None, help="override the configured log level"),
+    calibrate: bool = typer.Option(
+        False,
+        "--calibrate/--no-calibrate",
+        help="also write the Checkpoint 3-4 proposals (posting lag, QM selection); backfill or on demand",
+    ),
+) -> None:
+    """Harmonise bronze into typed silver tables, build the ledgers and universe tables, and write the
+    Checkpoint 2 report (spec §3.2-§6); with --calibrate also the Checkpoint 3-4 proposals."""
+    orchestrated = run_id is not None
+    settings, run_id, log_file = _init(env, env_file, log_level, run_id, label="silver")
+    ctx = build_context(settings, run_id=run_id)
+    try:
+        cfg = load_silver_config()
+        res = run_silver(ctx, own_lock=not orchestrated, cfg=cfg, calibrate=calibrate)
+    except ConfigError as exc:
+        typer.echo(f"config error: {exc}", err=True)
+        raise typer.Exit(EXIT_CONFIG) from None
+    except RunLockHeldError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(EXIT_ERROR) from None
+    except RunLockNotHeldError as exc:
+        typer.echo(f"config error: {exc}", err=True)
+        raise typer.Exit(EXIT_CONFIG) from None
+    finally:
+        _ship_log(ctx, log_file, node="silver")
+    counts = Counter(p.status for p in res.partitions)
+    summary = " ".join(f"{s}={counts[s]}" for s in ("built", "failed", "skipped"))
+    typer.echo(
+        f"run {res.run_id}: {summary} citation_lookup_versions={res.lookup_versions} "
+        f"{CHECK_NAME}={'ok' if not res.missing else len(res.missing)}"
+    )
+    for name, rows in res.tables.items():
+        typer.echo(f"  {name}: {rows} rows")
+    typer.echo(
+        f"  report: {', '.join(k for k in res.report_keys if '/latest/' in k and k.endswith('.md'))}"
+    )
     typer.echo(f"  manifest: {res.manifest_key}")
     if res.failures:
         typer.echo(f"{len(res.failures)} failures:", err=True)

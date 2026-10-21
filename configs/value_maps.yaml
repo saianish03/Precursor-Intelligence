@@ -1,0 +1,39 @@
+# Value maps applied by the silver node (docs/DATA_PIPELINE_SPEC.md §3.4). Raw values are matched after
+# trimming spaces. A non-empty value missing from its map becomes null and is counted in the Checkpoint 2
+# report, except survey_type, where it becomes `other`.
+_meta:
+  version: 1
+
+yes_no: {"Y": true, "N": false, "Yes": true, "No": false}
+
+# survey_dates."Type of Survey". Health citations carry 3 flag columns instead (their Survey Type is always "Health").
+survey_type:
+  map:
+    Health Standard: HEALTH_STANDARD
+    Health Complaint: HEALTH_COMPLAINT
+    Infection Control: INFECTION_CONTROL
+    Fire Safety Standard: FIRE_STANDARD
+    Fire Safety Complaint: FIRE_COMPLAINT
+  other: OTHER
+
+# enum columns: map, plus the value for a blank cell (blank is a real category here, e.g. "not SFF").
+enums:
+  special_focus_status:
+    map: {"SFF": SFF, "SFF Candidate": SFF_CANDIDATE}
+    blank: NONE
+  resident_family_council:
+    map: {"Resident": RESIDENT, "Family": FAMILY, "Both": BOTH, "None": NONE}
+    blank: NONE
+  sprinkler_status:
+    map: {"Yes": "YES", "Partial": PARTIAL, "No": "NO"}
+    # The only text sentinel in the data: null in sprinkler_status, true in sprinkler_status_not_available.
+    not_available: [Data Not Available]
+
+# ownership_group = the part of ownership_type before " - ".
+ownership_group: {"For profit": for_profit, "Non profit": non_profit, "Government": government}
+
+# Deficiency Corrected values that count as "not corrected" for n_uncorrected (Step 7). Open decision §14 #4:
+# whether "Past Non-Compliance" and "No revisit needed" (2025-10+) belong here.
+not_corrected_values:
+  - Deficient, Provider has plan of correction
+  - Deficient, Provider has no plan of correction
