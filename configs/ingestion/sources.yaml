@@ -23,29 +23,29 @@ scope:
 
 # The 7 in-scope tables (guide §1). Patterns are matched against the member's base name and must
 # cover all three archive layouts: L1 legacy (*_Download.csv), L2 (NH_<T>_<MonYYYY>.csv),
-# L3 (<datasetId>_<YYYY-MM-DD>_NH_<T>_<MonYYYY>.csv).
+# L3 (<datasetId>_<YYYY-MM-DD>_NH_<T>_<MonYYYY>.csv, from 2026-10 with a version suffix _<N>).
 tables:
   provider_info:
     dataset_id: 4pq5-n9py
-    patterns: ['(?i)(^|_)NH_ProviderInfo_[A-Za-z]{3}\d{4}\.csv$', '(?i)^ProviderInfo_Download\.csv$']
+    patterns: ['(?i)(^|_)NH_ProviderInfo_[A-Za-z]{3}\d{4}(_\d+)?\.csv$', '(?i)^ProviderInfo_Download\.csv$']
   health_citations:
     dataset_id: r5ix-sfxw
-    patterns: ['(?i)(^|_)NH_HealthCitations_[A-Za-z]{3}\d{4}\.csv$', '(?i)^HealthDeficiencies_Download\.csv$']
+    patterns: ['(?i)(^|_)NH_HealthCitations_[A-Za-z]{3}\d{4}(_\d+)?\.csv$', '(?i)^HealthDeficiencies_Download\.csv$']
   survey_dates:
     dataset_id: svdt-c123
-    patterns: ['(?i)(^|_)NH_SurveyDates_[A-Za-z]{3}\d{4}\.csv$']
+    patterns: ['(?i)(^|_)NH_SurveyDates_[A-Za-z]{3}\d{4}(_\d+)?\.csv$']
   penalties:
     dataset_id: g6vv-u9sr
-    patterns: ['(?i)(^|_)NH_Penalties_[A-Za-z]{3}\d{4}\.csv$', '(?i)^Penalties_Download\.csv$']
+    patterns: ['(?i)(^|_)NH_Penalties_[A-Za-z]{3}\d{4}(_\d+)?\.csv$', '(?i)^Penalties_Download\.csv$']
   mds_qm:
     dataset_id: djen-97ju
-    patterns: ['(?i)(^|_)NH_QualityMsr_MDS_[A-Za-z]{3}\d{4}\.csv$', '(?i)^QualityMsrMDS_Download\.csv$']
+    patterns: ['(?i)(^|_)NH_QualityMsr_MDS_[A-Za-z]{3}\d{4}(_\d+)?\.csv$', '(?i)^QualityMsrMDS_Download\.csv$']
   claims_qm:
     dataset_id: ijh5-nb2v
-    patterns: ['(?i)(^|_)NH_QualityMsr_Claims_[A-Za-z]{3}\d{4}\.csv$', '(?i)^QualityMsrClaims_Download\.csv$']
+    patterns: ['(?i)(^|_)NH_QualityMsr_Claims_[A-Za-z]{3}\d{4}(_\d+)?\.csv$', '(?i)^QualityMsrClaims_Download\.csv$']
   citation_lookup:
     dataset_id: tagd-9999
-    patterns: ['(?i)(^|_)NH_CitationDescriptions_[A-Za-z]{3}\d{4}\.csv$']
+    patterns: ['(?i)(^|_)NH_CitationDescriptions_[A-Za-z]{3}\d{4}(_\d+)?\.csv$']
     has_processing_date: false             # this file never carries a Processing Date column
 
 extract:
