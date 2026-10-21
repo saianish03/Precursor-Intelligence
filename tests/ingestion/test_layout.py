@@ -45,6 +45,15 @@ CASES = {
     "svdt-c123_2026-08-01_NH_SurveyDates_Aug2026.csv": "survey_dates",
     "tagd-9999_2026-08-01_NH_CitationDescriptions_Aug2026.csv": "citation_lookup",
     "ifjz-ge4w_2026-07-01_NH_FireSafetyCitations_Jul2026.csv": OTHER,
+    # L3 with a version suffix (the 2026-10-08 release, Sep 2026 data)
+    "4pq5-n9py_2026-09-30_NH_ProviderInfo_Sep2026_3.csv": "provider_info",
+    "r5ix-sfxw_2026-09-30_NH_HealthCitations_Sep2026_2.csv": "health_citations",
+    "svdt-c123_2026-09-30_NH_SurveyDates_Sep2026_2.csv": "survey_dates",
+    "g6vv-u9sr_2026-09-30_NH_Penalties_Sep2026_2.csv": "penalties",
+    "djen-97ju_2026-09-30_NH_QualityMsr_MDS_Sep2026_2.csv": "mds_qm",
+    "ijh5-nb2v_2026-09-30_NH_QualityMsr_Claims_Sep2026_2.csv": "claims_qm",
+    "tagd-9999_2026-09-30_NH_CitationDescriptions_Sep2026_2.csv": "citation_lookup",
+    "ifjz-ge4w_2026-09-30_NH_FireSafetyCitations_Sep2026_2.csv": OTHER,
 }
 
 
@@ -69,6 +78,7 @@ def test_detect_layout():
 def test_filename_month_and_dates():
     assert filename_month("NH_ProviderInfo_Nov2021.csv") == "2021-11"
     assert filename_month("4pq5-n9py_2026-07-29_NH_ProviderInfo_Jul2026.csv") == "2026-07"
+    assert filename_month("tagd-9999_2026-09-30_NH_CitationDescriptions_Sep2026_2.csv") == "2026-09"
     assert filename_month("ProviderInfo_Download.csv") is None
     assert str(parse_date("2021-11-01")) == "2021-11-01"
     assert str(parse_date("11/01/2021")) == "2021-11-01"
