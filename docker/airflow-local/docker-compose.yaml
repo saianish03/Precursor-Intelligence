@@ -17,24 +17,24 @@ x-airflow-common: &airflow-common
   networks: [default]
   environment: &airflow-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@postgres:5432/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD:?set it in .env}@postgres:5432/airflow
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
     AIRFLOW__CORE__AUTH_MANAGER: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: admin:admin
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/config/simple_auth_manager_passwords.json
-    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
-    AIRFLOW__API__SECRET_KEY: ${AIRFLOW_JWT_SECRET}
-    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?set it in .env}
+    AIRFLOW__API__SECRET_KEY: ${AIRFLOW_JWT_SECRET:?set it in .env}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?set it in .env}
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
     # Sized for one e2-standard-2 (2 vCPU, 8 GB): the pipeline tasks are the heavy part.
     AIRFLOW__API__WORKERS: "1"
     AIRFLOW__CORE__PARALLELISM: "4"
     # Pipeline task containers (read by dags/utils/pipeline_operator.py at parse and run time)
     PI_DOCKER_URL: tcp://docker-proxy:2375
-    PI_DOCKER_NETWORK: pi-airflow
-    PI_DATABASE_URL: postgresql+psycopg://pi_meta:${PI_META_DB_PASSWORD}@postgres:5432/precursor_meta
+    PI_DOCKER_NETWORK: pi-airflow-tasks
+    PI_DATABASE_URL: postgresql+psycopg://pi_meta:${PI_META_DB_PASSWORD:?set it in .env}@postgres:5432/precursor_meta
     PI_PIPELINE_IMAGE: ${PI_PIPELINE_IMAGE:-precursor-pipeline:latest}
     PI_PIPELINE_ENV: ${PI_PIPELINE_ENV:-prod}
     PI_HOST_DATA_DIR: ${PI_HOST_DATA_DIR:-}
@@ -55,11 +55,12 @@ services:
   postgres:
     image: postgres:16.10
     logging: *logging
+    networks: [default, tasks]
     environment:
       POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD:?set it in .env}
       POSTGRES_DB: airflow
-      PI_META_DB_PASSWORD: ${PI_META_DB_PASSWORD}
+      PI_META_DB_PASSWORD: ${PI_META_DB_PASSWORD:?set it in .env}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./init-db.sh:/docker-entrypoint-initdb.d/10-precursor-meta.sh:ro
@@ -156,7 +157,11 @@ services:
 
 networks:
   default:
-    name: pi-airflow # task containers join it to reach Postgres (and the internet, for CMS)
+    name: pi-airflow # the Airflow services and Postgres
+  tasks:
+    # pipeline task containers: Postgres (precursor_meta) and internet egress for CMS, nothing else.
+    # They cannot reach the Airflow API server, the scheduler or the Docker proxy.
+    name: pi-airflow-tasks
   docker-api:
     internal: true
 
