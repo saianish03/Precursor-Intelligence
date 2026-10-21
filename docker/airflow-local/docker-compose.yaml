@@ -1,0 +1,166 @@
+# Airflow 3 (LocalExecutor) + Postgres for the CMS data pipeline: the same stack on a laptop and on the GCP VM.
+# Every DAG task runs in its own precursor-pipeline container, started through docker-proxy (spec §15).
+# What differs between a laptop and the VM lives only in .env (copy .env.example): docs/runbooks/airflow-local.md
+#
+#   cd docker/airflow-local && cp .env.example .env    # then edit .env
+#   docker compose up -d --wait                        # http://localhost:8080
+name: pi-airflow
+
+x-logging: &logging # container logs are capped (the VM disk is small)
+  driver: local
+  options: { max-size: 10m, max-file: "3" }
+
+x-airflow-common: &airflow-common
+  image: ${PI_AIRFLOW_IMAGE:-precursor-airflow:latest}
+  user: "${AIRFLOW_UID:-50000}:0"
+  logging: *logging
+  networks: [default]
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@postgres:5432/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.api_fastapi.auth.managers.simple.simple_auth_manager.SimpleAuthManager
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: admin:admin
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/config/simple_auth_manager_passwords.json
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+    AIRFLOW__API__SECRET_KEY: ${AIRFLOW_JWT_SECRET}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    # Sized for one e2-standard-2 (2 vCPU, 8 GB): the pipeline tasks are the heavy part.
+    AIRFLOW__API__WORKERS: "1"
+    AIRFLOW__CORE__PARALLELISM: "4"
+    # Pipeline task containers (read by dags/utils/pipeline_operator.py at parse and run time)
+    PI_DOCKER_URL: tcp://docker-proxy:2375
+    PI_DOCKER_NETWORK: pi-airflow
+    PI_DATABASE_URL: postgresql+psycopg://pi_meta:${PI_META_DB_PASSWORD}@postgres:5432/precursor_meta
+    PI_PIPELINE_IMAGE: ${PI_PIPELINE_IMAGE:-precursor-pipeline:latest}
+    PI_PIPELINE_ENV: ${PI_PIPELINE_ENV:-prod}
+    PI_HOST_DATA_DIR: ${PI_HOST_DATA_DIR:-}
+    PI_BUCKET_URI: ${PI_BUCKET_URI:-}
+    PI_DAG_SCHEDULE: ${PI_DAG_SCHEDULE-@daily}
+    PI_TASK_MEM_LIMIT: ${PI_TASK_MEM_LIMIT:-}
+    PI_AUTO_REMOVE: ${PI_AUTO_REMOVE:-success}
+  volumes:
+    - ../../dags:/opt/airflow/dags:ro
+    - ../../tests/dags:/opt/airflow/tests/dags:ro
+    - airflow-config:/opt/airflow/config
+    - airflow-logs:/opt/airflow/logs
+  depends_on: &airflow-depends
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16.10
+    logging: *logging
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      POSTGRES_DB: airflow
+      PI_META_DB_PASSWORD: ${PI_META_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/10-precursor-meta.sh:ro
+    ports:
+      - "127.0.0.1:${PI_POSTGRES_HOST_PORT:-55433}:5432" # for inspection from the host only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # The only way Airflow reaches the Docker API. It is on its own internal network that only the scheduler
+  # (which runs the tasks: LocalExecutor) joins, so pipeline task containers, which open untrusted CMS zips,
+  # cannot reach it. It filters API sections, not request bodies: whoever can change DAGs can still start any
+  # container, so DAGs stay read-only, reviewed code.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.1
+    logging: *logging
+    networks: [docker-api]
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  # One-shot: give the named volumes to the airflow user (they are created root-owned), then migrate the DB.
+  airflow-init:
+    <<: *airflow-common
+    user: "0:0"
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/config /opt/airflow/logs && /entrypoint airflow db migrate
+    restart: "no"
+
+  airflow-apiserver:
+    <<: *airflow-common
+    command: api-server
+    ports:
+      - "127.0.0.1:${AIRFLOW_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
+      interval: 10s
+      retries: 20
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    networks: [default, docker-api]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 10s
+      retries: 20
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+      docker-proxy:
+        condition: service_started
+    restart: unless-stopped
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      retries: 10
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      retries: 10
+    depends_on:
+      <<: *airflow-depends
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+networks:
+  default:
+    name: pi-airflow # task containers join it to reach Postgres (and the internet, for CMS)
+  docker-api:
+    internal: true
+
+volumes:
+  postgres-data:
+  airflow-config:
+  airflow-logs:
