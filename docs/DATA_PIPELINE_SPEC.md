@@ -104,6 +104,7 @@ configs/
   column_map.yaml          # raw header → canonical name, with vintage ranges and dtype
   keep_columns.yaml        # canonical columns kept per table
   value_maps.yaml          # enums: survey type, SFF, sprinkler, council, ownership group, Y/N
+  calibration.yaml         # Steps 4-5 proposal settings: lag coverage, left-censoring floors, QM bridges and drops
   footnotes.yaml           # CMS footnote code → meaning and missing-reason group
   labels.yaml              # horizons, buffers, severity sets, due interval
   splits.yaml              # spine start; train/calib/purge/test rules per label
@@ -384,6 +385,7 @@ Columns that exist only in later vintages are null in earlier ones; their availa
 | Field | Rule |
 |---|---|
 | `ccn` | Strip, upper-case. Assert length 6 and `^[0-9A-Z]{6}$` (not `^\d{6}$`). Never pad numbers that lost zeros; the source never loses them. |
+| Key codes (`code`) | Trim; empty → null. For identifiers that are part of a key (`deficiency_prefix`, `penalty_type`, `measure_code`), so a stray space in one vintage can't fork a key. Names and descriptions (`str`) keep the raw value. |
 | Dates | All dates in 2021+ files are ISO `YYYY-MM-DD`. Parse that format only; anything unparseable → null and counted (expected 0). |
 | `processing_date` | One value per file, equal to the 1st of `vintage_month`. Assert it. |
 | `scope_severity` | Single upper-case letter A–L (only B–L occurs). Anything else → null and counted. |
@@ -391,7 +393,7 @@ Columns that exist only in later vintages are null in earlier ones; their availa
 | Citation survey type | The `Survey Type` column is always "Health" and is ignored. Keep the three booleans `is_standard`, `is_complaint`, `is_infection_control`; one citation can carry several. |
 | `survey_type` (Inspection Dates) | Enum from `value_maps.yaml`: `Health Standard` → `HEALTH_STANDARD`, `Health Complaint` → `HEALTH_COMPLAINT`, `Infection Control` → `INFECTION_CONTROL`, `Fire Safety Standard` → `FIRE_STANDARD`, `Fire Safety Complaint` → `FIRE_COMPLAINT`, anything else → `OTHER` (counted). |
 | Y/N flags | `Y`/`N` → boolean. Anything else → null and counted. |
-| Numeric | Float. Empty → null. Keep the footnote column, which holds the missing reason. |
+| Numeric | Float. Empty → null; `nan`/`inf` → null and counted. Keep the footnote column, which holds the missing reason. |
 | `sprinkler_status` | `Yes` / `Partial` / `No` → enum; `Data Not Available` → null + flag (the only text sentinel in the data). |
 | `ownership_type` | Keep the raw value; add `ownership_group` ∈ {for_profit, non_profit, government} (the prefix before ` - `). |
 | `special_focus_status` | `SFF` → `SFF`, `SFF Candidate` → `SFF_CANDIDATE`, blank → `NONE`. |

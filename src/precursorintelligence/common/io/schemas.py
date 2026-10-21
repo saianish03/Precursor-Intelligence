@@ -192,4 +192,27 @@ vintage_flags = Table(
     Column("updated_at", String(32)),
 )
 
+# Silver (spec §3.5): one row per silver table and vintage built or failed; skipped partitions get none.
+# Append-only. The skip key is the latest `built` row's content_hash + zip_sha256 + config_hash.
+silver_partitions = Table(
+    "silver_partitions",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("run_id", String(64)),
+    Column("table_name", String(64)),  # silver table, e.g. citations_by_vintage
+    Column("source_table", String(64)),  # bronze table
+    Column("vintage_month", String(7)),
+    Column("status", String(16)),  # built | failed
+    Column("content_hash", String(64)),  # of the bronze partition it was built from
+    Column("zip_sha256", String(64)),
+    Column("config_hash", String(64)),  # column_map + keep_columns + value_maps
+    Column("row_count", BigInteger),
+    Column(
+        "stats", Text
+    ),  # JSON: invalid values, non-null counts, post-cutoff rows, penalty duplicates
+    Column("object_uri", Text),
+    Column("detail", Text),
+    Column("built_at", String(32)),
+)
+
 TABLES = {t.name: t for t in metadata.sorted_tables}

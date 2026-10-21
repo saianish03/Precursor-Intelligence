@@ -10,4 +10,5 @@
 | `STEP2_HANDOFF.md` | Step 2 profiling facts and reference drafts (`data/step2_reference/`) |
 | `adr/` | architecture decision records (`0001-monorepo.md`, …) |
 | `data/` | data dictionary notes, footnote codes, schema-change log |
+| `reference/` | reference material, e.g. `column_lineage.xlsx` (raw CMS column → feature lineage) |
 | `runbooks/` | how to operate, backfill, recover, promote / roll back |
