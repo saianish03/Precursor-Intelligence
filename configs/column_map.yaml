@@ -526,6 +526,10 @@ provider_info:
   - Total Number of Penalties
   - Total Weighted Health Survey Score
   - Urban
+  # new in the Sep 2026 release (2026-10-08 zips); kept in bronze, not used by silver yet
+  - High Performing Icon
+  - Rating Cycle 1 Standard Survey Footnote
+  - Rating Cycle 2 Standard Survey Footnote
 health_citations:
   columns:
     ccn:
@@ -669,6 +673,7 @@ health_citations:
   - Provider State
   - Provider Zip Code
   - State
+  - Survey Footnote
   - ZIP Code
 survey_dates:
   columns:
@@ -715,7 +720,8 @@ survey_dates:
         to: null
       available_from: 2021-01
       complete: true
-  ignored: []
+  ignored:
+  - Survey Footnote
 penalties:
   columns:
     ccn:

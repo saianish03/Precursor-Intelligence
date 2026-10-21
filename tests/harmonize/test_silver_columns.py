@@ -173,3 +173,17 @@ def test_the_calibration_settings_are_read_from_the_config():
     assert cal.coverage == 0.95 and cal.fully_observed_months == 24
     assert cal.bridges[("453", "479")][0] == "ls_pressure_ulcer"
     assert cal.drop["471"] == "ended 2024-11"
+
+
+def test_the_sep_2026_release_headers_are_all_mapped_or_ignored():
+    """The real header sets of the 2026-10-08 release (Sep 2026 data, recorded by Step 1). CMS added
+    `Survey Footnote` (citations, surveys) and three provider columns; an unknown header fails silver."""
+    import json
+    from pathlib import Path
+
+    from precursorintelligence.harmonize.columns import resolve_headers
+
+    cfg = load_silver_config()
+    headers = json.loads((Path(__file__).parent / "data" / "headers_2026-09.json").read_text())
+    for table, names in headers.items():
+        assert resolve_headers(cfg.sources[table], names, "2026-09").problems == [], table
