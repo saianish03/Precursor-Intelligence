@@ -54,6 +54,9 @@ def task_scope(
         status = "ok"
         try:
             yield detail
+            # a step that returns its data failures instead of raising them still fails in run_log
+            if detail.get("failed"):
+                status = "failed"
         except Exception as exc:
             status, detail["error"] = "failed", f"{exc.__class__.__name__}: {exc}"
             log.exception("task %s failed", task)
