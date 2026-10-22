@@ -153,8 +153,9 @@ bucket (an import does not set it; the code sets `false`), and possibly nothing 
   account in the project, so a teammate could attach `sa-tf-apply` to something they create and use its
   permissions without going through a pull request. Narrowing teammates to specific roles removes this; revisit
   it after the demo.
-- Actions are pinned to major version tags, as in `ci.yml`. Pinning to commit SHAs is stricter and is a
-  possible later hardening.
+- Third-party actions in `terraform.yml` are pinned to full commit SHAs, with the tag kept as a comment, because
+  that workflow can act as `sa-tf-apply`. `id-token: write` is granted per job, not for the whole workflow.
+  Dependabot (`.github/dependabot.yml`) proposes the SHA bumps; review them like any other change.
 
 ## Sizing note
 
