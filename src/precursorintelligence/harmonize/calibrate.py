@@ -10,11 +10,22 @@ from typing import Any
 
 import polars as pl
 
+from ..common.config import load_labels_config
 from .columns import CalibrationConfig
 from .ledgers import SilverReader
 
-G_PLUS = list("GHIJKL")
-HORIZONS = {"y_g12": (12, "B_cit"), "y_g6": (6, "B_cit"), "y_pen12": (12, "B_pen")}
+_BUFFER_NAME = {"citations": "B_cit", "penalties": "B_pen"}
+
+
+def g_plus() -> list[str]:
+    """The G+ severities, from configs/labels.yaml (the set the gold labels use)."""
+    return load_labels_config().gplus_severities
+
+
+def horizons() -> dict[str, tuple[int, str]]:
+    """``{y_<label>: (H, buffer name)}`` from configs/labels.yaml, e.g. ``y_g12 -> (12, "B_cit")``."""
+    cfg = load_labels_config()
+    return {f"y_{n}": (s.horizon_months, _BUFFER_NAME[s.source]) for n, s in cfg.labels.items()}
 
 
 def month_index(col: pl.Expr) -> pl.Expr:
@@ -52,7 +63,10 @@ def lag_analysis(
     citations: pl.DataFrame, penalties: pl.DataFrame, latest: str, cfg: CalibrationConfig
 ) -> dict[str, dict[str, Any]]:
     """Spec §5. Lag = calendar months from the event date to the cutoff of the vintage it first appeared in.
-    Only events old enough at V to have a fully observed lag are used."""
+    Only events old enough at V to have a fully observed lag are used.
+
+    ``latest`` is the latest vintage even if it is a ``stale_refresh`` vintage (none is on the current
+    archive); unlike ``last_labeled``, this does not step back to the last non-stale vintage."""
     cutoff_idx = vintage_index(pl.lit(_shift(latest, -cfg.fully_observed_months)))
     cit = (
         citations.filter(pl.col("survey_date") >= pl.lit(cfg.citations_from).str.to_date())
@@ -63,7 +77,7 @@ def lag_analysis(
         )
         .filter(month_index(pl.col("survey_date")) <= cutoff_idx)
     )
-    gplus = cit.filter(pl.col("final_scope_severity").is_in(G_PLUS) & ~pl.col("removed_by_cms"))
+    gplus = cit.filter(pl.col("final_scope_severity").is_in(g_plus()) & ~pl.col("removed_by_cms"))
     # The penalty event is the revision group: CMS revises amounts, and a key with the amount would date a
     # fine from its last amount (spec §5).
     groups = (
@@ -116,7 +130,7 @@ def last_labeled(
     """Spec §9.3: last_labeled_t = V - (H + B); a stale V counts as its last non-stale vintage."""
     v = next((x for x in reversed(vintages) if x not in stale), latest)
     out = []
-    for label, (h, b_name) in HORIZONS.items():
+    for label, (h, b_name) in horizons().items():
         b = buffers[b_name]
         t = _shift(v, -(h + b)) if b is not None else None
         real = max((x for x in vintages if t and x <= t), default=None)
@@ -134,7 +148,7 @@ def fine_crosscheck(s: SilverReader) -> tuple[pl.DataFrame, float, float]:
     )
     cit = s.read("citations_by_vintage", v, ["ccn", "survey_date", "scope_severity"])
     g = (
-        cit.filter(pl.col("scope_severity").is_in(G_PLUS))
+        cit.filter(pl.col("scope_severity").is_in(g_plus()))
         .select("ccn", "survey_date")
         .unique()
         .with_columns(pl.lit(True).alias("g"))
