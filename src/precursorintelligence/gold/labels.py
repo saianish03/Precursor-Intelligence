@@ -24,6 +24,12 @@ def _plus_months(months: int) -> pl.Expr:
 def _events(
     cfg: LabelsConfig, ledger_citations: pl.DataFrame, ledger_penalties: pl.DataFrame
 ) -> dict[str, pl.DataFrame]:
+    # A null here would drop the citation from the G+ filter without a trace, turning a positive negative.
+    for col in ("final_scope_severity", "removed_by_cms"):
+        if ledger_citations[col].null_count():
+            raise GoldCheckError(
+                f"ledger_citations.{col} has {ledger_citations[col].null_count()} nulls"
+            )
     gplus = ledger_citations.filter(
         pl.col("final_scope_severity").is_in(cfg.gplus_severities), ~pl.col("removed_by_cms")
     )

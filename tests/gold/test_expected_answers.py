@@ -405,3 +405,14 @@ def test_spine_refuses_rows_for_a_never_published_month(silver):
             spine_start="2023-01",
             v=V,
         )
+
+
+@pytest.mark.parametrize(
+    "ccn",
+    [pl.Series("ccn", [15001] * 1), pl.Series("ccn", ["15001"])],
+    ids=["int", "zero-stripped"],
+)
+def test_spine_refuses_a_ccn_that_is_not_six_character_text(ccn):
+    universe = pl.DataFrame({"ccn": ccn, "vintage_month": ["2023-01"]})
+    with pytest.raises(GoldCheckError, match="6-character text"):
+        build_spine(universe, published_vintages=["2023-01"], spine_start="2023-01", v="2023-01")

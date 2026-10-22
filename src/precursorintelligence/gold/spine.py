@@ -31,6 +31,9 @@ def build_spine(
         .with_columns(cutoff_date=(pl.col("t") + "-01").str.to_date("%Y-%m-%d"))
         .sort("t", "ccn")
     )
+    # CCN is 6-character text; an integer or zero-stripped CCN would silently miss every later join.
+    if spine["ccn"].dtype != pl.String or (spine["ccn"].str.len_chars() != 6).any():
+        raise GoldCheckError("spine: ccn must be 6-character text")
     if spine.select("ccn", "t").is_duplicated().any():
         raise GoldCheckError("spine: (ccn, t) is not unique")
     expected = {t for t in published_vintages if spine_start <= t <= v}

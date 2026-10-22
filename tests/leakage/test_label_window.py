@@ -6,6 +6,7 @@ import polars as pl
 import pytest
 
 from precursorintelligence.common.config import LabelsConfig, LabelSpec
+from precursorintelligence.gold import GoldCheckError
 from precursorintelligence.gold.build import events_published_by
 from precursorintelligence.gold.labels import build_labels
 
@@ -106,3 +107,26 @@ def test_an_event_published_after_v_does_not_label_earlier_rows():
     )
     assert events_published_by(ledger, "2025-03").is_empty()
     assert events_published_by(ledger, "2025-06").height == 1
+
+
+@pytest.mark.parametrize("col", ["final_scope_severity", "removed_by_cms"])
+def test_a_null_in_the_g_plus_filter_columns_stops_the_labels(col):
+    ledger = pl.DataFrame(
+        {
+            "ccn": ["015001"],
+            "survey_date": [date(2023, 6, 1)],
+            "final_scope_severity": ["G"],
+            "removed_by_cms": [False],
+        }
+    ).with_columns(
+        pl.lit(None).cast(pl.String if col == "final_scope_severity" else pl.Boolean).alias(col)
+    )
+    with pytest.raises(GoldCheckError, match=f"{col} has 1 nulls"):
+        build_labels(
+            SPINE,
+            ledger_citations=ledger,
+            ledger_penalties=NO_PENALTIES,
+            facility_presence=PRESENCE,
+            cfg=CFG,
+            v="2025-03",
+        )
