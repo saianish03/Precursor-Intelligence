@@ -256,6 +256,13 @@ class LabelsConfig(BaseModel):
     censor_requires_buffer: bool = True
     labels: dict[str, LabelSpec]
 
+    @field_validator("gplus_severities")
+    @classmethod
+    def _known_severities(cls, v: list[str]) -> list[str]:
+        if not v or any(s not in "ABCDEFGHIJKL" or len(s) != 1 for s in v):
+            raise ValueError(f"gplus_severities must be a non-empty list of A-L, got {v}")
+        return v
+
     @model_validator(mode="after")
     def _every_source_has_a_buffer(self) -> LabelsConfig:
         missing = {s.source for s in self.labels.values()} - set(self.buffers_months)
@@ -275,7 +282,7 @@ class SplitsConfig(BaseModel):
     @field_validator("spine_start")
     @classmethod
     def _yyyy_mm(cls, v: str) -> str:
-        if not re.fullmatch(r"\d{4}-\d{2}", v):
+        if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", v):
             raise ValueError("spine_start must be YYYY-MM")
         return v
 
