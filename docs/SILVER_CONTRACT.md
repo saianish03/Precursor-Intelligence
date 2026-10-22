@@ -64,9 +64,9 @@ distinction is gone.
 
 | Table | Grain / key (unique per vintage) | Columns |
 |---|---|---|
-| `provider_by_vintage` | facility; `ccn` | ccn, state, county_name, ownership_type, **ownership_group** (for_profit / non_profit / government), certified_beds, avg_residents_per_day (+`_fn`), provider_type, provider_in_hospital, date_first_approved, ccrc, special_focus_status (SFF / SFF_CANDIDATE / NONE), abuse_icon, most_recent_inspection_over_2y, changed_ownership_12m, resident_family_council (RESIDENT / FAMILY / BOTH / NONE), sprinkler_status (YES / PARTIAL / NO), sprinkler_status_not_available, overall_rating, health_inspection_rating, qm_rating, staffing_rating (each +`_fn`), reported_staffing_fn, pt_staffing_fn, hprd_{aide,lpn,rn,licensed,total,weekend_total,weekend_rn,pt}, adj_hprd_{aide,lpn,rn,total}, turnover_total, turnover_rn, admin_departures (each +`_fn`), chain_id, chain_name |
-| `citations_by_vintage` | citation; `ccn, survey_date, deficiency_prefix, deficiency_tag` | ccn, survey_date, deficiency_prefix, deficiency_category, deficiency_tag (4-digit text, `0880`), **ftag** (`F0880`), scope_severity (letter; only B–L occur), deficiency_corrected (raw text), correction_date, **is_standard, is_complaint, is_infection_control** (a citation can carry several), inspection_cycle, citation_under_idr, citation_under_iidr |
-| `surveys_by_vintage` | inspection; `ccn, survey_date, survey_type` | ccn, survey_date, survey_type (HEALTH_STANDARD, HEALTH_COMPLAINT, INFECTION_CONTROL, FIRE_STANDARD, FIRE_COMPLAINT), survey_cycle |
+| `provider_by_vintage` | facility; `ccn` | ccn, state, county_name, ownership_type, **ownership_group** (for_profit / non_profit / government), certified_beds, avg_residents_per_day (+`_fn`), provider_type, provider_in_hospital, date_first_approved, ccrc, special_focus_status (SFF / SFF_CANDIDATE / NONE), abuse_icon, high_performing_icon, most_recent_inspection_over_2y, changed_ownership_12m, resident_family_council (RESIDENT / FAMILY / BOTH / NONE), sprinkler_status (YES / PARTIAL / NO), sprinkler_status_not_available, overall_rating, health_inspection_rating, qm_rating, staffing_rating (each +`_fn`), reported_staffing_fn, pt_staffing_fn, hprd_{aide,lpn,rn,licensed,total,weekend_total,weekend_rn,pt}, adj_hprd_{aide,lpn,rn,total}, turnover_total, turnover_rn, admin_departures (each +`_fn`), chain_id, chain_name |
+| `citations_by_vintage` | citation; `ccn, survey_date, deficiency_prefix, deficiency_tag` | ccn, survey_date, deficiency_prefix, deficiency_category, deficiency_tag (4-digit text, `0880`), **ftag** (`F0880`), scope_severity (letter; only B–L occur), deficiency_corrected (raw text), correction_date, **is_standard, is_complaint, is_infection_control** (a citation can carry several), inspection_cycle, citation_under_idr, citation_under_iidr, survey_fn |
+| `surveys_by_vintage` | inspection; `ccn, survey_date, survey_type` | ccn, survey_date, survey_type (HEALTH_STANDARD, HEALTH_COMPLAINT, INFECTION_CONTROL, FIRE_STANDARD, FIRE_COMPLAINT), survey_cycle, survey_fn |
 | `penalties_by_vintage` | penalty row; `penalty_event_key` | ccn, penalty_date (date of the **triggering inspection**), penalty_type (Fine / Payment Denial), fine_amount, payment_denial_start_date, payment_denial_length_days, fine_id (2026-06+, fines only), **dup_seq**, **penalty_event_key** (`ccn|date|type|amount|denial_start|dup_seq`) |
 | `mds_qm_by_vintage` | `ccn, measure_code` | ccn, measure_code (3-digit text), measure_description, resident_type (Long Stay / Short Stay), four_quarter_avg (+`_fn`), used_in_5star, measure_period, **measure_period_start, measure_period_end** |
 | `claims_qm_by_vintage` | `ccn, measure_code` | ccn, measure_code, measure_description, resident_type, adjusted_score, observed_score, expected_score, measure_fn, used_in_5star, measure_period, measure_period_start, measure_period_end |
@@ -75,7 +75,8 @@ distinction is gone.
 
 **Columns that start late** (null before; documented in `reports/step2/latest/02_column_availability.csv`):
 turnover, weekend staffing, admin departures 2022-01 · IDR/IIDR 2023-01 · chain_id/name 2023-06 · lat/long 2023-08 ·
-fine_id 2026-06. Footnote and payment-denial columns are mostly null by design.
+fine_id 2026-06 · high_performing_icon, survey_fn (citations, surveys) 2026-09. The Rating Cycle 1/2
+Standard Survey Footnote columns (also 2026-09) are ignored, like the Rating Cycle survey dates they annotate. Footnote and payment-denial columns are mostly null by design.
 
 **Events after the cutoff are kept:** 217 rows (citations 2025-12: 167; surveys 2025-10: 6 and 2025-12: 44) are
 dated up to 9 days after `cutoff_date`. Feature windows must use `event_date <= cutoff_date`.
@@ -159,6 +160,8 @@ months; spec §9.5 recommends training rows from 2022-01 (decision §14 #10).
 - **Citation survey type** comes from the three `is_*` flags, not a column. Complaint surveys in
   `surveys_by_vintage` exist only if they produced a citation: name such features `*_cited`.
 - **Star ratings** (`overall_rating`, `health_inspection_rating`) are `ablation_only`; `chain_id` is `product_only`.
+- **`high_performing_icon`** (2026-09+) is a status flag CMS assigns, like the star ratings: tag it the
+  same way in the feature registry, never `model`. It is null before 2026-09.
 - **QM bridges:** `measure_code` changes (405→480, 453→479 in 2025-02; 419→481 in 2026-02). A Δ across a code
   change, or across an unchanged `measure_period_end`, must be null (§8.6).
 - **Unpublished months** have no partitions: t−6 / t−12 lookups must handle absence (Δ = null).
@@ -231,7 +234,7 @@ vintage after t (§6).
 
 | Column(s) | Silver | Gold |
 |---|---|---|
-| every `_fn` (provider and QM) | footnote code as text, null = none | null → `none`; 1 `new_facility` · 2 `insufficient_data` · 6 `staffing_criteria_not_met` · 9 `too_few_residents` · 10 `missing_not_submitted` · 18 `sff_not_rated` · 20 `rating_not_validated` · 23 `no_staffing_data` · 24 `many_days_without_rn` · 25 `staffing_not_validated` · 26 `turnover_invalid_min_points` · 27 `turnover_criteria_not_met` (names as in the reference; keep them in a config) |
+| every `_fn` (provider and QM) | footnote code as text, null = none | null → `none`; 1 `new_facility` · 2 `insufficient_data` · 6 `staffing_criteria_not_met` · 9 `too_few_residents` · 10 `missing_not_submitted` · 18 `sff_not_rated` · 20 `rating_not_validated` · 23 `no_staffing_data` · 24 `many_days_without_rn` · 25 `staffing_not_validated` · 26 `turnover_invalid_min_points` · 27 `turnover_criteria_not_met`; `survey_fn` (2026-09+) has only 29 so far, meaning not yet confirmed (names as in the reference; keep them in a config) |
 | `sff_status` | `special_focus_status` (`SFF / SFF_CANDIDATE / NONE`) | same values, renamed column |
 | `n_cat_*_24m` | `deficiency_category` (ends in ` Deficiencies`) | abuse = Freedom from Abuse, Neglect, and Exploitation; qol_care = Quality of Life and Care; assessment = Resident Assessment and Care Planning; nursing_physician = Nursing and Physician Services; resident_rights = Resident Rights; administration = Administration |
 | `n_ic_cit_24m` | category `Infection Control Deficiencies` **or** `is_infection_control` | — |
