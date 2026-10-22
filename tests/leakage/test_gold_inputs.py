@@ -48,11 +48,21 @@ def test_keep_columns_still_lists_the_star_ratings_this_test_guards():
     )
 
 
-def test_gold_code_never_names_a_star_rating_column():
-    for path in GOLD_SRC.glob("*.py"):
+# The column contract (configs/contracts/facility_month_dataset_spec_columns.csv) keeps the four ratings as
+# facility_staffing features, tagged model / ablation_only in feature_registry.yaml (open item 6, settled by
+# following the contract). That family is the only gold code that may name them; no gold code names the badge.
+RATINGS_ALLOWED_IN = {GOLD_SRC / "features" / "facility_staffing.py"}
+
+
+def test_gold_code_names_a_star_rating_column_only_in_facility_staffing():
+    paths = sorted(GOLD_SRC.rglob("*.py"))
+    assert GOLD_SRC / "spine.py" in paths and set(paths) >= RATINGS_ALLOWED_IN
+    for path in paths:
         text = path.read_text(encoding="utf-8")
         for col in _star_rating_columns():
-            assert not re.search(rf"\b{col}\b", text), f"{path.name} names {col}"
+            if path in RATINGS_ALLOWED_IN and col not in CMS_BADGES:
+                continue
+            assert not re.search(rf"\b{col}\b", text), f"{path.relative_to(GOLD_SRC)} names {col}"
 
 
 def test_gold_declares_only_the_allowed_silver_inputs():
