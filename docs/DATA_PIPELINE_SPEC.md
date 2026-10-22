@@ -844,6 +844,7 @@ The dataset counts as **frozen** only after a human approves this checkpoint. Th
 | 22 | Live CMS API in development and tests | **Decided:** allowed for read-only checks (the `network` tests, catalog and metastore reads). A real ingest of a new release (e.g. 2026-10-08) only when the user asks. | Unit tests stay offline (fake CMS) |
 | 10 | Spine start | **Decided 2026-10-15:** 2023-01. **Revisit:** with the measured buffers it leaves 3 training months for `y_g12` and 0 for `y_pen12` (§9.5). | Recommended: training rows from 2022-01; scoring and evaluation from 2023-01 |
 | 13 | Storage, metadata, warehouse, run lock, manifests | **Decided 2026-10-08** (D1–D11). **Metadata store amended 2026-10-16:** Postgres `precursor_meta` plus a BigQuery `meta` mirror and `status/latest.json`, no BigQuery adapter (D4, D8 and O2 in `STEP1_DATA_INGESTION_PIPELINE.md` §0 are superseded where they assume one) | §0.6, §15.3 |
+| 23 | Lock release in the DAG | **Decided 2026-10-21:** `release_lock` is an Airflow teardown of `acquire_lock`, not `trigger_rule="all_done"` and not `on_failure_fail_dagrun=True` (both made failed runs show `success`, measured); it retries twice | §15.1, §15.3, §15.5 |
 
 **Measured or changed by the sample run:**
 
