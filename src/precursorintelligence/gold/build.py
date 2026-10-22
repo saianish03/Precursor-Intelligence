@@ -1,7 +1,8 @@
 """The gold node's run: silver -> gold/spine and gold/labels (spec §7, §9, §11; SILVER_CONTRACT §8, §11).
 
 1. Published vintages = the silver provider partitions (as silver itself counts them). V = the latest, or a
-   validated ``--v``.
+   validated ``--v``. Silver must be current first: every bronze partition has a silver partition built from
+   its current content and configs (``partitions_without_current_silver``, SILVER_CONTRACT §3), else exit 2.
 2. Labels are measured from the last vintage that is not a ``stale_refresh`` (``vintage_flags``, written by
    bronze); a stale V adds no events (spec §9.2). The spine still runs to V.
 3. Ledger events first published after that vintage are dropped, so an earlier ``--v`` sees only what was
@@ -9,8 +10,6 @@
 4. Everything is built and checked in ``gold/_staging/run=<id>/`` and copied to ``gold/`` only when every check
    passes; on a failure ``gold/`` is untouched. The staged files stay as the run's record (the object store
    only deletes under quarantine/ and tmp/).
-
-Still to add once PR #7 is on dev: silver's freshness check, ``partitions_without_current_silver`` (contract §3).
 """
 
 from __future__ import annotations
@@ -29,6 +28,9 @@ from ..common.config import ConfigError, LabelsConfig, SplitsConfig
 from ..common.io.run_lock import RunLock
 from ..common.io.table_sink import ParquetTableSink
 from ..common.obs.logging import log_context
+from ..harmonize.columns import load_silver_config
+from ..harmonize.silver import latest_bronze
+from ..harmonize.silver_pipeline import CHECK_NAME, partitions_without_current_silver
 from ..ingestion.context import Context
 from ..ingestion.pipeline import EXIT_OK, EXIT_VALIDATION, LOCK_NAME, task_scope
 from . import GoldCheckError
@@ -80,6 +82,19 @@ def resolve_v(published: list[str], requested: str | None, spine_start: str) -> 
     if requested < spine_start:
         raise ConfigError(f"--v {requested} is before spine_start {spine_start}")
     return requested
+
+
+def stale_silver(ctx: Context, sink: ParquetTableSink) -> list[str]:
+    """Silver partitions not built from the current bronze and configs (SILVER_CONTRACT §3); [] = current.
+
+    Stops (exit 2) when the metadata store has no bronze records, since then nothing can be checked.
+    """
+    if not latest_bronze(ctx.metadata):
+        raise GoldCheckError(
+            "the metadata database has no bronze_files rows, so gold cannot check that silver is current; "
+            "point --env or --env-file at the metadata database that came with this silver"
+        )
+    return partitions_without_current_silver(ctx, sink, load_silver_config())
 
 
 def label_vintage(
@@ -157,9 +172,17 @@ def _run(
     result = GoldResult(run_id=ctx.run_id)
     published: list[str] = []
     stale: list[str] = []
+    not_current: list[str] | None = None
     try:
-        published = published_vintages(ParquetTableSink(ctx.object_store, prefix="silver"))
+        sink = ParquetTableSink(ctx.object_store, prefix="silver")
+        published = published_vintages(sink)
         result.v = resolve_v(published, v, splits_cfg.spine_start)
+        not_current = stale_silver(ctx, sink)
+        if not_current:
+            raise GoldCheckError(
+                f"silver is not current for {len(not_current)} partitions (rerun silver): "
+                + ", ".join(not_current[:10])
+            )
         result.v_labels, stale = label_vintage(
             ctx.metadata.read("vintage_flags", {"flag": STALE_REFRESH}), published, result.v
         )
@@ -185,7 +208,7 @@ def _run(
     except GoldCheckError as exc:
         result.failures.append(str(exc))
     result.manifest_key = _write_manifest(
-        ctx, result, published, stale, labels_cfg, splits_cfg, now
+        ctx, result, published, stale, not_current, labels_cfg, splits_cfg, now
     )
     return result
 
@@ -219,6 +242,7 @@ def _write_manifest(
     result: GoldResult,
     published: list[str],
     stale: list[str],
+    not_current: list[str] | None,
     labels_cfg: LabelsConfig,
     splits_cfg: SplitsConfig,
     now: datetime,
@@ -232,6 +256,10 @@ def _write_manifest(
         "v": result.v,
         "v_labels": result.v_labels,
         "stale_refresh_skipped": stale,
+        CHECK_NAME: {  # null when the run stopped before the check
+            "passed": None if not_current is None else not not_current,
+            "missing": not_current or [],
+        },
         "published_vintages": {
             "n": len(published),
             "first": published[0] if published else None,

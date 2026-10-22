@@ -158,3 +158,29 @@ def test_a_local_run_generates_a_windows_safe_run_id(toy, monkeypatch):
     (m,) = toy.manifests()
     assert ":" not in m["run_id"]
     assert RunLock(toy.meta, LOCK_NAME).holder() is None  # taken and released by the run itself
+
+
+def test_gold_checks_that_silver_is_current_first(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    check = toy.manifests()[0]["every_bronze_partition_has_current_silver"]
+    assert check == {"passed": True, "missing": []}
+
+
+def test_stale_silver_stops_gold_and_leaves_gold_untouched(toy, monkeypatch, capsys):
+    # The latest silver build of one partition is gone, as after a failed silver rebuild.
+    toy.meta.delete_where(
+        "silver_partitions", {"table_name": "citations_by_vintage", "vintage_month": "2024-03"}
+    )
+    assert toy.gold(monkeypatch) == EXIT_VALIDATION
+    err = capsys.readouterr().err
+    assert "silver is not current for 1 partitions" in err and "citations_by_vintage 2024-03" in err
+    assert not (toy.root / "gold" / "labels").exists()
+    check = toy.manifests()[0]["every_bronze_partition_has_current_silver"]
+    assert check == {"passed": False, "missing": ["citations_by_vintage 2024-03"]}
+
+
+def test_a_metadata_database_without_bronze_records_stops_gold(toy, monkeypatch, capsys):
+    toy.meta.delete_where("bronze_files", {"run_id": "toy"})
+    assert toy.gold(monkeypatch) == EXIT_VALIDATION
+    assert "has no bronze_files rows" in capsys.readouterr().err
+    assert not (toy.root / "gold" / "labels").exists()

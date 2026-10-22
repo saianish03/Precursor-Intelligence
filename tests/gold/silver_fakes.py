@@ -30,6 +30,7 @@ import polars as pl
 from precursorintelligence.common.io.metadata_store import MetadataStore
 from precursorintelligence.common.io.object_store import ObjectStore
 from precursorintelligence.common.io.table_sink import ParquetTableSink
+from precursorintelligence.harmonize.columns import load_silver_config
 
 NEVER_PUBLISHED = ("2023-12",)
 V = "2025-03"
@@ -568,3 +569,25 @@ def write_vintage_flags(meta: MetadataStore, *, stale: tuple[str, ...] = ()) -> 
             for v in VINTAGES
         ],
     )
+
+
+def write_bronze_and_silver_records(meta: MetadataStore) -> None:
+    """The bronze_files and silver_partitions rows a real run leaves, one per (table, vintage), all current,
+    so gold's freshness check (partitions_without_current_silver) passes on the toy world."""
+    cfg = load_silver_config()
+    bronze, silver = [], []
+    for v in VINTAGES:
+        for source in cfg.sources:
+            content, zip_sha = f"toy-{source}-{v}", "0" * 64
+            bronze.append({
+                "run_id": "toy", "table_name": source, "vintage_month": v, "status": "loaded",
+                "content_hash": content, "zip_sha256": zip_sha,
+            })  # fmt: skip
+            silver += [
+                {"run_id": "toy", "table_name": t.name, "source_table": source, "vintage_month": v,
+                 "status": "built", "content_hash": content, "zip_sha256": zip_sha,
+                 "config_hash": cfg.config_hash}
+                for t in cfg.tables_for(source)
+            ]  # fmt: skip
+    meta.append("bronze_files", bronze)
+    meta.append("silver_partitions", silver)

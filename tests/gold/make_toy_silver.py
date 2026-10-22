@@ -4,7 +4,8 @@
     uv run precursor-pipeline gold --env-file data/toy/env.yaml
 
 It writes <folder>/silver/... and gold/dim_facility_latest (as silver does), a metadata database
-<folder>/ops/metadata.db holding vintage_flags (as bronze does), and <folder>/env.yaml pointing at both.
+<folder>/ops/metadata.db holding vintage_flags and the bronze_files / silver_partitions records (as bronze and
+silver do, so gold's freshness check passes), and <folder>/env.yaml pointing at both.
 Add ``--stale 2025-03`` to flag a vintage as a stale refresh.
 """
 
@@ -12,7 +13,13 @@ import argparse
 from pathlib import Path
 
 import yaml
-from silver_fakes import VINTAGES, build_silver, write_silver, write_vintage_flags
+from silver_fakes import (
+    VINTAGES,
+    build_silver,
+    write_bronze_and_silver_records,
+    write_silver,
+    write_vintage_flags,
+)
 
 from precursorintelligence.common.io.metadata_store import SqlAlchemyMetadataStore
 from precursorintelligence.common.io.object_store import LocalObjectStore
@@ -30,6 +37,7 @@ def make_toy(root: Path, stale: tuple[str, ...] = ()) -> Path:
     meta = SqlAlchemyMetadataStore(f"sqlite:///{db.as_posix()}")
     meta.ensure_schema()
     write_vintage_flags(meta, stale=stale)
+    write_bronze_and_silver_records(meta)
     env_file = root / "env.yaml"
     env = {
         "env": "toy",
