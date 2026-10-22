@@ -8,11 +8,18 @@ import polars as pl
 import pytest
 from make_toy_silver import make_toy
 
+from precursorintelligence.common.config import (
+    load_labels_config,
+    load_settings,
+    load_splits_config,
+)
 from precursorintelligence.common.io.metadata_store import SqlAlchemyMetadataStore
 from precursorintelligence.common.io.object_store import LocalObjectStore
 from precursorintelligence.common.io.run_lock import RunLock
+from precursorintelligence.gold import GoldCheckError
+from precursorintelligence.gold.build import read_current_gold, run_gold
 from precursorintelligence.harmonize.cli import main
-from precursorintelligence.ingestion.context import new_run_id
+from precursorintelligence.ingestion.context import build_context, new_run_id
 from precursorintelligence.ingestion.pipeline import (
     EXIT_CONFIG,
     EXIT_ERROR,
@@ -202,3 +209,42 @@ def test_run_log_records_a_failed_gold_run_as_failed(toy, monkeypatch):
     assert toy.gold(monkeypatch) == EXIT_VALIDATION
     assert _gold_run_log(toy, EXIT_OK) == "ok"
     assert _gold_run_log(toy, EXIT_VALIDATION) == "failed"
+
+
+def test_a_failure_during_promotion_is_never_read_as_a_valid_gold(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    assert read_current_gold(toy.store)["state"] == "current"
+
+    # Second run: the labels write fails after the spine has been replaced.
+    ctx = build_context(load_settings(env_path=toy.env_file))
+    real_put = ctx.object_store.put_bytes
+
+    def put(key, data, **kw):
+        if key == "gold/labels/part-0.parquet":
+            raise OSError("disk full (injected)")
+        return real_put(key, data, **kw)
+
+    monkeypatch.setattr(ctx.object_store, "put_bytes", put)
+    with pytest.raises(OSError, match="injected"):
+        run_gold(ctx, labels_cfg=load_labels_config(), splits_cfg=load_splits_config(), v="2024-06")
+
+    assert toy.read("spine")["t"].max() == "2024-06"  # new spine, old labels: torn
+    assert toy.read("labels")["t"].max() == "2025-03"
+    with pytest.raises(GoldCheckError, match="did not finish promoting"):
+        read_current_gold(toy.store)
+    (failed,) = [m for m in toy.manifests() if m["run_id"] == ctx.run_id]
+    assert failed["promoted"] is False and "disk full (injected)" in failed["error"]
+
+    assert toy.gold(monkeypatch) == EXIT_OK  # a rerun heals it
+    assert read_current_gold(toy.store)["sha256"] == {
+        "spine": toy.sha("spine"),
+        "labels": toy.sha("labels"),
+    }
+
+
+def test_read_current_gold_refuses_files_that_changed_after_promotion(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    labels = toy.root / "gold" / "labels" / "part-0.parquet"
+    pl.read_parquet(labels).head(5).write_parquet(labels)
+    with pytest.raises(GoldCheckError, match="does not match"):
+        read_current_gold(toy.store)

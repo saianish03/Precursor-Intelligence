@@ -8,8 +8,11 @@
 3. Ledger events first published after that vintage are dropped, so an earlier ``--v`` sees only what was
    published by then. (``final_scope_severity`` and ``removed_by_cms`` are still as of the latest silver.)
 4. Everything is built and checked in ``gold/_staging/run=<id>/`` and copied to ``gold/`` only when every check
-   passes; on a failure ``gold/`` is untouched. The staged files stay as the run's record (the object store
-   only deletes under quarantine/ and tmp/).
+   passes; a failure before that leaves ``gold/`` untouched. The copy is two writes, so ``gold/_current.json``
+   is marked ``promoting`` first and points at the new files (run id, V, sha256 of each) only once both are
+   written: readers trust ``gold/`` only through ``read_current_gold``, so a failure in between is never read as
+   a valid pair. The staged files stay as the run's record (the object store only deletes under quarantine/
+   and tmp/).
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from typing import Any
 import polars as pl
 
 from ..common.config import ConfigError, LabelsConfig, SplitsConfig
+from ..common.io.object_store import ObjectStore
 from ..common.io.run_lock import RunLock
 from ..common.io.table_sink import ParquetTableSink
 from ..common.obs.logging import log_context
@@ -41,6 +45,7 @@ SILVER_INPUTS = ("facility_universe", "facility_presence", "ledger_citations", "
 # spec §0.5: vintages from 2021-01; project scope is 2021-2026
 VINTAGE_RANGE = ("2021-01", "2026-12")
 STALE_REFRESH = "stale_refresh"
+CURRENT_KEY = "gold/_current.json"  # which run's spine and labels gold/ holds, written last
 _YYYY_MM = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 
 
@@ -52,6 +57,7 @@ class GoldResult:
     rows: dict[str, int] = field(default_factory=dict)
     outputs: dict[str, str] = field(default_factory=dict)  # name -> sha256 of the promoted file
     failures: list[str] = field(default_factory=list)
+    promoted: bool = False
     manifest_key: str = ""
 
     @property
@@ -203,11 +209,18 @@ def _run(
             v=result.v_labels,
         )
         staged = _stage(ctx, {"spine": spine, "labels": labels})
-        _promote(ctx, staged)
         result.rows = {"spine": spine.height, "labels": labels.height}
         result.outputs = {n: hashlib.sha256(b).hexdigest() for n, b in staged.items()}
+        _promote(ctx, staged, result)
+        result.promoted = True
     except GoldCheckError as exc:
         result.failures.append(str(exc))
+    except Exception as exc:  # an error (exit 1): record the run, then let it fail
+        result.manifest_key = _write_manifest(
+            ctx, result, published, stale, not_current, labels_cfg, splits_cfg, now,
+            error=f"{type(exc).__name__}: {exc}",
+        )  # fmt: skip
+        raise
     result.manifest_key = _write_manifest(
         ctx, result, published, stale, not_current, labels_cfg, splits_cfg, now
     )
@@ -233,9 +246,42 @@ def _staging_key(ctx: Context, name: str) -> str:
     return f"gold/_staging/run={ctx.run_id}/{name}/part-0.parquet"
 
 
-def _promote(ctx: Context, staged: dict[str, bytes]) -> None:
+def _put_json(ctx: Context, key: str, doc: dict[str, Any]) -> None:
+    ctx.object_store.put_bytes(
+        key, json.dumps(doc, indent=2, sort_keys=True).encode("utf-8"), overwrite=True
+    )
+
+
+def _promote(ctx: Context, staged: dict[str, bytes], result: GoldResult) -> None:
+    """Copy the checked files to gold/ as one unit for readers: see read_current_gold."""
+    _put_json(ctx, CURRENT_KEY, {"state": "promoting", "run_id": ctx.run_id})
     for name, data in staged.items():
         ctx.object_store.put_bytes(f"gold/{name}/part-0.parquet", data, overwrite=True)
+    _put_json(
+        ctx,
+        CURRENT_KEY,
+        {"state": "current", "run_id": ctx.run_id, "v": result.v, "v_labels": result.v_labels,
+         "sha256": result.outputs},
+    )  # fmt: skip
+
+
+def read_current_gold(store: ObjectStore) -> dict[str, Any]:
+    """The run gold/ holds, after checking that its files are exactly that run's (sha256). Downstream readers
+    (features, assembly, the verification gate) call this before reading gold/spine or gold/labels; it fails
+    (GoldCheckError) when no run finished promoting, or a later write left the files out of step."""
+    if not store.exists(CURRENT_KEY):
+        raise GoldCheckError(f"{CURRENT_KEY} is missing: run precursor-pipeline gold")
+    with store.open_read(CURRENT_KEY) as f:
+        current: dict[str, Any] = json.loads(f.read())
+    if current.get("state") != "current":
+        raise GoldCheckError(
+            f"gold/ is not current: run {current.get('run_id')} did not finish promoting; rerun gold"
+        )
+    for name, sha in current["sha256"].items():
+        with store.open_read(f"gold/{name}/part-0.parquet") as f:
+            if hashlib.sha256(f.read()).hexdigest() != sha:
+                raise GoldCheckError(f"gold/{name} does not match {CURRENT_KEY}; rerun gold")
+    return current
 
 
 def _write_manifest(
@@ -247,6 +293,7 @@ def _write_manifest(
     labels_cfg: LabelsConfig,
     splits_cfg: SplitsConfig,
     now: datetime,
+    error: str | None = None,
 ) -> str:
     """One JSON per run under metadata/gold/. The timestamp in the name means a retry never overwrites it."""
     manifest = {
@@ -272,7 +319,8 @@ def _write_manifest(
         },
         "rows": result.rows,
         "outputs_sha256": result.outputs,
-        "promoted": not result.failures,
+        "promoted": result.promoted,
+        "error": error,
         "failures": result.failures,
     }
     stamp = datetime.now(
