@@ -2,9 +2,9 @@
 
   precursor-pipeline gold --run-id R        # DAG task: the run must hold the data_pipeline lock
   precursor-pipeline gold                   # local run: takes and releases the lock itself
-  precursor-pipeline gold --v 2025-07       # an earlier published V (labels see only what was published then)
+  precursor-pipeline gold --v 2025-07       # an earlier published V (events first seen after it are ignored)
 
-Exit codes: 0 ok, 1 error (retried, e.g. another run holds the lock), 2 data or gate failure (gold/ untouched),
+Exit codes: 0 ok, 1 error (retried, e.g. another run holds the lock), 2 data or gate failure (gold/ not promoted),
 3 config or usage error (e.g. a bad --v).
 """
 
@@ -24,7 +24,9 @@ from .build import run_gold
 V_OPT = typer.Option(
     None,
     "--v",
-    help="V, the latest vintage to build up to (YYYY-MM, a published month); default: the latest in silver",
+    help="V, the latest vintage to build up to (YYYY-MM, a published month); default: the latest in silver. "
+    "Events first seen after V are ignored, but severity, CMS removals and facility exits stay as of the latest "
+    "silver",
 )
 
 
