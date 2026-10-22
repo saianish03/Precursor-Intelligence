@@ -1,7 +1,8 @@
 """Expected gold answers for the fake silver world in silver_fakes.py.
 
 Two kinds of test:
-- fixture tests check that the fake silver data says what the story says, and uses the spec's names;
+- fixture tests check that the fake silver data says what the story says, and uses silver's own column
+  names (configs/keep_columns.yaml);
 - gold tests run the real spine and labels builders on it and compare with hand-computed answers
   (spec §7, §9). Feature tests are xfail until gold/features exists; then a wrong answer fails for
   real (only ModuleNotFoundError is expected).
@@ -12,11 +13,11 @@ Label arithmetic, V = 2025-03, H = 12, W_12 = (cutoff_date, cutoff_date + 12 mon
 - y_pen12, B_pen = 12: mature only if t + 24 months <= V, so the last labelable t is 2023-03.
 """
 
-import re
 from pathlib import Path
 
 import polars as pl
 import pytest
+import yaml
 from silver_fakes import BY_VINTAGE, KEYS, VINTAGES, V
 
 from precursorintelligence.common.config import load_labels_config, load_splits_config
@@ -25,7 +26,6 @@ from precursorintelligence.gold import GoldCheckError
 from precursorintelligence.gold.labels import build_labels
 from precursorintelligence.gold.spine import build_spine
 
-SPEC = Path(__file__).parents[2] / "docs" / "DATA_PIPELINE_SPEC.md"
 LAST_LABELED_G12 = "2023-07"
 
 # (ccn, t, status_g12, y_g12) for every mature spine row. Every later row is immature with y_g12 null.
@@ -119,46 +119,19 @@ MAPLE_G = (pl.col("ccn") == "015004") & (pl.col("survey_date") == pl.date(2024, 
 # ------------------------------------------------------------------ fixture tests
 
 
-def _spec_columns(heading: str) -> list[str]:
-    m = re.search(rf"\*\*{re.escape(heading)}:\*\*\s*`([^`]+)`", SPEC.read_text(encoding="utf-8"))
-    assert m, f"keep-list {heading!r} not found in the spec"
-    return m.group(1).split(", ")
-
-
-@pytest.mark.parametrize(
-    ("table", "heading"),
-    [
-        ("provider_by_vintage", "Provider Information"),
-        ("citations_by_vintage", "Health Deficiencies"),
-        ("surveys_by_vintage", "Inspection Dates"),
-        ("penalties_by_vintage", "Penalties"),
-        ("mds_qm_by_vintage", "MDS Quality Measures"),
-        ("claims_qm_by_vintage", "Medicare Claims Quality Measures"),
-        ("citation_lookup", "Citation Code Look-up (all vintages)"),
-    ],
+KEEP_COLUMNS = yaml.safe_load(
+    (Path(__file__).parents[2] / "configs" / "keep_columns.yaml").read_text(encoding="utf-8")
 )
-def test_by_vintage_columns_are_the_spec_keep_lists(silver, table, heading):
-    expected = _spec_columns(heading)
-    # Silver also writes two derived provider columns (SILVER_CONTRACT §4, configs/keep_columns.yaml).
-    for derived, after in DERIVED_COLUMNS.get(table, []):
-        expected.insert(expected.index(after) + 1, derived)
-    assert silver[table].columns == [*expected, "vintage_month", "cutoff_date"]
 
 
-DERIVED_COLUMNS = {
-    "provider_by_vintage": [
-        ("ownership_group", "ownership_type"),
-        ("sprinkler_status_not_available", "sprinkler_status"),
-    ]
-}
-
-
-def test_identity_table_holds_the_product_identity_columns(silver):
-    expected = {*_spec_columns("Product identity only"), "ccn", "state", "chain_id", "chain_name"}
-    assert set(silver["provider_identity_by_vintage"].columns) == expected | {
+@pytest.mark.parametrize("table", BY_VINTAGE)
+def test_by_vintage_columns_are_silvers_keep_columns(silver, table):
+    # The same names and order silver writes (configs/keep_columns.yaml), so a silver column change shows here.
+    assert silver[table].columns == [
+        *KEEP_COLUMNS[table]["columns"],
         "vintage_month",
         "cutoff_date",
-    }
+    ]
 
 
 def test_reports_run_2023_01_to_2025_03_without_2023_12(silver):

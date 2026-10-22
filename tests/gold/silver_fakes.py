@@ -53,8 +53,9 @@ def cutoff(vintage: str) -> date:
 
 
 # ------------------------------------------------------------------ schemas
-# Column names, order and types follow docs/SILVER_CONTRACT.md (PR #7, branch feat/silver): the spec §3.3
-# keep-lists plus the columns silver derives (ownership_group, sprinkler_status_not_available, ...).
+# Column names, order and types follow configs/keep_columns.yaml and docs/SILVER_CONTRACT.md: the spec §3.3
+# keep-lists, the columns silver derives (ownership_group, sprinkler_status_not_available, ...) and the
+# columns CMS added in 2026-09 (high_performing_icon, survey_fn), which are null in this 2023-2025 world.
 
 S, F, B, D, N = pl.String, pl.Float64, pl.Boolean, pl.Date, pl.Int64
 LINEAGE = {"vintage_month": S, "cutoff_date": D}
@@ -64,7 +65,8 @@ PROVIDER = {
     "certified_beds": F,
     "avg_residents_per_day": F, "avg_residents_per_day_fn": S, "provider_type": S,
     "provider_in_hospital": B, "date_first_approved": D, "ccrc": B, "special_focus_status": S,
-    "abuse_icon": B, "most_recent_inspection_over_2y": B, "changed_ownership_12m": B,
+    "abuse_icon": B, "high_performing_icon": B, "most_recent_inspection_over_2y": B,
+    "changed_ownership_12m": B,
     "resident_family_council": S, "sprinkler_status": S, "sprinkler_status_not_available": B,
     "overall_rating": F,
     "overall_rating_fn": S, "health_inspection_rating": F, "health_inspection_rating_fn": S,
@@ -83,9 +85,11 @@ CITATIONS = {
     "ccn": S, "survey_date": D, "deficiency_prefix": S, "deficiency_category": S,
     "deficiency_tag": S, "ftag": S, "scope_severity": S, "deficiency_corrected": S,
     "correction_date": D, "is_standard": B, "is_complaint": B, "is_infection_control": B,
-    "inspection_cycle": N, "citation_under_idr": B, "citation_under_iidr": B,
+    "inspection_cycle": N, "citation_under_idr": B, "citation_under_iidr": B, "survey_fn": S,
 } | LINEAGE  # fmt: skip
-SURVEYS = {"ccn": S, "survey_date": D, "survey_type": S, "survey_cycle": N} | LINEAGE
+SURVEYS = {
+    "ccn": S, "survey_date": D, "survey_type": S, "survey_cycle": N, "survey_fn": S,
+} | LINEAGE  # fmt: skip
 PENALTIES = {
     "ccn": S, "penalty_date": D, "penalty_type": S, "fine_amount": F,
     "payment_denial_start_date": D, "payment_denial_length_days": F, "fine_id": S, "dup_seq": N,
