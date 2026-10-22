@@ -1,0 +1,107 @@
+# Every gold feature (docs/DATA_PIPELINE_SPEC.md §8): name, family, source_table, formula, first_available_vintage,
+# dtype, model_use (model / ablation_only / product_only). Generated from the column contract
+# (configs/contracts/facility_month_dataset_spec_columns.csv), whose dtype and model_use it keeps; the source
+# tables are silver at vintage t (Δ features also t−6 / t−12). first_available_vintage was measured on the full
+# archive (2021-01 -> 2026-08). tests/gold/test_feature_registry.py checks it against the built features.
+#
+# Star ratings (open item 6): follow the contract. staffing_rating and qm_rating are model,
+# health_inspection_rating and overall_rating ablation_only. The quality family is added when
+# configs/qm_measures.yaml is approved (Checkpoint 4).
+_meta:
+  version: 1
+features:
+  - {name: days_since_last_std, family: survey_timing, source_table: "surveys_by_vintage", formula: "DATEDIFF(cutoff, MAX(date)); all history in the file; Type = Health Standard", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: days_to_std_due, family: survey_timing, source_table: "surveys_by_vintage", formula: "456 − DATEDIFF; all history; Type = Health Standard", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: std_overdue, family: survey_timing, source_table: "surveys_by_vintage", formula: "FLAG (> 456 days); all history; Type = Health Standard", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: n_std_36m, family: survey_timing, source_table: "surveys_by_vintage", formula: "COUNT DISTINCT; 36 months before cutoff; Type = Health Standard", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_complaint_surveys_cited_12m, family: survey_timing, source_table: "surveys_by_vintage", formula: "COUNT DISTINCT; 12 months; Type = Health Complaint", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_complaint_surveys_cited_24m, family: survey_timing, source_table: "surveys_by_vintage", formula: "COUNT DISTINCT; 24 months; Type = Health Complaint", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_ic_surveys_12m, family: survey_timing, source_table: "surveys_by_vintage", formula: "COUNT DISTINCT; 12 months; Type = Infection Control", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: days_since_last_complaint_survey_cited, family: survey_timing, source_table: "surveys_by_vintage", formula: "DATEDIFF(cutoff, MAX(date)); all history; Type = Health Complaint", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: no_std_on_record, family: survey_timing, source_table: "surveys_by_vintage", formula: "ANY (boolean); all history; Type = Health Standard", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: n_cit_12m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 12 months; none", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cit_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; none", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cit_AC_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; severity A, B, C", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cit_DF_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; severity D, E, F", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cit_GI_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; severity G, H, I (actual harm)", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cit_JL_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; severity J, K, L (immediate jeopardy)", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: sev_points_12m, family: citations, source_table: "citations_by_vintage", formula: "SUM; 12 months; none", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: sev_points_24m, family: citations, source_table: "citations_by_vintage", formula: "SUM; 24 months; none", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: sev_points_per_bed_24m, family: citations, source_table: "citations_by_vintage + provider_by_vintage", formula: "RATIO; 24 months; none", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: max_sev_last_std, family: citations, source_table: "citations_by_vintage + surveys_by_vintage", formula: "MAX; last standard survey; citations dated on the latest standard survey", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: gplus_last_std, family: citations, source_table: "citations_by_vintage + surveys_by_vintage", formula: "ANY (boolean); last standard survey; latest standard survey", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: max_sev_prev_std, family: citations, source_table: "citations_by_vintage + surveys_by_vintage", formula: "MAX; previous standard survey; citations on the second-latest standard survey", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: gplus_prev_std, family: citations, source_table: "citations_by_vintage + surveys_by_vintage", formula: "ANY (boolean); previous standard survey; previous standard survey", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: n_gplus_surveys_36m, family: citations, source_table: "citations_by_vintage", formula: "COUNT DISTINCT; 36 months; severity G–L", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: days_since_last_gplus, family: citations, source_table: "citations_by_vintage", formula: "DATEDIFF(cutoff, MAX(date)); all history; severity G–L", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: n_complaint_cit_12m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 12 months; Complaint Deficiency = Y", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_complaint_gplus_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; complaint AND G–L", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_ic_cit_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; category Infection Control OR IC flag = Y", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cat_abuse_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; category = Freedom from Abuse, Neglect, and Exploitation", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cat_qol_care_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; category = Quality of Life and Care", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cat_assessment_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; category = Resident Assessment and Care Planning", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cat_nursing_physician_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; category = Nursing and Physician Services", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cat_resident_rights_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; category = Resident Rights", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_cat_administration_24m, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; category = Administration", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_repeat_tags_last_std, family: citations, source_table: "citations_by_vintage + surveys_by_vintage", formula: "COUNT; last two standard surveys; tags on the last AND previous standard surveys", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: n_uncorrected, family: citations, source_table: "citations_by_vintage", formula: "COUNT; 24 months; status 'plan of correction' / 'no plan of correction' in the month-t file", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: n_fines_24m, family: enforcement, source_table: "penalties_by_vintage", formula: "COUNT; 24 months; Type = Fine", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: fine_dollars_24m, family: enforcement, source_table: "penalties_by_vintage", formula: "SUM → log1p; 24 months; Type = Fine", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: max_fine_24m, family: enforcement, source_table: "penalties_by_vintage", formula: "MAX; 24 months; Type = Fine", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: n_denials_24m, family: enforcement, source_table: "penalties_by_vintage", formula: "COUNT; 24 months; Type = Payment Denial", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: denial_days_24m, family: enforcement, source_table: "penalties_by_vintage", formula: "SUM; 24 months; Type = Payment Denial", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: any_penalty_36m, family: enforcement, source_table: "penalties_by_vintage", formula: "ANY (boolean); 36 months; any penalty", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: days_since_last_penalty, family: enforcement, source_table: "penalties_by_vintage", formula: "DATEDIFF(cutoff, MAX(date)); all history in file; any penalty", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: certified_beds, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: occupancy, family: facility_staffing, source_table: "provider_by_vintage", formula: "RATIO; snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: ownership_group, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: provider_type, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: state, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: resident_family_council, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: sprinkler_status, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: provider_in_hospital, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: ccrc, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: facility_age_years, family: facility_staffing, source_table: "provider_by_vintage", formula: "DATEDIFF(cutoff, MAX(date)); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: sff_status, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: abuse_icon, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: changed_ownership_12m, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: most_recent_inspection_over_2y, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: hprd_aide, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: hprd_lpn, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: hprd_rn, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: hprd_total, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: hprd_weekend_total, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2022-01", dtype: f64, model_use: model}
+  - {name: hprd_weekend_rn, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2022-01", dtype: f64, model_use: model}
+  - {name: hprd_pt, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: adj_hprd_rn, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: adj_hprd_total, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: rn_share, family: facility_staffing, source_table: "provider_by_vintage", formula: "RATIO; snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: weekend_gap, family: facility_staffing, source_table: "provider_by_vintage", formula: "DIFF; snapshot at t", first_available_vintage: "2022-01", dtype: f64, model_use: model}
+  - {name: turnover_total, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2022-01", dtype: f64, model_use: model}
+  - {name: turnover_rn, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2022-01", dtype: f64, model_use: model}
+  - {name: admin_departures, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2022-01", dtype: f64, model_use: model}
+  - {name: turnover_total_fn, family: facility_staffing, source_table: "provider_by_vintage", formula: "MAP code → reason; snapshot at t", first_available_vintage: "2022-01", dtype: str, model_use: model}
+  - {name: turnover_rn_fn, family: facility_staffing, source_table: "provider_by_vintage", formula: "MAP code → reason; snapshot at t", first_available_vintage: "2022-01", dtype: str, model_use: model}
+  - {name: admin_departures_fn, family: facility_staffing, source_table: "provider_by_vintage", formula: "MAP code → reason; snapshot at t", first_available_vintage: "2022-01", dtype: str, model_use: model}
+  - {name: reported_staffing_fn, family: facility_staffing, source_table: "provider_by_vintage", formula: "MAP code → reason; snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: pt_staffing_fn, family: facility_staffing, source_table: "provider_by_vintage", formula: "MAP code → reason; snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: staffing_rating_fn, family: facility_staffing, source_table: "provider_by_vintage", formula: "MAP code → reason; snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_rating_fn, family: facility_staffing, source_table: "provider_by_vintage", formula: "MAP code → reason; snapshot at t; measure = rating", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: avg_residents_per_day_fn, family: facility_staffing, source_table: "provider_by_vintage", formula: "MAP code → reason; snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: health_inspection_rating_fn, family: facility_staffing, source_table: "provider_by_vintage", formula: "MAP code → reason; snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: ablation_only}
+  - {name: overall_rating_fn, family: facility_staffing, source_table: "provider_by_vintage", formula: "MAP code → reason; snapshot at t", first_available_vintage: "2021-01", dtype: str, model_use: ablation_only}
+  - {name: staffing_rating, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_rating, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: health_inspection_rating, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: ablation_only}
+  - {name: overall_rating, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: ablation_only}
+  - {name: chain_id, family: facility_staffing, source_table: "provider_by_vintage", formula: "AS-IS (1:1); snapshot at t", first_available_vintage: "2023-06", dtype: str, model_use: product_only}
+  - {name: d6_hprd_total, family: facility_staffing, source_table: "provider_by_vintage", formula: "DIFF (t vs t−k); t vs t−6 months", first_available_vintage: "2021-07", dtype: f64, model_use: model}
+  - {name: d6_hprd_rn, family: facility_staffing, source_table: "provider_by_vintage", formula: "DIFF (t vs t−k); t vs t−6 months", first_available_vintage: "2021-07", dtype: f64, model_use: model}
+  - {name: d12_hprd_total, family: facility_staffing, source_table: "provider_by_vintage", formula: "DIFF (t vs t−k); t vs t−12 months", first_available_vintage: "2022-01", dtype: f64, model_use: model}
+  - {name: d12_turnover_total, family: facility_staffing, source_table: "provider_by_vintage", formula: "DIFF (t vs t−k); t vs t−12 months", first_available_vintage: "2023-01", dtype: f64, model_use: model}
+  - {name: state_gplus_rate_12m, family: context, source_table: "provider_by_vintage + citations_by_vintage", formula: "MEAN by state; 12 months; severity G–L, last 12 months", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: state_median_hprd_total, family: context, source_table: "provider_by_vintage + citations_by_vintage", formula: "MEDIAN by state; snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: rel_hprd_total, family: context, source_table: "provider_by_vintage + citations_by_vintage", formula: "RATIO to state median; snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: rel_sev_points_24m, family: context, source_table: "provider_by_vintage + citations_by_vintage", formula: "DIFF from state median; 24 months", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: era, family: context, source_table: "vintage_month (t)", formula: "pre_2025_07 / 2025_07_plus", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: penalty_regime_2025_10, family: context, source_table: "vintage_month (t)", formula: "t >= 2025-10", first_available_vintage: "2021-01", dtype: bool, model_use: model}

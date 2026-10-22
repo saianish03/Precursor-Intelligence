@@ -319,6 +319,52 @@ class FeaturesConfig(BaseModel):
         return self
 
 
+class FeatureSpec(BaseModel):
+    """One ``configs/feature_registry.yaml`` entry (spec §8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    family: str
+    source_table: str
+    formula: str
+    first_available_vintage: str
+    dtype: Literal["f64", "i64", "bool", "str"]
+    model_use: Literal["model", "ablation_only", "product_only"]
+
+    @field_validator("first_available_vintage")
+    @classmethod
+    def _yyyy_mm(cls, v: str) -> str:
+        if not re.fullmatch(_YYYY_MM_RE, v):
+            raise ValueError("first_available_vintage must be YYYY-MM")
+        return v
+
+
+class FeatureRegistry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    meta: dict[str, Any] = Field(alias="_meta")
+    features: list[FeatureSpec]
+
+    @model_validator(mode="after")
+    def _unique_names(self) -> FeatureRegistry:
+        names = [f.name for f in self.features]
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        if dupes:
+            raise ValueError(f"feature_registry: duplicate names {dupes}")
+        return self
+
+    def family(self, family: str) -> list[FeatureSpec]:
+        return [f for f in self.features if f.family == family]
+
+
+def load_feature_registry(path: str | Path | None = None) -> FeatureRegistry:
+    """Load and validate ``configs/feature_registry.yaml``."""
+    return _load_model(
+        FeatureRegistry, path or project_root() / "configs" / "feature_registry.yaml"
+    )
+
+
 def load_features_config(path: str | Path | None = None) -> FeaturesConfig:
     """Load and validate ``configs/features.yaml``."""
     return _load_model(FeaturesConfig, path or project_root() / "configs" / "features.yaml")
