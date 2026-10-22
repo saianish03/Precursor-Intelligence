@@ -1,29 +1,33 @@
 # The data pipeline in Airflow
 
-**What this covers:** how the CMS data pipeline runs as one Airflow DAG, what each task does, how the run lock and the exit codes work, what the metadata database holds (its schema), and where logs and run artifacts go.
-**How to run it** on a laptop or on GCP: [`runbooks/airflow-local.md`](runbooks/airflow-local.md).
-**Rules behind it:** `DATA_PIPELINE_SPEC.md` §15 (one DAG, five nodes) and §0.6–0.7 (storage and metadata).
-**Status (2026-10-21):** ingestion → bronze → silver implemented and run end to end on real CMS data (runbook §8). `check_release` and `gold` are TODO slots in the DAG.
+- **What this covers:** how the CMS data pipeline runs as one Airflow DAG, what each task does, how the run lock and the exit codes work, what the metadata database holds (its schema), and where logs and run artifacts go.
+- **How to run it** on a laptop or on GCP: [`runbooks/airflow-local.md`](runbooks/airflow-local.md).
+- **Rules behind it:** `DATA_PIPELINE_SPEC.md` §15 (one DAG, five nodes) and §0.6–0.7 (storage and metadata).
+- **Status (2026-10-21):** ingestion → bronze → silver implemented and run end to end on real CMS data (runbook §8). `check_release` and `gold` are TODO slots in the DAG.
 
 ---
 
 ## 1. The big picture
 
 ```
-                      ┌──────────────────────────── docker compose (docker/airflow-local/) ──────────────────────────┐
-                      │                                                                                             │
- you / @daily ──────▶ │  airflow-apiserver ── UI + REST (127.0.0.1:8080)                                            │
-                      │  airflow-scheduler ── decides what runs; LocalExecutor runs the tasks ──┐                    │
-                      │  airflow-dag-processor ── parses dags/                                  │ Docker API          │
-                      │  airflow-triggerer                                                      ▼ (internal network) │
-                      │  postgres:16  ┌ airflow         (Airflow's own state)            docker-proxy               │
-                      │               └ precursor_meta  (pipeline metadata, §5)               │                     │
-                      └───────────────────────────────────────────────────────────────────────┼─────────────────────┘
-                                                                                              │ starts one container per task
-                                                                                              ▼
-                                         precursor-pipeline container:  `precursor-ingest …` or `precursor-pipeline bronze|silver …`
-                                           ├── reads/writes files:   laptop: a host folder at /app/data   GCP: gs://precursor-intel-mlops-data
-                                           └── reads/writes metadata: Postgres `precursor_meta` (PI_DATABASE_URL)
+                ┌─ docker compose (docker/airflow-local/) ─────────────────────────────────┐
+you / @daily -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080                  │
+                │ airflow-scheduler       decides what runs; LocalExecutor runs the tasks  │
+                │ airflow-dag-processor   parses dags/                                     │
+                │ airflow-triggerer                                                        │
+                │ postgres:16             airflow         Airflow's own state              │
+                │                         precursor_meta  pipeline metadata (§5)           │
+                │ docker-proxy            the only way to the Docker API (scheduler only)  │
+                └─────────────────────────────────────┬────────────────────────────────────┘
+                                                      │  the scheduler asks docker-proxy to start one container per task
+                                                      v
+                ┌─ precursor-pipeline container (one per task) ──────────────────────────────────────┐
+                │ runs one command:  precursor-ingest ...  or  precursor-pipeline bronze|silver ...  │
+                │ files      laptop: a host folder mounted at /app/data                              │
+                │            GCP:    gs://precursor-intel-mlops-data                                 │
+                │ metadata   Postgres precursor_meta (PI_DATABASE_URL)                               │
+                │ network    pi-airflow-tasks: Postgres + internet egress only                       │
+                └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Design rules:**
@@ -44,25 +48,35 @@
 `dags/cms_nh_pipeline.py`. One DAG for the whole data pipeline; each node is a TaskGroup.
 
 ```
-[check_release]  (TODO: spec §2.0, gates the run)
-      │
-      ▼
-┌ ingestion ────────────────────────────────────────────────────────────────────────────────────────────┐
-│ acquire_lock → discover_download → pending_entries → mapped_commands → extract_inventory[×N] → resolve_report │──▶ asset cms_nh_landing
-└───────────────────────────────────────────────────────────────────────────────────────────────────────┘
-      │  continue_after_ingestion  (stop_after)
-      ▼
-┌ bronze ─ load_bronze ┐──▶ asset cms_nh_bronze
-      │  continue_after_bronze  (stop_after)
-      ▼
-┌ silver ─ build_silver ┐──▶ asset cms_nh_silver
-      │
-[gold]  (TODO: spec §7–§11)
-      │
-release_lock  (teardown of acquire_lock)
+[check_release]   TODO (spec §2.0): gates the run
+       |
+       v
+┌─ ingestion ──────────────────────────────────────────────────┐
+│ acquire_lock                                                 │
+│   -> discover_download                                       │
+│   -> pending_entries -> mapped_commands                      │
+│   -> extract_inventory [x N, one per pending zip]            │
+│   -> resolve_report                  => asset cms_nh_landing │
+└──────────────────────────────────────────────────────────────┘
+       |  continue_after_ingestion   (skips the rest if stop_after=ingestion)
+       v
+┌─ bronze ─────────────────────────────────────────────────────┐
+│ load_bronze                          => asset cms_nh_bronze  │
+└──────────────────────────────────────────────────────────────┘
+       |  continue_after_bronze      (skips the rest if stop_after=bronze)
+       v
+┌─ silver ─────────────────────────────────────────────────────┐
+│ build_silver                         => asset cms_nh_silver  │
+└──────────────────────────────────────────────────────────────┘
+       |
+       v
+[gold]            TODO (spec §7-§11)
+       |
+       v
+release_lock      teardown of acquire_lock: runs whenever the lock was taken (§3)
 ```
 
-| Task | Command (`--env <dev|prod> --run-id {{ run_id }}` appended) | What it does |
+| Task | Command (every one gets `--env <dev\|prod> --run-id {{ run_id }}` appended) | What it does |
 |---|---|---|
 | `ingestion.acquire_lock` | `precursor-ingest lock acquire` | Takes the `data_pipeline` lock for this run (§3) |
 | `ingestion.discover_download` | `precursor-ingest step1 --steps discover,download [--entry-ids …]` | Reads the CMS archive catalog; downloads new or changed zips (HEAD skips unchanged ones); quarantine → validate → landing |
@@ -136,14 +150,19 @@ A task that fails makes the downstream tasks `upstream_failed`. The lock is stil
 **How the tables connect:**
 
 ```
-catalog (entry_id) ─┬─< download_log (entry_id, run_id)          one row per download decision
-                    ├─< extracted_files (entry_id, member_path)  one row per extracted file
-                    └─< inventory (entry_id, member_path) ── status='selected' gives one file per (table_name, vintage_month)
-                                │
-                                ├─< bronze_files (table_name, vintage_month, zip_sha256)    one row per bronze load/failure
-                                │       └── vintage_flags (vintage_month, flag, table_name)  stale_refresh, revised_after_publication
-                                └─< silver_partitions (source_table, vintage_month, zip_sha256)  one row per silver build/failure
-anomalies (run_id, entry_id)    run_log (run_id, task)    run_lock (lock_name)    source_datasets (dataset_id)
+catalog                       one row per CMS catalog entry               (entry_id)
+ ├─< download_log             one row per download decision               (entry_id, run_id)
+ ├─< extracted_files          one row per extracted file                  (entry_id, member_path)
+ └─< inventory                one row per zip member                      (entry_id, member_path)
+      │                       status = 'selected': one file per (table_name, vintage_month)
+      ├─< bronze_files        one row per bronze load or failure          (table_name, vintage_month, zip_sha256)
+      │    └── vintage_flags  stale_refresh, revised_after_publication    (vintage_month, flag, table_name)
+      └─< silver_partitions   one row per silver build or failure         (source_table, vintage_month, zip_sha256)
+
+standalone:  anomalies (run_id, entry_id)    run_log (run_id, task)
+             run_lock (lock_name)            source_datasets (dataset_id)
+
+─<  one-to-many
 ```
 
 **Tables.** Columns in order (generated from `schemas.py`):
