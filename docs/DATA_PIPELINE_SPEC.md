@@ -894,7 +894,7 @@ check_release ──(short-circuit unless proceed)──▶ ┌ ingestion ──
                                                   │ extract_inventory[mapped per zip] → resolve_report ──(cms_nh_landing)
                                                   └────────────────────────────────────────────────────────────────┘
                      ──▶ bronze: load_bronze ──(cms_nh_bronze)──▶ silver: build_silver [+ calibrate] ──(cms_nh_silver)──▶
-                     ──▶ gold: build_gold (gate; publish) ──(cms_nh_gold)──▶ release_lock (teardown of acquire_lock, retries=0)
+                     ──▶ gold: build_gold (gate; publish) ──(cms_nh_gold)──▶ release_lock (teardown of acquire_lock, retries=2)
 ```
 
 - The `data_pipeline` lock is taken by the first ingestion task and released by the last task, also on failure. Every task in between `require`s it.
@@ -929,7 +929,7 @@ check_release ──(short-circuit unless proceed)──▶ ┌ ingestion ──
 | silver | `build_silver` | `silver --run-id R [--calibrate]` | `--calibrate` in backfill (Checkpoints 3–4); monthly runs read buffers and QMs from config |
 | gold | `build_gold` | `gold --run-id R` | Gate: any failed check → exit 2, nothing published. Emits `cms_nh_gold` only when published. |
 | — | `mirror_metadata` | `precursor-pipeline mirror-metadata --run-id R` | **Not built yet.** Copies the `precursor_meta` tables to BigQuery `meta` with a load job (seconds; a few thousand rows). A teardown of `acquire_lock` placed before `release_lock` (not `trigger_rule=all_done`, §15.1), so a failed run is mirrored too; a failure here is retried but never blocks `release_lock`. |
-| — | `release_lock` | `precursor-ingest lock release --run-id R` | teardown of `acquire_lock` (not `trigger_rule=all_done`, §15.1), `retries=0` |
+| — | `release_lock` | `precursor-ingest lock release --run-id R` | teardown of `acquire_lock` (not `trigger_rule=all_done`, §15.1), `retries=2` (30 s apart; the release is owner-checked and idempotent) |
 
 ### 15.4 Run modes and what each node does (measured on the sample)
 | Situation | check_release | ingestion | bronze | silver | gold |
@@ -1009,7 +1009,8 @@ def cms_nh_pipeline():
                  "{{ '--calibrate' if params.calibrate or params.mode == 'backfill' else '--no-calibrate' }}",
                  outlets=[SILVER])
     gold = run("build_gold", "precursor-pipeline", "gold", outlets=[GOLD])
-    unlock = run("release_lock", "precursor-ingest", "lock", "release", retries=0)  # a teardown, wired below
+    unlock = run("release_lock", "precursor-ingest", "lock", "release", retries=2,
+                 retry_delay=timedelta(seconds=30))   # a teardown, wired below
 
     g = gate()
     g >> check
