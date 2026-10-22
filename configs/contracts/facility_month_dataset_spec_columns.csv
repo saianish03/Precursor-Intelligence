@@ -86,6 +86,7 @@ staffing_rating,f64,facility_staffing,model,AS-IS (1:1),snapshot at t,-,blank,pr
 qm_rating,f64,facility_staffing,model,AS-IS (1:1),snapshot at t,-,blank,provider_by_vintage[t],
 health_inspection_rating,f64,facility_staffing,ablation_only,AS-IS (1:1),snapshot at t,-,blank,provider_by_vintage[t],
 overall_rating,f64,facility_staffing,ablation_only,AS-IS (1:1),snapshot at t,-,blank,provider_by_vintage[t],
+high_performing_icon,bool,facility_staffing,ablation_only,AS-IS (1:1),snapshot at t,-,blank,provider_by_vintage[t],silver addition (2026-09+)
 chain_id,str,facility_staffing,product_only,AS-IS (1:1),snapshot at t,-,blank,provider_by_vintage[t],
 d6_hprd_total,f64,facility_staffing,model,DIFF (t vs t−k),t vs t−6 months,-,null if t-k unpublished or facility absent (no fallback month),provider_by_vintage[t] and [t-6],§8.5/§8.6
 d6_hprd_rn,f64,facility_staffing,model,DIFF (t vs t−k),t vs t−6 months,-,null if t-k unpublished or facility absent (no fallback month),provider_by_vintage[t] and [t-6],§8.5/§8.6

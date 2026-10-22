@@ -160,8 +160,9 @@ months; spec §9.5 recommends training rows from 2022-01 (decision §14 #10).
 - **Citation survey type** comes from the three `is_*` flags, not a column. Complaint surveys in
   `surveys_by_vintage` exist only if they produced a citation: name such features `*_cited`.
 - **Star ratings** (`overall_rating`, `health_inspection_rating`) are `ablation_only`; `chain_id` is `product_only`.
-- **`high_performing_icon`** (2026-09+) is a status flag CMS assigns, like the star ratings: tag it the
-  same way in the feature registry, never `model`. It is null before 2026-09.
+- **`high_performing_icon`** (2026-09+) is a status flag CMS assigns, like the star ratings: it is
+  `ablation_only` in the contract CSV (guarded by `tests/contracts/test_feature_contract.py`), never `model`.
+  It is null before 2026-09.
 - **QM bridges:** `measure_code` changes (405→480, 453→479 in 2025-02; 419→481 in 2026-02). A Δ across a code
   change, or across an unchanged `measure_period_end`, must be null (§8.6).
 - **Unpublished months** have no partitions: t−6 / t−12 lookups must handle absence (Δ = null).
@@ -193,8 +194,9 @@ uv run pytest tests/harmonize -q               # silver + bronze tests
 `DATA_PIPELINE_SPEC.md` §7–§10 is the authority. The reference Colab dataset `training_dataset_v1`
 (`notebooks/DATA_preprocessing_notebooks/`) built the same features the same way, so it is used only as a
 cross-check of silver (13.3). The full column list, with dtype, `model_use`, operation, window, fill value and
-silver source, is **`configs/contracts/facility_month_dataset_spec_columns.csv`** (158 columns: the reference's 153
-under spec names, plus the 5 spec-only columns marked `spec-only addition`). A column or two more or less is fine;
+silver source, is **`configs/contracts/facility_month_dataset_spec_columns.csv`** (159 columns: the reference's 153
+under spec names, plus the 5 spec-only columns marked `spec-only addition` and `high_performing_icon`, a
+silver addition from 2026-09). A column or two more or less is fine;
 the features and the merge rules below are what must hold.
 
 | Family (gold table) | Cols | Silver input (vintage t only, except Δ) |
