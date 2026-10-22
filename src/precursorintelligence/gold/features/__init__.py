@@ -11,7 +11,7 @@ from collections.abc import Callable
 import polars as pl
 
 from ...common.config import FeaturesConfig, load_features_config
-from . import citations, survey_timing
+from . import citations, enforcement, survey_timing
 from .reader import FeatureReader
 
 # family -> builder(reader, spine rows of one t, t, cfg) -> one row per spine row, keyed by (ccn, t)
@@ -19,6 +19,7 @@ FamilyBuilder = Callable[[FeatureReader, pl.DataFrame, str, FeaturesConfig], pl.
 FAMILIES: dict[str, FamilyBuilder] = {
     "survey_timing": survey_timing.build,
     "citations": citations.build,
+    "enforcement": enforcement.build,
 }
 # spec §10 join order; quality waits for configs/qm_measures.yaml (Checkpoint 4)
 FAMILY_ORDER = (
