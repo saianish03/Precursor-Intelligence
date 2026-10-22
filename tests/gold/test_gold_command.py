@@ -186,17 +186,19 @@ def test_a_metadata_database_without_bronze_records_stops_gold(toy, monkeypatch,
     assert not (toy.root / "gold" / "labels").exists()
 
 
-def _gold_run_log(toy):
-    (m,) = toy.manifests()[-1:]
+def _gold_run_log(toy, exit_code):
+    """run_log status of the gold run that ended with ``exit_code`` (manifest keys don't sort by time
+    when two runs start in the same second)."""
+    (m,) = [m for m in toy.manifests() if m["exit_code"] == exit_code]
     (row,) = [r for r in toy.meta.read("run_log", {"run_id": m["run_id"]}) if r["task"] == "gold"]
     return row["status"]
 
 
 def test_run_log_records_a_failed_gold_run_as_failed(toy, monkeypatch):
     assert toy.gold(monkeypatch) == EXIT_OK
-    assert _gold_run_log(toy) == "ok"
     toy.meta.delete_where(
         "silver_partitions", {"table_name": "citations_by_vintage", "vintage_month": "2024-03"}
     )
     assert toy.gold(monkeypatch) == EXIT_VALIDATION
-    assert _gold_run_log(toy) == "failed"
+    assert _gold_run_log(toy, EXIT_OK) == "ok"
+    assert _gold_run_log(toy, EXIT_VALIDATION) == "failed"
