@@ -12,7 +12,7 @@ provider_by_vintage:
   key: [ccn]
   columns: [ccn, state, county_name, ownership_type, ownership_group, certified_beds, avg_residents_per_day,
     avg_residents_per_day_fn, provider_type, provider_in_hospital, date_first_approved, ccrc,
-    special_focus_status, abuse_icon, most_recent_inspection_over_2y, changed_ownership_12m,
+    special_focus_status, abuse_icon, high_performing_icon, most_recent_inspection_over_2y, changed_ownership_12m,
     resident_family_council, sprinkler_status, sprinkler_status_not_available, overall_rating,
     overall_rating_fn, health_inspection_rating, health_inspection_rating_fn, qm_rating, qm_rating_fn,
     staffing_rating, staffing_rating_fn, reported_staffing_fn, pt_staffing_fn, hprd_aide, hprd_lpn, hprd_rn,
@@ -31,12 +31,12 @@ citations_by_vintage:
   key: [ccn, survey_date, deficiency_prefix, deficiency_tag]
   columns: [ccn, survey_date, deficiency_prefix, deficiency_category, deficiency_tag, ftag, scope_severity,
     deficiency_corrected, correction_date, is_standard, is_complaint, is_infection_control, inspection_cycle,
-    citation_under_idr, citation_under_iidr]
+    citation_under_idr, citation_under_iidr, survey_fn]
 
 surveys_by_vintage:
   source: survey_dates
   key: [ccn, survey_date, survey_type]
-  columns: [ccn, survey_date, survey_type, survey_cycle]
+  columns: [ccn, survey_date, survey_type, survey_cycle, survey_fn]
 
 # Exact-duplicate rows are distinct fines: all kept, told apart by dup_seq (spec §3.5).
 penalties_by_vintage:
