@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -22,13 +23,27 @@ from .layout import OTHER
 log = logging.getLogger(__name__)
 
 TYPE_RANK = {"theme": 2, "current": 1, "annual_theme": 0}
+_VERSION = re.compile(r"[A-Za-z]{3}\d{4}_(\d+)\.csv$", re.IGNORECASE)  # ..._Sep2026_3.csv -> 3
 
 
-def selection_key(r: dict[str, Any]) -> tuple[str, int, str, str]:
+def file_version(path: str) -> int:
+    """The `_N` version suffix CMS adds to file names (2026-10-08 release on); 0 when there is none."""
+    m = _VERSION.search(path)
+    return int(m.group(1)) if m else 0
+
+
+def selection_key(r: dict[str, Any]) -> tuple[str, int, int, str, str]:
     """Rank the files of one (table, month); the highest wins. Later zip date first, archive beats
-    current on the same date; zip name and member path only make ties deterministic (the metadata
-    store returns rows in no guaranteed order)."""
-    return (r["zip_date"], TYPE_RANK.get(r["zip_type"], 0), r["zip_name"], r["member_path"])
+    current on the same date, then the higher `_N` file version (numeric, so `_10` beats `_9`); zip
+    name and member path only make ties deterministic (the metadata store returns rows in no
+    guaranteed order)."""
+    return (
+        r["zip_date"],
+        TYPE_RANK.get(r["zip_type"], 0),
+        file_version(r["member_path"]),
+        r["zip_name"],
+        r["member_path"],
+    )
 
 
 def month_range(start: str, end: str) -> list[str]:
@@ -106,14 +121,17 @@ def resolve(ctx: Context) -> ResolveOutput:
             )
             other["status"] = "duplicate_vintage"
             other["status_detail"] = (
-                f"superseded by {keep['zip_name']} ({'identical' if identical else 'different'} content)"
+                f"superseded by {keep['zip_name']}:{keep['file_name']} "
+                f"({'identical' if identical else 'different'} content)"
             )
             duplicates.append(
                 {
                     "table": table,
                     "vintage_month": month,
                     "kept": keep["zip_name"],
+                    "kept_file": keep["file_name"],
                     "dropped": other["zip_name"],
+                    "dropped_file": other["file_name"],
                     "identical": identical,
                 }
             )
@@ -144,6 +162,21 @@ def resolve(ctx: Context) -> ResolveOutput:
             for r in rows
             if r["table_name"] not in (OTHER, JUNK) and r.get("vintage_month")
         }
+        # A zip whose CSVs match no table pattern would otherwise be dropped silently (how the `_N`
+        # file-name suffix went unnoticed): an error, and step1 exits 2.
+        csvs = [
+            r["file_name"]
+            for r in rows
+            if r["table_name"] != JUNK and r["file_name"].lower().endswith(".csv")
+        ]
+        if csvs and not present:
+            anomaly(
+                eid,
+                "no_tables_recognised",
+                "error",
+                f"{zip_name}: {len(csvs)} CSV files, none matches a table pattern "
+                f"(configs/ingestion/sources.yaml), e.g. {csvs[:3]}",
+            )
         if vintages and max(vintages) >= start and (missing := sorted(set(tables) - present)):
             anomaly(
                 eid,
@@ -240,7 +273,8 @@ def resolve(ctx: Context) -> ResolveOutput:
             None,
             "duplicate_vintage",
             "info",
-            f"{d['table']} {d['vintage_month']}: kept {d['kept']}, dropped {d['dropped']} "
+            f"{d['table']} {d['vintage_month']}: kept {d['kept']}:{d['kept_file']}, "
+            f"dropped {d['dropped']}:{d['dropped_file']} "
             f"({'identical' if d['identical'] else 'different'} content)",
         )
     for t, n in expected_fallbacks.items():

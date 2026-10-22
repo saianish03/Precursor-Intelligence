@@ -219,6 +219,9 @@ def _run_steps(
             resolved = resolved or resolve(ctx)
             res.reports = report(ctx, resolved)
             d.update(reports=list(res.reports.values()))
+    for a in resolved.anomalies if resolved else []:
+        if a["kind"] == "no_tables_recognised":
+            res.fail(a["detail"], validation=True)  # a data problem: fix the patterns, don't retry
 
     if res.failures:
         log.warning("Step 1 run %s finished with %d failures", ctx.run_id, len(res.failures))
