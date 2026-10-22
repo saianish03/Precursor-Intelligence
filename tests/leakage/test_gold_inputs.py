@@ -1,9 +1,9 @@
 """Gold's spine and labels read only their allowed silver inputs (SILVER_CONTRACT §6; spec §0.4, §8).
 
 The spine may read ``facility_universe``; the labels the two ledgers and ``facility_presence``. Nothing else:
-no ``*_by_vintage`` table (so no star ratings), no ``citation_lookup_versions`` (its valid_to looks into the
-future), no ``gold/dim_facility_latest`` (``is_active`` is as of V). Feature inputs and the feature registry
-get their own contract tests with the features.
+no ``*_by_vintage`` table (so no star ratings or ``high_performing_icon``), no ``citation_lookup_versions``
+(its valid_to looks into the future), no ``gold/dim_facility_latest`` (``is_active`` is as of V). Feature
+inputs and the feature registry get their own contract tests with the features.
 """
 
 import dataclasses
@@ -29,6 +29,8 @@ from make_toy_silver import make_toy  # noqa: E402
 GOLD_SRC = project_root() / "src" / "precursorintelligence" / "gold"
 ALLOWED = {"facility_universe", "facility_presence", "ledger_citations", "ledger_penalties"}
 STAR_RATINGS = ("overall_rating", "health_inspection_rating", "qm_rating", "staffing_rating")
+# CMS badges handled like the star ratings (SILVER_CONTRACT §10: never a model feature).
+CMS_BADGES = ("high_performing_icon",)
 
 
 def _star_rating_columns() -> list[str]:
@@ -36,13 +38,13 @@ def _star_rating_columns() -> list[str]:
         (project_root() / "configs" / "keep_columns.yaml").read_text(encoding="utf-8")
     )
     cols = keep["provider_by_vintage"]["columns"]
-    return [c for c in cols if c.removesuffix("_fn") in STAR_RATINGS]
+    return [c for c in cols if c.removesuffix("_fn") in STAR_RATINGS or c in CMS_BADGES]
 
 
 def test_keep_columns_still_lists_the_star_ratings_this_test_guards():
     # If silver renames them, this test must be updated rather than silently guard nothing.
     assert sorted(_star_rating_columns()) == sorted(
-        [*STAR_RATINGS, *(f"{c}_fn" for c in STAR_RATINGS)]
+        [*STAR_RATINGS, *(f"{c}_fn" for c in STAR_RATINGS), *CMS_BADGES]
     )
 
 
