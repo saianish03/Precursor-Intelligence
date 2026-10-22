@@ -87,7 +87,7 @@ def test_one_bad_file_does_not_stop_the_others_but_fails_the_run(ctx, meta, stag
     assert sink.list_partitions("penalties") == []
     assert any("penalties" in f and "2025-06" in f for f in result.failures)
     (step,) = [r for r in meta.read("run_log") if r["task"] == "bronze"]
-    assert step["status"] == "failed" and json.loads(step["detail"])["failed"] == 1
+    assert step["status"] == "failed" and json.loads(step["detail"])["n_failures"] == 1
 
 
 def test_a_failed_file_loads_on_the_next_run_after_the_fix(ctx, meta, stage):

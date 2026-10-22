@@ -81,7 +81,7 @@ def run_silver(
                 result = _run(ctx, cfg, now, calibrate)
                 detail.update(
                     counts=dict(Counter(p.status for p in result.partitions)),
-                    failed=len(result.failures),
+                    n_failures=len(result.failures),
                 )
                 return result
         finally:

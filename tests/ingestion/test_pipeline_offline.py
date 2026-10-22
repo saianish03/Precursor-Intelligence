@@ -1,6 +1,8 @@
 """End-to-end Step 1 against a fake CMS server: layouts, duplicates, gaps, idempotency, re-publication,
 quarantine, URL rejection, and identical results on two different storage backends."""
 
+import json
+
 import pytest
 from cms_fakes import ARCH, FakeResponse, make_zip
 
@@ -152,6 +154,9 @@ def test_corrupt_zip_is_quarantined(fake_cms, make_ctx):
     assert res.downloads == {"quarantined": 1}
     assert not ctx.object_store.list("landing/cms_nh/zips")
     assert ctx.object_store.list("quarantine/cms_nh")
+    # a quarantined zip fails the download step in run_log, like a failed download
+    (step,) = [r for r in ctx.metadata.read("run_log") if r["task"] == "download"]
+    assert step["status"] == "failed" and json.loads(step["detail"])["n_failures"] == 1
 
 
 def test_unsafe_catalog_url_is_rejected_without_a_request(fake_cms, make_ctx):

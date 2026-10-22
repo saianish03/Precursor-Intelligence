@@ -55,7 +55,7 @@ def task_scope(
         try:
             yield detail
             # a step that returns its data failures instead of raising them still fails in run_log
-            if detail.get("failed"):
+            if detail.get("n_failures"):
                 status = "failed"
         except Exception as exc:
             status, detail["error"] = "failed", f"{exc.__class__.__name__}: {exc}"
@@ -168,6 +168,7 @@ def _run_steps(
     if "download" in steps and entries:
         with task_scope(ctx, "download") as d:
             results = run_download(ctx, entries)
+            d["n_failures"] = sum(not r.ok for r in results)
             for r in results:
                 res.downloads[r.status] = res.downloads.get(r.status, 0) + 1
                 if not r.ok:

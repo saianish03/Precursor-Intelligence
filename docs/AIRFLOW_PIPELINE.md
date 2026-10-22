@@ -201,7 +201,7 @@ select task, entry_id, duration_s from run_log where run_id = :run order by dura
 - `status/latest.json`;
 - append-only writes with "latest" views (D5): `catalog`, `inventory`, `extracted_files` are still upserted.
 
-Also: `run_log` marks a step failed only when it raises. Silver and bronze report partition failures in their own tables (issue #10). Changing a column or type needs a migration: `create_all` never alters an existing table.
+Also: `run_log` marks a step failed when it raises, or when it reports `n_failures` > 0 in its details (download, bronze, silver; fixed for issue #10 in PR #12). Changing a column or type needs a migration: `create_all` never alters an existing table.
 
 **Airflow's own database `airflow`** is managed by Airflow (`airflow db migrate`). It holds DAG runs, task instances (state, tries, timings), XComs and the serialized DAGs. The pipeline never writes to it.
 
