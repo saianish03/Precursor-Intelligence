@@ -60,9 +60,16 @@ is in §1.
 ```
 gold/spine/part-0.parquet                  # zstd; sorted by t, then ccn
 gold/labels/part-0.parquet                 # same rows, same order as the spine
+gold/_current.json                         # which run gold/ holds: state, run id, V, sha256 of each file
 gold/_staging/run=<run_id>/{spine,labels}/part-0.parquet   # what each run built and checked (kept)
 metadata/gold/run_date=<YYYY-MM-DD>/gold_run_<run_id>_<timestamp>.json   # one per run, never overwritten
+reports/gold/run=<run_id>/logs/<file>.json # the process log of each run
 ```
+
+**Read gold through `read_current_gold()`** (`gold/build.py`) before reading `gold/spine` or `gold/labels`. It
+returns the run that `gold/_current.json` names and fails (`GoldCheckError`) unless that run finished
+promoting and both files still match its sha256: copying the two files is two writes, so a run that fails in
+between leaves `_current.json` at `promoting`, and a reader must not trust that pair.
 
 | Table | Columns (type) |
 |---|---|
@@ -90,16 +97,18 @@ The **manifest** records `run_id`, `exit_code`, `v`, `v_labels`, `stale_refresh_
    run stops (exit 2)** with a message naming the month; it never guesses.
 5. **No peeking.** Ledger events with `first_seen_vintage` after the label vintage are dropped.
 6. **Stage, check, promote.** Write to `gold/_staging/run=<id>/`, read back, check that the spine is unique and
-   the labels have exactly the spine's rows; then copy the same bytes to `gold/`. Any failure: exit 2, `gold/`
-   untouched. Reruns on unchanged silver give byte-identical files.
-7. **Manifest.** Written for every run, also a failed one, with the freshness check's result.
+   the labels have exactly the spine's rows; then set `gold/_current.json` to `promoting`, copy the same bytes
+   to `gold/`, and set `_current.json` to `current` with the run id, V and both sha256. A check failure: exit 2,
+   `gold/` untouched. Reruns on unchanged silver give byte-identical files.
+7. **Manifest.** Written for every run, also a failed one, with the freshness check's result, `promoted`, and
+   the error of a run that failed unexpectedly (exit 1). `run_log` marks a failed run `failed`.
 
 ## 5. Running it
 
 ```bash
 uv run precursor-pipeline gold                         # local: dev env (./data), takes and releases the lock
 uv run precursor-pipeline gold --run-id R              # DAG task: the run must hold the lock
-uv run precursor-pipeline gold --v 2025-07             # an earlier published V
+uv run precursor-pipeline gold --v 2025-07             # an earlier published V (see the note below)
 uv run precursor-pipeline gold --env-file <yaml>       # any other store / metadata database
 ```
 
@@ -141,6 +150,11 @@ uv run python tests/gold/make_toy_silver.py data/toy --stale 2025-03 # try a sta
 > **Generate gold yourself.** Don't copy `gold/spine` or `gold/labels` from someone else: run
 > `uv run precursor-pipeline gold` to build them from silver (it takes seconds). That way they always match your
 > silver, your configs and the current code, and the run writes its own manifest.
+
+**`--v` is not an exact replay.** Events first seen after V are ignored (`tests/leakage/test_gold_v.py` checks
+it end to end), but `final_scope_severity`, `removed_by_cms` and `facility_presence.last_vintage` still come
+from the latest silver: a citation upgraded to G after V, or removed by CMS after V, is labelled with hindsight.
+A true replay needs per-vintage severity, which the ledger doesn't carry.
 
 Windows: Airflow-style run ids contain `:`, which local-disk keys on Windows cannot hold. Run locally without
 `--run-id` (the generated id has no `:`) or in Docker.
@@ -199,8 +213,9 @@ antipsychotic code is **419 up to 2024-05 and 481 from 2024-06**. MDS period for
    and refuses anything outside the allowed inputs or after t (section 9 below); it is also the time-travel test of §11.3.
 3. **`configs/feature_registry.yaml`**: every feature with `name, family, source_table, formula,
    first_available_vintage, dtype, model_use` (`model` / `ablation_only` / `product_only`).
-4. **Assembly (§10)**: `gold/facility_month_dataset/t=YYYY-MM/` and `gold/dataset_manifest.json`. Join the
-   split columns from `gold/labels` once the splits exist (§9.5, built by Sai).
+4. **Assembly (§10)**: `gold/facility_month_dataset/t=YYYY-MM/` and `gold/dataset_manifest.json`. Read the
+   spine and labels through `read_current_gold()` (section 3). Join the split columns from `gold/labels` once
+   the splits exist (§9.5, built by Sai).
 5. **Wire into the run**: add your tables to the dict passed to `_stage` in `gold/build.py`, so they are built,
    checked and promoted with the spine and labels. Features are partitioned by t (`gold/features_<family>/t=…/`);
    `_stage` and `_promote` currently write single files, so extend them for partitions.
@@ -296,3 +311,6 @@ raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module
 | 12 | `high_performing_icon` is `ablation_only`, like the star ratings (never `model`); footnote code 29 (`survey_fn`, "not yet confirmed") needs a reason mapping | Partner | From the PR #12 review; `tests/leakage/test_gold_inputs.py` already keeps it out of the spine and labels |
 | 13 | When `a1cebf5` ("dedicated `n_failures` key", on `feat/dp_airflow_v1`) lands on `dev`, gold reports `n_failures` instead of `failed` to `run_log` | Sai | Today gold reports `failed`, matching `task_scope` on `dev` |
 | 14 | Plug gold into the Airflow DAG's `TODO(gold)` slot in `dags/cms_nh_pipeline.py` on `feat/dp_airflow_v1`, once that branch merges | Sai | `precursor-pipeline gold --run-id R` |
+| 15 | Censoring uses only the facility's last vintage, so a facility with a long gap in its history is never censored across the gap (it matches the spec text literally) | Team | From the PR #9 review |
+| 16 | Pass a `LabelsConfig` into silver's lag analysis (`lag_analysis`, `last_labeled`, `fine_crosscheck`) instead of `g_plus()` / `horizons()` reading `labels.yaml` on every call | Sai / silver owner | PR #9 review, not blocking |
+| 17 | Move `VINTAGE_RANGE` (2021-01 → 2026-12, `gold/build.py`) into `configs/splits.yaml`, so the first 2027 vintage needs no code change | Sai | PR #9 review, not blocking |
