@@ -1,4 +1,5 @@
-"""The gold node's run: silver -> gold/spine and gold/labels (spec §7, §9, §11; SILVER_CONTRACT §8, §11).
+"""The gold node's run: silver -> gold/spine, gold/labels, the feature tables and the dataset (spec §7-§11;
+SILVER_CONTRACT §8, §11).
 
 1. Published vintages = the silver provider partitions (as silver itself counts them). V = the latest, or a
    validated ``--v``. Silver must be current first: every bronze partition has a silver partition built from

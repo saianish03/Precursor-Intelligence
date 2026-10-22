@@ -50,18 +50,38 @@ part. A small **toy silver world** with hand-written answers lets you test every
 | Run (§11) | `gold/build.py` → `run_gold` | Lock, V, silver freshness check, label vintage, `--v` checks, staging, promotion, manifest (§4). |
 | Command | `gold/cli.py`, registered in `harmonize/cli.py` | `precursor-pipeline gold` (§5). |
 | Configs | `configs/labels.yaml`, `configs/splits.yaml` | G–L, `B_cit = 8`, `B_pen = 12`, strict censoring, horizons; `spine_start: "2023-01"`. Loaded by `load_labels_config()` / `load_splits_config()` in `common/config.py`. Silver's lag analysis (`harmonize/calibrate.py`) reads its G+ set and horizons from `labels.yaml` too; the file is not part of silver's `config_hash`. |
+| Feature reader (§8, §11.3) | `gold/features/reader.py` → `FeatureReader` | The only way feature code reads silver: `*_by_vintage` and `citation_lookup` at t, t−6, t−12. Refuses any other table or offset, and with `limit` any vintage after it; records every read. The run uses `limit = V`. |
+| Features (§8) | `gold/features/{survey_timing,citations,enforcement,facility_staffing,context}.py` → `build_family` / `build_features` | 95 features in 5 families, one row per spine row. `quality` raises `NotImplementedError` until `configs/qm_measures.yaml` is approved (open item 3). Rules in `configs/features.yaml` (severity points, bands, 456 days, occupancy cap, categories, footnote reasons, era months). |
+| Registry (§8) | `configs/feature_registry.yaml`, `load_feature_registry()` | Generated from the column contract: every built feature with family, source table, formula, first available vintage (measured), dtype, `model_use`. |
+| Assembly (§10) | `gold/dataset.py` → `assemble`, `dataset_manifest` | spine → 5 families → labels, row count and `(ccn, t)` checked after every join; `gold/dataset_manifest.json`. |
 
-**Not built:** features (§8), splits (§9.5), aux labels (§9.4), assembly and `dataset_manifest.json` (§10),
-the verification report and warehouse publish (§11), `feature_registry.yaml`, `checks.yaml`. Who builds each
-is in §1.
+**Not built:** the `quality` family (waits for `configs/qm_measures.yaml`), splits (§9.5), aux labels (§9.4), the
+verification report and warehouse publish (§11), `checks.yaml`. Who builds each is in §1. The manifest has rows
+per label status instead of per split until the splits exist.
+
+**Features as built (this branch).** Every feature table and dataset partition is staged, checked (exactly the
+spine's rows of its month) and promoted with the spine and labels, and hashed in `gold/_current.json`, so take
+partitions from the names `_current.json` lists: a month left over from an earlier `--v` run stays on disk.
+On the full archive the run takes about 40 s and 2.2 GB, and gives 578,975 rows × 104 columns; no feature is
+under 5% non-null in the `y_g12` training rows. Decisions taken:
+- **Star ratings (open item 6):** the contract's tags. `staffing_rating`, `qm_rating` are `model`;
+  `health_inspection_rating`, `overall_rating` and their `_fn` are `ablation_only`. `facility_staffing.py` is the
+  only gold module allowed to name them (`tests/leakage/test_gold_inputs.py`); `high_performing_icon` is in none.
+- **Footnotes:** the §13.2 names plus `12 staffing_rating_downgraded` (retired 2025-01, in 23,543 rows) and
+  `29 not_yet_confirmed`. A code not in `features.yaml` stops the build.
+- **Facts worth knowing:** standalone infection-control surveys end on 2025-07-09, so `n_ic_surveys_12m` falls to 0
+  by 2026; Δ features are null in exactly the months whose t−6 / t−12 was never published.
 
 ## 3. Output files and columns
 
 ```
 gold/spine/part-0.parquet                  # zstd; sorted by t, then ccn
 gold/labels/part-0.parquet                 # same rows, same order as the spine
+gold/features_<family>/t=YYYY-MM/part-0.parquet          # 5 families; one row per spine row of t
+gold/facility_month_dataset/t=YYYY-MM/part-0.parquet     # spine + features + labels (§10)
+gold/dataset_manifest.json                 # sources, flags, config hashes, git commit, rows per label status
 gold/_current.json                         # which run gold/ holds: state, run id, V, sha256 of each file
-gold/_staging/run=<run_id>/{spine,labels}/part-0.parquet   # what each run built and checked (kept)
+gold/_staging/run=<run_id>/...            # what each run built and checked, same layout (kept)
 metadata/gold/run_date=<YYYY-MM-DD>/gold_run_<run_id>_<timestamp>.json   # one per run, never overwritten
 reports/gold/run=<run_id>/logs/<file>.json # the process log of each run
 ```
@@ -297,18 +317,18 @@ raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module
 
 | # | Question or item | Who | Notes |
 |---|---|---|---|
-| 1 | Where do features live: `gold/features` (what the xfail tests import) or the empty `features/` package (`SILVER_CONTRACT.md` §7)? | Partner | Only the `_features` test helper needs to change |
+| 1 | ~~Where do features live?~~ **Settled:** the `gold/features/` package (what the tests import) | Partner | Done on `feat/gold-features` |
 | 2 | Buffers `B_cit = 8`, `B_pen = 12` | Team | In `configs/labels.yaml`; still a Checkpoint 3 proposal awaiting approval |
 | 3 | `configs/qm_measures.yaml`, especially 405 → 480 | Silver owner | Checkpoint 4 decision |
 | 4 | Training rows from 2022-01 instead of 2023-01 | Sai | Spec §14 #10: with the buffers, `y_g12` has very few training months |
-| 5 | Leakage contract test for features: the feature reader and `feature_registry.yaml` limited to the `*_by_vintage` tables and `citation_lookup` at t (plus t−6, t−12), never the ledgers, `facility_presence`, `facility_universe` beyond t, `citation_lookup_versions` or `dim_facility_latest` | Partner | Review follow-up 1, feature part; the spine/labels part is done (section 9) |
-| 6 | Star ratings: `ablation_only` (spec) or never a feature (project rules)? Tag them with `model_use` in the registry | Partner | Review follow-up 2 |
+| 5 | **Done** (`tests/leakage/test_feature_reader.py`, `test_feature_time_travel.py`, `test_feature_registry_inputs.py`). Leakage contract test for features: the feature reader and `feature_registry.yaml` limited to the `*_by_vintage` tables and `citation_lookup` at t (plus t−6, t−12), never the ledgers, `facility_presence`, `facility_universe` beyond t, `citation_lookup_versions` or `dim_facility_latest` | Partner | Review follow-up 1, feature part; the spine/labels part is done (section 9) |
+| 6 | Star ratings: **settled by following the column contract** (see the features note in §2) | Partner | Review follow-up 2 |
 | 7 | Silver edge cases: a provider partition without `ownership_type` exits 1 (retried) instead of 2; `citation_lookup` has no Processing Date, so its vintage comes from the inventory only | Silver owner | Review follow-up 5, not urgent |
 | 8 | Rebuild the real silver from today's `dev` (after #11 too, for 2026-09), and share it with its `metadata.db` | Silver owner | Needed before gold runs on real data again (section 5) |
 | 9 | Clean-up of `gold/_staging/run=<id>/` | Sai | Kept, because the object store only deletes under `quarantine/` and `tmp/` |
 | 10 | `--v` backtests | Sai | Final severity and `removed_by_cms` still come from the latest silver |
 | 11 | Is `y_pen12` a model or only a comparison? | Team | Spec §14 |
-| 12 | `high_performing_icon` is `ablation_only`, like the star ratings (never `model`); footnote code 29 (`survey_fn`, "not yet confirmed") needs a reason mapping | Partner | From the PR #12 review; `tests/leakage/test_gold_inputs.py` already keeps it out of the spine and labels |
+| 12 | `high_performing_icon` is never a feature (it is not in the column contract, so not built); footnote code 29 maps to `not_yet_confirmed` in `configs/features.yaml` | Partner | **Done.** `tests/leakage/test_gold_inputs.py` keeps the badge out of all gold code, features included |
 | 13 | When `a1cebf5` ("dedicated `n_failures` key", on `feat/dp_airflow_v1`) lands on `dev`, gold reports `n_failures` instead of `failed` to `run_log` | Sai | Today gold reports `failed`, matching `task_scope` on `dev` |
 | 14 | Plug gold into the Airflow DAG's `TODO(gold)` slot in `dags/cms_nh_pipeline.py` on `feat/dp_airflow_v1`, once that branch merges | Sai | `precursor-pipeline gold --run-id R` |
 | 15 | Censoring uses only the facility's last vintage, so a facility with a long gap in its history is never censored across the gap (it matches the spec text literally) | Team | From the PR #9 review |
