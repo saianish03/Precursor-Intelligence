@@ -16,7 +16,7 @@ import typer
 
 from ..common.config import ConfigError, load_labels_config, load_splits_config
 from ..common.io.run_lock import RunLockHeldError, RunLockNotHeldError
-from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init
+from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init, _ship_log
 from ..ingestion.context import build_context
 from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR
 from .build import run_gold
@@ -39,7 +39,7 @@ def gold(
 ) -> None:
     """Build gold/spine and gold/labels from silver, checked in gold/_staging first (spec §7, §9, §11)."""
     orchestrated = run_id is not None
-    settings, run_id, _ = _init(env, env_file, log_level, run_id, label="gold")
+    settings, run_id, log_file = _init(env, env_file, log_level, run_id, label="gold")
     ctx = build_context(settings, run_id=run_id)
     try:
         res = run_gold(
@@ -58,6 +58,8 @@ def gold(
     except RunLockNotHeldError as exc:  # DAG wiring: the lock task never ran
         typer.echo(f"config error: {exc}", err=True)
         raise typer.Exit(EXIT_CONFIG) from None
+    finally:
+        _ship_log(ctx, log_file, node="gold")
     typer.echo(f"run {res.run_id}: V={res.v or '-'} labels measured from {res.v_labels or '-'}")
     for name, rows in res.rows.items():
         typer.echo(f"  gold/{name}: {rows} rows")

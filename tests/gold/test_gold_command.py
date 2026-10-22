@@ -248,3 +248,9 @@ def test_read_current_gold_refuses_files_that_changed_after_promotion(toy, monke
     pl.read_parquet(labels).head(5).write_parquet(labels)
     with pytest.raises(GoldCheckError, match="does not match"):
         read_current_gold(toy.store)
+
+
+def test_the_process_log_is_shipped_next_to_the_gold_run(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    (m,) = toy.manifests()
+    assert len(toy.store.list(f"reports/gold/run={m['run_id']}/logs")) == 1
