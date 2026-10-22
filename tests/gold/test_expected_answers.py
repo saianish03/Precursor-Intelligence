@@ -368,13 +368,13 @@ def test_late_posted_citation_still_labels_earlier_months(labels):
 # ------------------------------------------------------------------ gold features (not built yet)
 
 not_built = pytest.mark.xfail(
-    raises=ModuleNotFoundError, strict=True, reason="gold features not implemented yet"
+    raises=NotImplementedError, strict=True, reason="gold feature family not implemented yet"
 )
 
 
 def _features(silver, spine, family: str) -> pl.DataFrame:
     """gold/features_<family> (§8). Point this at the real builder when features land."""
-    from precursorintelligence.gold.features import build_features  # type: ignore[import-not-found]
+    from precursorintelligence.gold.features import build_features
 
     return build_features(family, silver, spine)
 

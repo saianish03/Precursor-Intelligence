@@ -1,0 +1,44 @@
+# Rules for gold's feature tables (docs/DATA_PIPELINE_SPEC.md §8; SILVER_CONTRACT §13.2).
+# Every feature is listed in configs/feature_registry.yaml; this file holds the values the formulas use.
+
+# Five-Star health-inspection base points (spec §8.1; CMS Five-Star Technical Users' Guide, health inspection
+# domain, scope/severity grid). The substandard-quality-of-care uplift is ignored.
+severity_points: {A: 0, B: 0, C: 0, D: 4, E: 8, F: 16, G: 20, H: 35, I: 45, J: 50, K: 100, L: 150}
+severity_bands: {AC: [A, B, C], DF: [D, E, F], GI: [G, H, I], JL: [J, K, L]}
+# Ordinal severity (A = 1 ... L = 12) and G+ (ordinal >= 7) are fixed by the letters, not configured.
+
+std_survey_due_days: 456          # a standard survey is due within 15.9 months (spec §8.2)
+occupancy_cap: 1.5                # avg_residents_per_day / certified_beds, capped (spec §8.5)
+
+# n_cat_<name>_24m -> silver deficiency_category (SILVER_CONTRACT §13.2)
+citation_categories:
+  abuse: Freedom from Abuse, Neglect, and Exploitation Deficiencies
+  qol_care: Quality of Life and Care Deficiencies
+  assessment: Resident Assessment and Care Planning Deficiencies
+  nursing_physician: Nursing and Physician Services Deficiencies
+  resident_rights: Resident Rights Deficiencies
+  administration: Administration Deficiencies
+infection_control_category: Infection Control Deficiencies
+
+# Footnote code -> missing reason for every _fn feature; a null footnote becomes `none`. A code not listed here
+# stops the build, so a new CMS code is mapped on purpose (CMS Data Dictionary Table 15;
+# docs/data/step2_reference/footnotes.draft.yaml).
+footnote_reasons:
+  "1": new_facility
+  "2": insufficient_data
+  "6": staffing_criteria_not_met
+  "9": too_few_residents
+  "10": missing_not_submitted
+  "12": staffing_rating_downgraded   # retired 2025-01, replaced by 23-25; still in 2021-2024 vintages
+  "18": sff_not_rated
+  "20": rating_not_validated
+  "23": no_staffing_data
+  "24": many_days_without_rn
+  "25": staffing_not_validated
+  "26": turnover_invalid_min_points
+  "27": turnover_criteria_not_met
+  "29": not_yet_confirmed            # survey_fn, 2026-09+
+
+# Context switches (spec §8.4, §8.7)
+rating_method_change: "2025-07"   # era = pre_2025_07 before it, 2025_07_plus from it
+penalty_regime_change: "2025-10"  # penalty_regime_2025_10 = t >= this month
