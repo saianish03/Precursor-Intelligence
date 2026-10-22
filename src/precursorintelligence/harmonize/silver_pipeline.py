@@ -79,7 +79,10 @@ def run_silver(
         try:
             with task_scope(ctx, "silver") as detail:
                 result = _run(ctx, cfg, now, calibrate)
-                detail.update(counts=dict(Counter(p.status for p in result.partitions)))
+                detail.update(
+                    counts=dict(Counter(p.status for p in result.partitions)),
+                    failed=len(result.failures),
+                )
                 return result
         finally:
             if acquired:

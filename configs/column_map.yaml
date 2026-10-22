@@ -121,6 +121,14 @@ provider_info:
         to: null
       available_from: 2021-01
       complete: true
+    high_performing_icon:
+      dtype: bool_yn
+      aliases:
+      - raw: High Performing Icon
+        from: 2026-09
+        to: null
+      available_from: 2026-09
+      complete: false
     most_recent_inspection_over_2y:
       dtype: bool_yn
       aliases:
@@ -526,8 +534,7 @@ provider_info:
   - Total Number of Penalties
   - Total Weighted Health Survey Score
   - Urban
-  # new in the Sep 2026 release (2026-10-08 zips); kept in bronze, not used by silver yet
-  - High Performing Icon
+  # new in the Sep 2026 release; ignored like the Rating Cycle survey dates they annotate
   - Rating Cycle 1 Standard Survey Footnote
   - Rating Cycle 2 Standard Survey Footnote
 health_citations:
@@ -663,6 +670,14 @@ health_citations:
         to: null
       available_from: 2021-01
       complete: true
+    survey_fn:
+      dtype: footnote
+      aliases:
+      - raw: Survey Footnote
+        from: 2026-09
+        to: null
+      available_from: 2026-09
+      complete: false
   ignored:
   - City/Town
   - Deficiency Description
@@ -673,7 +688,6 @@ health_citations:
   - Provider State
   - Provider Zip Code
   - State
-  - Survey Footnote
   - ZIP Code
 survey_dates:
   columns:
@@ -720,8 +734,15 @@ survey_dates:
         to: null
       available_from: 2021-01
       complete: true
-  ignored:
-  - Survey Footnote
+    survey_fn:
+      dtype: footnote
+      aliases:
+      - raw: Survey Footnote
+        from: 2026-09
+        to: null
+      available_from: 2026-09
+      complete: false
+  ignored: []
 penalties:
   columns:
     ccn:

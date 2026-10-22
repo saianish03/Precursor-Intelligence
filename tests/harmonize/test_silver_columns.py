@@ -1,5 +1,8 @@
 """Silver configs and header resolution (spec §3.2): the hard rule and the alias ranges."""
 
+import json
+from pathlib import Path
+
 import pytest
 
 from precursorintelligence.common.config import ConfigError
@@ -178,12 +181,22 @@ def test_the_calibration_settings_are_read_from_the_config():
 def test_the_sep_2026_release_headers_are_all_mapped_or_ignored():
     """The real header sets of the 2026-10-08 release (Sep 2026 data, recorded by Step 1). CMS added
     `Survey Footnote` (citations, surveys) and three provider columns; an unknown header fails silver."""
-    import json
-    from pathlib import Path
-
-    from precursorintelligence.harmonize.columns import resolve_headers
-
     cfg = load_silver_config()
     headers = json.loads((Path(__file__).parent / "data" / "headers_2026-09.json").read_text())
     for table, names in headers.items():
         assert resolve_headers(cfg.sources[table], names, "2026-09").problems == [], table
+
+
+def test_the_sep_2026_columns_are_mapped_from_2026_09_and_absent_before():
+    cfg = load_silver_config()
+    headers = json.loads((Path(__file__).parent / "data" / "headers_2026-09.json").read_text())
+    new = {
+        "provider_info": {"high_performing_icon": "High Performing Icon"},
+        "health_citations": {"survey_fn": "Survey Footnote"},
+        "survey_dates": {"survey_fn": "Survey Footnote"},
+    }
+    for table, cols in new.items():
+        res = resolve_headers(cfg.sources[table], headers[table], "2026-09")
+        assert {c: res.rename[c] for c in cols} == cols, table
+        older = [h for h in headers[table] if h not in cols.values()]
+        assert set(cols) <= set(resolve_headers(cfg.sources[table], older, "2026-08").absent), table

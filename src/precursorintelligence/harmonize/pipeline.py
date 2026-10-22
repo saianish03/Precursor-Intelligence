@@ -52,7 +52,10 @@ def run_bronze(ctx: Context, *, own_lock: bool = True, now: datetime | None = No
         try:
             with task_scope(ctx, "bronze") as detail:
                 result = _run(ctx, now)
-                detail.update(counts=dict(Counter(f.status for f in result.files)))
+                detail.update(
+                    counts=dict(Counter(f.status for f in result.files)),
+                    failed=len(result.failures),
+                )
                 return result
         finally:
             if acquired:

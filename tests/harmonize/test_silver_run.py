@@ -1,5 +1,6 @@
 """The silver node on bronze built by the real bronze node: build, skip, rebuild, fail closed (spec §3.5)."""
 
+import json
 from datetime import UTC, date, datetime
 from shutil import copy
 
@@ -113,6 +114,12 @@ def test_an_unmapped_header_fails_closed_and_is_retried_after_the_fix(
     fixed = run_silver(ctx, cfg=cfg, now=NOW)
     assert fixed.exit_code == EXIT_OK and [p.status for p in fixed.partitions] == ["built"]
     assert statuses(meta) == [("2025-06", "failed"), ("2025-06", "built")]
+    # silver returns its failures instead of raising them; run_log must still show the failed step
+    steps = [r for r in meta.read("run_log") if r["task"] == "silver"]
+    assert [(r["status"], json.loads(r["detail"])["failed"]) for r in steps] == [
+        ("failed", 1),
+        ("ok", 0),
+    ]
 
 
 def test_silver_refuses_to_start_on_incomplete_bronze(ctx, meta, stage, tmp_path):
