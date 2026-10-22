@@ -27,7 +27,7 @@ from typing import Any
 
 import polars as pl
 
-from ..common.config import ConfigError, LabelsConfig, SplitsConfig
+from ..common.config import ConfigError, LabelsConfig, SplitsConfig, load_features_config
 from ..common.io.object_store import ObjectStore
 from ..common.io.run_lock import RunLock
 from ..common.io.table_sink import ParquetTableSink
@@ -38,6 +38,9 @@ from ..harmonize.silver_pipeline import CHECK_NAME, partitions_without_current_s
 from ..ingestion.context import Context
 from ..ingestion.pipeline import EXIT_OK, EXIT_VALIDATION, LOCK_NAME, task_scope
 from . import GoldCheckError
+from .dataset import DATASET, MANIFEST_NAME, assemble, by_t, dataset_manifest
+from .features import FAMILIES, FAMILY_ORDER, build_family
+from .features.reader import FeatureReader
 from .labels import build_labels
 from .spine import build_spine
 
@@ -208,10 +211,35 @@ def _run(
             cfg=labels_cfg,
             v=result.v_labels,
         )
-        staged = _stage(ctx, {"spine": spine, "labels": labels})
+        # Features read silver only through the reader, which refuses anything after V (spec §8, §11.3).
+        reader = FeatureReader.from_store(ctx.object_store, published=published, limit=result.v)
+        features_cfg = load_features_config()
+        features = {
+            f: build_family(f, reader, spine, features_cfg) for f in FAMILY_ORDER if f in FAMILIES
+        }
+        dataset = assemble(spine, features, labels)
+        tables = {"spine": spine, "labels": labels}
+        for family, df in features.items():
+            tables |= {f"features_{family}/t={t}": p for t, p in by_t(df).items()}
+        tables |= {f"{DATASET}/t={t}": p for t, p in by_t(dataset).items()}
+        staged = _stage(ctx, tables)
         result.rows = {"spine": spine.height, "labels": labels.height}
+        result.rows |= {f"features_{f}": df.height for f, df in features.items()}
+        result.rows[DATASET] = dataset.height
         result.outputs = {n: hashlib.sha256(b).hexdigest() for n, b in staged.items()}
-        _promote(ctx, staged, result)
+        manifest = dataset_manifest(
+            meta=ctx.metadata,
+            v=result.v,
+            v_labels=result.v_labels,
+            partition_sha256={n: s for n, s in result.outputs.items() if n.startswith(DATASET)},
+            families=list(features),
+            labels=labels,
+            labels_cfg=labels_cfg,
+            splits_cfg=splits_cfg,
+            built_at=now,
+        )
+        _put_json(ctx, f"gold/_staging/run={ctx.run_id}/{MANIFEST_NAME}", manifest)
+        _promote(ctx, staged, result, {f"gold/{MANIFEST_NAME}": manifest})
         result.promoted = True
     except GoldCheckError as exc:
         result.failures.append(str(exc))
@@ -239,6 +267,19 @@ def _stage(ctx: Context, tables: dict[str, pl.DataFrame]) -> dict[str, bytes]:
         raise GoldCheckError("staged spine: (ccn, t) is not unique")
     if not labels.select("ccn", "t").equals(spine.select("ccn", "t")):
         raise GoldCheckError("staged labels: not exactly the spine's rows, in the spine's order")
+    # Partitioned outputs (<table>/t=YYYY-MM): each holds exactly the spine's rows of its month.
+    spine_by_t = {t: p.select("ccn", "t") for t, p in by_t(spine).items()}
+    for name, df in back.items():
+        if "/t=" not in name:
+            continue
+        t = name.rsplit("/t=", 1)[1]
+        if t not in spine_by_t or not df.select("ccn", "t").equals(spine_by_t[t]):
+            raise GoldCheckError(f"staged {name}: not exactly the spine's rows of {t}")
+    partitioned = {n.rsplit("/t=", 1)[0] for n in back if "/t=" in n}
+    for table in partitioned:
+        months = {n.rsplit("/t=", 1)[1] for n in back if n.startswith(f"{table}/t=")}
+        if months != set(spine_by_t):
+            raise GoldCheckError(f"staged {table}: months differ from the spine's")
     return staged
 
 
@@ -252,11 +293,21 @@ def _put_json(ctx: Context, key: str, doc: dict[str, Any]) -> None:
     )
 
 
-def _promote(ctx: Context, staged: dict[str, bytes], result: GoldResult) -> None:
-    """Copy the checked files to gold/ as one unit for readers: see read_current_gold."""
+def _promote(
+    ctx: Context,
+    staged: dict[str, bytes],
+    result: GoldResult,
+    documents: dict[str, dict[str, Any]] | None = None,
+) -> None:
+    """Copy the checked files (and JSON documents) to gold/ as one unit for readers: see read_current_gold.
+
+    A partition of an earlier run that this run did not build (e.g. a month after an earlier ``--v``) stays on
+    disk; readers take the partitions that ``gold/_current.json`` lists."""
     _put_json(ctx, CURRENT_KEY, {"state": "promoting", "run_id": ctx.run_id})
     for name, data in staged.items():
         ctx.object_store.put_bytes(f"gold/{name}/part-0.parquet", data, overwrite=True)
+    for key, doc in (documents or {}).items():
+        _put_json(ctx, key, doc)
     _put_json(
         ctx,
         CURRENT_KEY,
