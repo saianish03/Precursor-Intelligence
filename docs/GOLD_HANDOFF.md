@@ -133,9 +133,10 @@ uv run python tests/gold/make_toy_silver.py data/toy --stale 2025-03 # try a sta
 > section 6 hold. Use the real database; the stand-in is no longer needed.
 
 > **Silver must be built with the silver configs on `dev`.** The silver shared so far was built before PR #7's
-> last config change ("Trim key codes", `configs/column_map.yaml`). Its `config_hash` differs from `dev`'s, so
-> the freshness check reports all 488 partitions as not current and gold stops (exit 2). Get a silver rebuilt
-> from `dev` (`uv run precursor-pipeline silver`, by whoever has bronze) together with its `metadata.db`.
+> last config change ("Trim key codes", `configs/column_map.yaml`), and PR #12 has changed the silver configs
+> again since (the 2026-09 columns). Its `config_hash` differs from `dev`'s, so the freshness check reports all
+> 488 partitions as not current and gold stops (exit 2). Get a silver rebuilt from today's `dev` (after #11 too,
+> for 2026-09) with `uv run precursor-pipeline silver`, by whoever has bronze, together with its `metadata.db`.
 
 > **Generate gold yourself.** Don't copy `gold/spine` or `gold/labels` from someone else: run
 > `uv run precursor-pipeline gold` to build them from silver (it takes seconds). That way they always match your
@@ -238,6 +239,8 @@ raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module
   - star ratings (`overall_rating`, `health_inspection_rating`, `qm_rating`, `staffing_rating` and their `_fn`
     columns): the spec says `ablation_only`, the project rules say never features; the registry must settle it
     (open item 6);
+  - `high_performing_icon` (2026-09+) is a CMS badge like the star ratings: `ablation_only`, never `model`
+    (open item 12);
   - `chain_id` is `product_only`;
   - ML training must never join `dim_facility_latest`.
 - **Penalties:** for features every row counts, including `dup_seq > 1`; only labels use `revision_group`.
@@ -286,7 +289,10 @@ raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module
 | 5 | Leakage contract test for features: the feature reader and `feature_registry.yaml` limited to the `*_by_vintage` tables and `citation_lookup` at t (plus t−6, t−12), never the ledgers, `facility_presence`, `facility_universe` beyond t, `citation_lookup_versions` or `dim_facility_latest` | Partner | Review follow-up 1, feature part; the spine/labels part is done (section 9) |
 | 6 | Star ratings: `ablation_only` (spec) or never a feature (project rules)? Tag them with `model_use` in the registry | Partner | Review follow-up 2 |
 | 7 | Silver edge cases: a provider partition without `ownership_type` exits 1 (retried) instead of 2; `citation_lookup` has no Processing Date, so its vintage comes from the inventory only | Silver owner | Review follow-up 5, not urgent |
-| 8 | Rebuild the real silver with the configs on `dev`, and share it with its `metadata.db` | Silver owner | Needed before gold runs on real data again (section 5) |
+| 8 | Rebuild the real silver from today's `dev` (after #11 too, for 2026-09), and share it with its `metadata.db` | Silver owner | Needed before gold runs on real data again (section 5) |
 | 9 | Clean-up of `gold/_staging/run=<id>/` | Sai | Kept, because the object store only deletes under `quarantine/` and `tmp/` |
 | 10 | `--v` backtests | Sai | Final severity and `removed_by_cms` still come from the latest silver |
 | 11 | Is `y_pen12` a model or only a comparison? | Team | Spec §14 |
+| 12 | `high_performing_icon` is `ablation_only`, like the star ratings (never `model`); footnote code 29 (`survey_fn`, "not yet confirmed") needs a reason mapping | Partner | From the PR #12 review; `tests/leakage/test_gold_inputs.py` already keeps it out of the spine and labels |
+| 13 | When `a1cebf5` ("dedicated `n_failures` key", on `feat/dp_airflow_v1`) lands on `dev`, gold reports `n_failures` instead of `failed` to `run_log` | Sai | Today gold reports `failed`, matching `task_scope` on `dev` |
+| 14 | Plug gold into the Airflow DAG's `TODO(gold)` slot in `dags/cms_nh_pipeline.py` on `feat/dp_airflow_v1`, once that branch merges | Sai | `precursor-pipeline gold --run-id R` |
