@@ -85,6 +85,13 @@ def _run(ctx: Context, now: datetime) -> BronzeResult:
             if refresh_stale_refresh(ctx.metadata, vintage, run_id=ctx.run_id, now=now):
                 result.stale_vintages.append(vintage)
         result.missing = files_without_valid_partition(ctx, selected)
+        # A failed file is already in `failures`; anything else the check found must fail the run too, or the
+        # manifest could say `passed: false` while the command exits 0.
+        result.failures += [
+            f"{CHECK_NAME} failed: {name} has no valid partition"
+            for name in result.missing
+            if not any(failure.startswith(f"{name}:") for failure in result.failures)
+        ]
 
     result.manifest_key = _write_manifest(ctx, result, now)
     log.info("bronze finished: %s", dict(Counter(f.status for f in result.files)))

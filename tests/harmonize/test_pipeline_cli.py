@@ -186,3 +186,13 @@ def test_verify_exits_2_when_a_selected_file_has_no_partition(env, monkeypatch, 
     env.stage()  # selected in the inventory, never loaded
     assert bronze(monkeypatch, env, "--verify") == EXIT_VALIDATION
     assert "provider_info 2025-06" in capsys.readouterr().out
+
+
+def test_a_failed_every_file_check_exits_2_even_when_every_file_loaded(env, monkeypatch, capsys):
+    env.stage()
+    monkeypatch.setattr(
+        "precursorintelligence.harmonize.pipeline.files_without_valid_partition",
+        lambda ctx, selected: ["provider_info 2025-06"],
+    )
+    assert bronze(monkeypatch, env) == EXIT_VALIDATION
+    assert "provider_info 2025-06" in capsys.readouterr().err
