@@ -106,6 +106,20 @@ def test_editing_the_calibration_settings_does_not_change_the_config_hash(tmp_pa
     assert edited.config_hash == load_silver_config().config_hash
 
 
+def test_the_lag_analysis_reads_g_plus_and_horizons_from_labels_yaml():
+    from precursorintelligence.common.config import load_labels_config
+    from precursorintelligence.harmonize import calibrate as cal
+    from precursorintelligence.harmonize.columns import CONFIG_FILES
+
+    assert cal.g_plus() == load_labels_config().gplus_severities == list("GHIJKL")
+    assert cal.horizons() == {
+        "y_g12": (12, "B_cit"),
+        "y_g6": (6, "B_cit"),
+        "y_pen12": (12, "B_pen"),
+    }
+    assert "labels.yaml" not in CONFIG_FILES  # so editing it never changes silver's config_hash
+
+
 def test_a_keep_list_key_that_is_not_kept_is_a_config_error(tmp_path):
     from shutil import copy
 

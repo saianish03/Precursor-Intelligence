@@ -97,14 +97,15 @@ def _init(
     return settings, run_id, log_file
 
 
-def _ship_log(ctx: Context, log_file: Path) -> None:
-    """Copy this process's JSON log next to the run's reports in the object store (local or GCS)."""
+def _ship_log(ctx: Context, log_file: Path, node: str = "step1") -> None:
+    """Copy this process's JSON log next to the run's reports of this node in the object store (local or GCS):
+    reports/<node>/run=<id>/logs/. Used by every node's CLI (step1, bronze, silver, gold)."""
     for h in logging.getLogger("precursorintelligence").handlers:
         h.flush()
     if log_file.exists():
         with log_file.open("rb") as f:
             ctx.object_store.put_stream(
-                f"reports/step1/run={ctx.run_id}/logs/{log_file.name}",
+                f"reports/{node}/run={ctx.run_id}/logs/{log_file.name}",
                 iter(lambda: f.read(1 << 20), b""),
                 overwrite=True,
             )

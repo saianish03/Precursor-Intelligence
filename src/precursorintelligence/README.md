@@ -7,6 +7,7 @@ One installable package; each stage is a subpackage. Stages talk to storage only
 | `common/` | config loader, logging, GCS / BigQuery / Postgres clients, CCN utils, release-month utils |
 | `ingestion/` | discover, download, profile, manifest, drift, load, `cli.py` (Step 1: landing → bronze) |
 | `validation/` | data-quality checks on raw → staged (Pandera) |
+| `gold/` | gold node: spine and labels so far (Steps 6 and 8), run as `precursor-pipeline gold`; features, dataset and publish to follow |
 | `features/` | preprocessing and feature engineering (silver → gold) |
 | `training/` | model training, calibration, tuning |
 | `evaluation/` | metrics, promotion gates, slice checks |

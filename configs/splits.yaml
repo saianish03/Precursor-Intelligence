@@ -1,0 +1,4 @@
+# Spine and split rules for gold (docs/DATA_PIPELINE_SPEC.md §7, §9.5).
+# Train/calib/test windows are added with the splits step.
+
+spine_start: "2023-01"   # first prediction month t; 2021-2022 are history only
