@@ -309,7 +309,7 @@ raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module
 | 10 | `--v` backtests | Sai | Final severity and `removed_by_cms` still come from the latest silver |
 | 11 | Is `y_pen12` a model or only a comparison? | Team | Spec §14 |
 | 12 | `high_performing_icon` is `ablation_only`, like the star ratings (never `model`); footnote code 29 (`survey_fn`, "not yet confirmed") needs a reason mapping | Partner | From the PR #12 review; `tests/leakage/test_gold_inputs.py` already keeps it out of the spine and labels |
-| 13 | When `a1cebf5` ("dedicated `n_failures` key", on `feat/dp_airflow_v1`) lands on `dev`, gold reports `n_failures` instead of `failed` to `run_log` | Sai | Today gold reports `failed`, matching `task_scope` on `dev` |
+| 13 | ~~Gold reports `n_failures` instead of `failed` to `run_log`~~ **Done** in `fix/run-log-failure-key` | Sai | `task_scope` reads the dedicated `n_failures` key, set on purpose by download, bronze, silver and gold |
 | 14 | Plug gold into the Airflow DAG's `TODO(gold)` slot in `dags/cms_nh_pipeline.py` on `feat/dp_airflow_v1`, once that branch merges | Sai | `precursor-pipeline gold --run-id R` |
 | 15 | Censoring uses only the facility's last vintage, so a facility with a long gap in its history is never censored across the gap (it matches the spec text literally) | Team | From the PR #9 review |
 | 16 | Pass a `LabelsConfig` into silver's lag analysis (`lag_analysis`, `last_labeled`, `fine_crosscheck`) instead of `g_plus()` / `horizons()` reading `labels.yaml` on every call | Sai / silver owner | PR #9 review, not blocking |

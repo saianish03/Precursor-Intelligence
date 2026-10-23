@@ -153,7 +153,7 @@ def run_gold(
             with task_scope(ctx, "gold") as detail:
                 result = _run(ctx, labels_cfg, splits_cfg, v, now)
                 # run_log marks the step failed when it reports failures (task_scope on dev)
-                detail.update(rows=result.rows, failed=len(result.failures))
+                detail.update(rows=result.rows, n_failures=len(result.failures))
                 return result
         finally:
             if acquired:

@@ -91,7 +91,7 @@ def test_one_bad_file_does_not_stop_the_others_but_fails_the_run(ctx, meta, stag
         and "2025-06" in result.failures[0]
     )
     (step,) = [r for r in meta.read("run_log") if r["task"] == "bronze"]
-    assert step["status"] == "failed" and json.loads(step["detail"])["failed"] == 1
+    assert step["status"] == "failed" and json.loads(step["detail"])["n_failures"] == 1
 
 
 def test_a_failed_every_file_check_alone_makes_the_run_fail(ctx, store, stage, monkeypatch):
