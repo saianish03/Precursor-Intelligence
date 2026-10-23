@@ -44,6 +44,23 @@ def test_context_defaults_to_dash():
     assert rec.task == "-" and rec.run_id == "-"
 
 
+def test_context_fields_outside_the_fixed_list_reach_the_record_and_the_json():
+    with log_context(run_id="r1", table="penalties", vintage="2025-06"):
+        rec = _record("loaded")
+        ContextFilter().filter(rec)
+    out = json.loads(JsonFormatter().format(rec))
+    assert out["table"] == "penalties" and out["vintage"] == "2025-06"
+    assert out["run_id"] == "r1" and out["task"] == "-"
+
+
+def test_an_explicit_extra_wins_over_the_context_and_standard_attributes_are_safe():
+    with log_context(table="from-context", name="not-the-logger", msg="not-the-message"):
+        rec = _record("hello", table="from-extra")
+        ContextFilter().filter(rec)
+    assert rec.table == "from-extra"
+    assert rec.name == "precursorintelligence.t" and rec.getMessage() == "hello"
+
+
 def test_setup_logging_writes_json_lines(tmp_path):
     log_file = setup_logging(
         MODULE_ROOT / "configs" / "logging.yaml", log_dir=tmp_path, run_id="rtest"

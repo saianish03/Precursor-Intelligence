@@ -49,6 +49,9 @@ INVENTORY_COLUMNS = [
 ]
 
 EXPLANATIONS = {
+    "no_tables_recognised": "The zip has CSV files but none matches a table pattern in "
+    "configs/ingestion/sources.yaml, usually because CMS changed its file names. Nothing from it is "
+    "used; step1 exits 2 until the patterns are fixed.",
     "partial_zip": "The zip does not contain all in-scope tables. CMS sometimes issues small corrective "
     "re-releases (e.g. only Provider Info). Its files still compete in duplicate resolution.",
     "junk_bloat": "Most of the zip's bytes are macOS metadata (__MACOSX/AppleDouble). The archive was re-packed "
@@ -264,7 +267,8 @@ def build_summary(ctx: Context, res: ResolveOutput, inv: list[dict[str, Any]]) -
         a("|---|---|---|---|---|")
         for d in sorted(res.duplicates, key=lambda d: (d["vintage_month"], d["table"])):
             a(
-                f"| {d['table']} | {d['vintage_month']} | `{d['kept']}` | `{d['dropped']}` | {d['identical']} |"
+                f"| {d['table']} | {d['vintage_month']} | `{d['kept']}` `{d['kept_file']}` "
+                f"| `{d['dropped']}` `{d['dropped_file']}` | {d['identical']} |"
             )
     else:
         a("None.")

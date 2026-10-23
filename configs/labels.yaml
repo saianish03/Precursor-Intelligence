@@ -1,0 +1,20 @@
+# Label definitions for gold/labels (docs/DATA_PIPELINE_SPEC.md §9).
+# Buffers measured on the full archive in Step 4 (2026-10-15; spec §5). Re-measure in 2027.
+
+# Also read by silver's posting-lag analysis (harmonize/calibrate.py), so both use one G+ set and one set of
+# horizons. That analysis measures against the latest vintage even if it is a stale_refresh vintage (none is
+# on the current archive). This file is not part of silver's config_hash: editing it rebuilds no silver.
+gplus_severities: [G, H, I, J, K, L]
+
+buffers_months:
+  citations: 8    # B_cit: G+ citations, complaint-linked G+ needs 8
+  penalties: 12   # B_pen: payment denials need 12
+
+# Strict censoring: a facility must stay observable until t + H + B, not just t + H (spec §9.2).
+censor_requires_buffer: true
+
+# label -> event source and horizon H (months). y_<label> and status_<label> columns.
+labels:
+  g12: {source: citations, horizon_months: 12}
+  g6: {source: citations, horizon_months: 6}
+  pen12: {source: penalties, horizon_months: 12}

@@ -48,6 +48,17 @@ tables:
     patterns: ['(?i)(^|_)NH_CitationDescriptions_[A-Za-z]{3}\d{4}(_\d+)?\.csv$']
     has_processing_date: false             # this file never carries a Processing Date column
 
+# Known CMS files that are deliberately not ingested (guide §1; every name seen in the 67 archive zips
+# 2021-01 -> 2026-08). A CSV that matches neither these nor a table pattern is unrecognised: a zip with
+# unrecognised CSVs and no in-scope table fails resolve (no_tables_recognised). Matched by product name,
+# without the month token, so a naming change to in-scope files is still caught.
+out_of_scope_patterns:
+  - '(?i)(^|_)NH_(StateUSAverages|SurveySummary|Ownership|HlthInspecCutpointsState|FireSafetyCitations|DataCollectionIntervals|QMDataCollection_Complaint_Periods|CovidVax[A-Za-z]+)_'
+  - '(?i)(^|_)Skilled_Nursing_Facility_Quality_Reporting_Program_(Provider|National)_Data'
+  - '(?i)(^|_)Swing_Bed_SNF_data'
+  - '(?i)^FY_\d{4}_SNF[ _]VBP_'
+  - '(?i)yf87[-_]tv6k\.csv$'
+
 extract:
   only_in_scope: true                      # other members are inventoried from the zip directory only
 

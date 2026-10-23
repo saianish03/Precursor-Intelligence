@@ -402,7 +402,7 @@ def universe_report(
                     [
                         "ledger_citations",
                         f"{led_c.height:,}",
-                        f"{led_c.filter(pl.col('final_scope_severity').is_in(cal.G_PLUS)).height:,} G+; "
+                        f"{led_c.filter(pl.col('final_scope_severity').is_in(cal.g_plus())).height:,} G+; "
                         f"{led_c.filter(pl.col('severity_changed')).height:,} severity changed; {led_c.filter(pl.col('removed_by_cms')).height:,} removed by CMS",
                     ],
                     [

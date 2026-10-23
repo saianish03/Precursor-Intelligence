@@ -55,11 +55,13 @@ def current_log_context() -> dict[str, str]:
 
 
 class ContextFilter(logging.Filter):
-    """Copies the current log context onto the record ('-' when a field is not set)."""
+    """Copies the current log context onto the record: the fixed fields ('-' when not set) and any other
+    field a caller put in `log_context(...)`, such as bronze's `table` and `vintage`. An attribute the
+    record already has (a standard one, or an explicit `extra=`) is never overwritten."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         ctx = _log_ctx.get()
-        for name in CONTEXT_FIELDS:
+        for name in (*CONTEXT_FIELDS, *ctx):
             if not hasattr(record, name):
                 setattr(record, name, ctx.get(name, "-"))
         return True
