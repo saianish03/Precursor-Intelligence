@@ -85,9 +85,31 @@ def test_one_bad_file_does_not_stop_the_others_but_fails_the_run(ctx, meta, stag
         "survey_dates": "loaded",
     }
     assert sink.list_partitions("penalties") == []
-    assert any("penalties" in f and "2025-06" in f for f in result.failures)
+    assert (
+        len(result.failures) == 1
+        and "penalties" in result.failures[0]
+        and "2025-06" in result.failures[0]
+    )
     (step,) = [r for r in meta.read("run_log") if r["task"] == "bronze"]
     assert step["status"] == "failed" and json.loads(step["detail"])["failed"] == 1
+
+
+def test_a_failed_every_file_check_alone_makes_the_run_fail(ctx, store, stage, monkeypatch):
+    stage("provider_info", "2025-06")
+    monkeypatch.setattr(
+        "precursorintelligence.harmonize.pipeline.files_without_valid_partition",
+        lambda ctx, selected: ["provider_info 2025-06"],
+    )
+    result = run(ctx)
+    manifest = json.loads(store.open_read(result.manifest_key).read())
+
+    assert result.exit_code == EXIT_VALIDATION
+    assert any(
+        "every_selected_file_has_valid_partition" in f and "provider_info 2025-06" in f
+        for f in result.failures
+    )
+    assert manifest["exit_code"] == EXIT_VALIDATION
+    assert manifest["every_selected_file_has_valid_partition"]["passed"] is False
 
 
 def test_a_failed_file_loads_on_the_next_run_after_the_fix(ctx, meta, stage):
