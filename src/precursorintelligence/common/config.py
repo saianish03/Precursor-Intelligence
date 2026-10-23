@@ -179,9 +179,17 @@ class SourcesConfig(BaseModel):
     source: SourceCfg
     scope: ScopeCfg
     tables: dict[str, TableSpec]
+    out_of_scope_patterns: list[str] = Field(default_factory=list)  # known CMS files not ingested
     extract: ExtractCfg = Field(default_factory=ExtractCfg)
     http: HttpCfg
     security: SecurityCfg = Field(default_factory=SecurityCfg)
+
+    @field_validator("out_of_scope_patterns")
+    @classmethod
+    def _compile_out_of_scope(cls, v: list[str]) -> list[str]:
+        for p in v:
+            re.compile(p)
+        return v
 
 
 # --------------------------------------------------------------------------- env/<name>.yaml

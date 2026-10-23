@@ -23,30 +23,41 @@ scope:
 
 # The 7 in-scope tables (guide §1). Patterns are matched against the member's base name and must
 # cover all three archive layouts: L1 legacy (*_Download.csv), L2 (NH_<T>_<MonYYYY>.csv),
-# L3 (<datasetId>_<YYYY-MM-DD>_NH_<T>_<MonYYYY>.csv).
+# L3 (<datasetId>_<YYYY-MM-DD>_NH_<T>_<MonYYYY>.csv, from 2026-10 with a version suffix _<N>).
 tables:
   provider_info:
     dataset_id: 4pq5-n9py
-    patterns: ['(?i)(^|_)NH_ProviderInfo_[A-Za-z]{3}\d{4}\.csv$', '(?i)^ProviderInfo_Download\.csv$']
+    patterns: ['(?i)(^|_)NH_ProviderInfo_[A-Za-z]{3}\d{4}(_\d+)?\.csv$', '(?i)^ProviderInfo_Download\.csv$']
   health_citations:
     dataset_id: r5ix-sfxw
-    patterns: ['(?i)(^|_)NH_HealthCitations_[A-Za-z]{3}\d{4}\.csv$', '(?i)^HealthDeficiencies_Download\.csv$']
+    patterns: ['(?i)(^|_)NH_HealthCitations_[A-Za-z]{3}\d{4}(_\d+)?\.csv$', '(?i)^HealthDeficiencies_Download\.csv$']
   survey_dates:
     dataset_id: svdt-c123
-    patterns: ['(?i)(^|_)NH_SurveyDates_[A-Za-z]{3}\d{4}\.csv$']
+    patterns: ['(?i)(^|_)NH_SurveyDates_[A-Za-z]{3}\d{4}(_\d+)?\.csv$']
   penalties:
     dataset_id: g6vv-u9sr
-    patterns: ['(?i)(^|_)NH_Penalties_[A-Za-z]{3}\d{4}\.csv$', '(?i)^Penalties_Download\.csv$']
+    patterns: ['(?i)(^|_)NH_Penalties_[A-Za-z]{3}\d{4}(_\d+)?\.csv$', '(?i)^Penalties_Download\.csv$']
   mds_qm:
     dataset_id: djen-97ju
-    patterns: ['(?i)(^|_)NH_QualityMsr_MDS_[A-Za-z]{3}\d{4}\.csv$', '(?i)^QualityMsrMDS_Download\.csv$']
+    patterns: ['(?i)(^|_)NH_QualityMsr_MDS_[A-Za-z]{3}\d{4}(_\d+)?\.csv$', '(?i)^QualityMsrMDS_Download\.csv$']
   claims_qm:
     dataset_id: ijh5-nb2v
-    patterns: ['(?i)(^|_)NH_QualityMsr_Claims_[A-Za-z]{3}\d{4}\.csv$', '(?i)^QualityMsrClaims_Download\.csv$']
+    patterns: ['(?i)(^|_)NH_QualityMsr_Claims_[A-Za-z]{3}\d{4}(_\d+)?\.csv$', '(?i)^QualityMsrClaims_Download\.csv$']
   citation_lookup:
     dataset_id: tagd-9999
-    patterns: ['(?i)(^|_)NH_CitationDescriptions_[A-Za-z]{3}\d{4}\.csv$']
+    patterns: ['(?i)(^|_)NH_CitationDescriptions_[A-Za-z]{3}\d{4}(_\d+)?\.csv$']
     has_processing_date: false             # this file never carries a Processing Date column
+
+# Known CMS files that are deliberately not ingested (guide §1; every name seen in the 67 archive zips
+# 2021-01 -> 2026-08). A CSV that matches neither these nor a table pattern is unrecognised: a zip with
+# unrecognised CSVs and no in-scope table fails resolve (no_tables_recognised). Matched by product name,
+# without the month token, so a naming change to in-scope files is still caught.
+out_of_scope_patterns:
+  - '(?i)(^|_)NH_(StateUSAverages|SurveySummary|Ownership|HlthInspecCutpointsState|FireSafetyCitations|DataCollectionIntervals|QMDataCollection_Complaint_Periods|CovidVax[A-Za-z]+)_'
+  - '(?i)(^|_)Skilled_Nursing_Facility_Quality_Reporting_Program_(Provider|National)_Data'
+  - '(?i)(^|_)Swing_Bed_SNF_data'
+  - '(?i)^FY_\d{4}_SNF[ _]VBP_'
+  - '(?i)yf87[-_]tv6k\.csv$'
 
 extract:
   only_in_scope: true                      # other members are inventoried from the zip directory only

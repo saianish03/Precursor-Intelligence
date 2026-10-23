@@ -54,6 +54,11 @@ def csv_bytes(month: str, extra_rows: int = 3, survey_date: str = "2019-05-02") 
     return ("\n".join(lines) + "\n").encode()
 
 
+def lookup_csv_bytes() -> bytes:
+    """Like the real Citation Look-up file: no Processing Date column (vintage from the file name)."""
+    return b"Deficiency Prefix,Deficiency Tag Number,Deficiency Description\nF,0880,Infection control\n"
+
+
 def make_zip(
     month: str,
     tok: str,
@@ -63,26 +68,34 @@ def make_zip(
     junk: bool = False,
     subfolder: str | None = None,
     extra: dict[str, bytes] | None = None,
+    version_suffix: int | None = None,
+    real_lookup: bool = False,
 ) -> bytes:
+    """`version_suffix=3` names files like the 2026-10-08 release (`..._Sep2026_3.csv`); `real_lookup`
+    writes the citation lookup without a Processing Date column, as CMS does."""
     tables = tables or list(TABLE_FILES)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         manifest = []
         for t in tables:
             name = TABLE_FILES[t].format(tok=tok)
+            if version_suffix is not None:
+                name = name.removesuffix(".csv") + f"_{version_suffix}.csv"
+            base = name
             if layout == "L3":
                 name = f"{DATASET_IDS[t]}_{month}-01_{name}"
             path = f"{subfolder}/{name}" if subfolder else name
-            zf.writestr(
-                path,
-                csv_bytes(
+            if real_lookup and t == "citation_lookup":
+                body = lookup_csv_bytes()
+            else:
+                body = csv_bytes(
                     month, survey_date="2018-03-04" if t == "health_citations" else "2019-05-02"
-                ),
-            )
+                )
+            zf.writestr(path, body)
             manifest.append(
                 {
                     "dataset_id": DATASET_IDS[t],
-                    "resources": [{"filename": TABLE_FILES[t].format(tok=tok)}],
+                    "resources": [{"filename": base}],
                 }
             )
         zf.writestr("NH_Data_Dictionary.pdf", b"%PDF-1.4 fake")

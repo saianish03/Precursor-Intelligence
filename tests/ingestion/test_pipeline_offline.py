@@ -1,13 +1,16 @@
 """End-to-end Step 1 against a fake CMS server: layouts, duplicates, gaps, idempotency, re-publication,
 quarantine, URL rejection, and identical results on two different storage backends."""
 
+import io
+import zipfile
+
 import pytest
-from cms_fakes import ARCH, FakeResponse, make_zip
+from cms_fakes import ARCH, FakeResponse, csv_bytes, make_zip
 
 from precursorintelligence.common.io.object_store import sha256_of
 from precursorintelligence.ingestion.catalog import discover, select
 from precursorintelligence.ingestion.download import run_download
-from precursorintelligence.ingestion.pipeline import run_step1
+from precursorintelligence.ingestion.pipeline import EXIT_VALIDATION, run_step1
 
 
 def build_archive(fake):
@@ -194,3 +197,87 @@ def test_current_entry_without_theme_is_ignored(fake_cms, make_ctx):
     fake_cms.current[0].pop("theme")
     ctx = make_ctx(fake_cms)
     assert discover(ctx).n_entries == 1  # only the archive entry
+
+
+SEP = "2026-09"
+
+
+def test_suffixed_release_selects_all_seven_tables(fake_cms, make_ctx):
+    """The 2026-10-08 release names files `..._Sep2026_<N>.csv`; before the fix all of them were
+    classified `other` and the month was dropped silently."""
+    fake_cms.add(
+        "2026-10-08",
+        make_zip(SEP, "Sep2026", layout="L3", version_suffix=3, real_lookup=True),
+    )
+    ctx = make_ctx(fake_cms)
+    res = run_step1(ctx)
+    assert not res.failures, res.failures
+    sel = {
+        r["table_name"]: r
+        for r in ctx.metadata.read("inventory")
+        if r["status"] == "selected" and r["vintage_month"] == SEP
+    }
+    assert set(sel) == set(ctx.cfg.tables)
+    assert all(r["file_name"].endswith("_Sep2026_3.csv") for r in sel.values())
+    assert sel["citation_lookup"]["vintage_source"] == "filename_token"
+    assert sel["provider_info"]["vintage_source"] == "processing_date"
+    assert all(r["in_manifest"] for r in sel.values())
+
+
+def test_zip_with_no_recognised_table_exits_2(fake_cms, make_ctx):
+    """A zip whose CSVs match no table pattern (the next file-name change) is an error, not a
+    silent empty month."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for t in ("ProviderInfo", "HealthCitations"):
+            zf.writestr(f"NH-{t}-Sep2026.csv", csv_bytes(SEP))
+    fake_cms.add("2026-10-08", buf.getvalue())
+    ctx = make_ctx(fake_cms)
+    res = run_step1(ctx)
+    assert res.exit_code == EXIT_VALIDATION
+    (a,) = [
+        a
+        for a in ctx.metadata.read("anomalies", {"run_id": ctx.run_id})
+        if a["kind"] == "no_tables_recognised"
+    ]
+    assert a["severity"] == "error" and "2 CSV files" in a["detail"]
+
+
+def test_zip_with_only_known_out_of_scope_files_is_not_an_error(fake_cms, make_ctx):
+    """Known CMS files we don't ingest (e.g. FireSafety) are not "unrecognised"."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("NH_FireSafetyCitations_Sep2026.csv", csv_bytes(SEP))
+        zf.writestr("NH_Ownership_Sep2026_3.csv", csv_bytes(SEP))
+    fake_cms.add("2026-10-08", buf.getvalue())
+    ctx = make_ctx(fake_cms)
+    res = run_step1(ctx)
+    assert res.exit_code == 0, res.failures
+    kinds = {a["kind"] for a in ctx.metadata.read("anomalies", {"run_id": ctx.run_id})}
+    assert "no_tables_recognised" not in kinds
+
+
+def test_the_higher_file_version_wins_numerically(fake_cms, make_ctx):
+    """`_10` beats `_9` in the same zip, and the duplicate anomaly names both files."""
+    v9 = "4pq5-n9py_2026-09-01_NH_ProviderInfo_Sep2026_9.csv"
+    fake_cms.add(
+        "2026-10-08",
+        make_zip(SEP, "Sep2026", layout="L3", version_suffix=10, extra={v9: csv_bytes(SEP)}),
+    )
+    ctx = make_ctx(fake_cms)
+    run_step1(ctx)
+    prov = {
+        r["file_name"]: r["status"]
+        for r in ctx.metadata.read("inventory")
+        if r["table_name"] == "provider_info"
+    }
+    assert prov == {
+        "4pq5-n9py_2026-09-01_NH_ProviderInfo_Sep2026_10.csv": "selected",
+        v9: "duplicate_vintage",
+    }
+    (dup,) = [
+        a["detail"]
+        for a in ctx.metadata.read("anomalies", {"run_id": ctx.run_id})
+        if a["kind"] == "duplicate_vintage"
+    ]
+    assert "Sep2026_10.csv" in dup and "Sep2026_9.csv" in dup

@@ -27,7 +27,8 @@ _MONTHS = {
         start=1,
     )
 }
-_TOKEN = re.compile(r"_([A-Za-z]{3})(\d{4})\.[A-Za-z]+$")
+# MonYYYY before the extension, optionally followed by CMS's version suffix _<N> (2026-10 release on).
+_TOKEN = re.compile(r"_([A-Za-z]{3})(\d{4})(?:_\d+)?\.[A-Za-z]+$")
 _L3_PREFIX = re.compile(r"^[a-z0-9]{4}-[a-z0-9]{4}_\d{4}-\d{2}-\d{2}_")
 _DATE_FORMATS = ("%Y-%m-%d", "%m/%d/%Y", "%Y%m%d", "%m/%d/%y", "%Y/%m/%d")
 
