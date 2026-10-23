@@ -428,7 +428,7 @@ vintage_month = YYYY-MM(Processing Date)            vintage_source = processing_
 
 | kind | severity | rule |
 |---|---|---|
-| `no_tables_recognised` | **error** | the zip has CSV files but none matches a table pattern (e.g. CMS changed its file names); `step1` exits 2 |
+| `no_tables_recognised` | **error** | the zip has no in-scope table and has CSVs that match neither a table pattern nor `out_of_scope_patterns` (e.g. CMS changed its file names); `step1` exits 2. A zip with only known out-of-scope files (FireSafety, Ownership, …) is not an error |
 | `partial_zip` | warning | the zip lacks some in-scope tables |
 | `size_outlier` | warning | real stored size differs by >1.5× from the median of up to 3 neighbouring monthly zips on each side |
 | `member_count` | info | the zip has >25% more or fewer files than the median of its layout |

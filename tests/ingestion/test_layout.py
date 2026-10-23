@@ -98,3 +98,32 @@ def test_processing_date_read_from_first_row_with_bom():
 def test_manifest_filenames():
     raw = b'[{"dataset_id":"x","resources":[{"filename":"NH_ProviderInfo_Aug2026.csv"}]}]'
     assert manifest_filenames(raw) == {"NH_ProviderInfo_Aug2026.csv"}
+
+
+# One real name per known out-of-scope family (all 826 such CSVs in the 67 archive zips match).
+OUT_OF_SCOPE = [
+    "NH_StateUSAverages_Jan2021.csv",
+    "NH_SurveySummary_Jan2021.csv",
+    "NH_Ownership_Jan2021.csv",
+    "NH_HlthInspecCutpointsState_Jan2021.csv",
+    "NH_FireSafetyCitations_Jan2021.csv",
+    "NH_DataCollectionIntervals_Jan2021.csv",
+    "NH_QMDataCollection_Complaint_Periods_Jan2021.csv",
+    "NH_CovidVaxProvider_20230917.csv",
+    "Skilled_Nursing_Facility_Quality_Reporting_Program_National_Data_Jan2021.csv",
+    "5sqm-2qku_2026-07-01_Skilled_Nursing_Facility_Quality_Reporting_Program_National_Data_Jul2026.csv",
+    "6uyb-waub_2026-07-01_Swing_Bed_SNF_data_Jul2026.csv",
+    "FY_2023_SNF VBP_Aggregate_Performance.csv",
+    "pdc_s3_nhc_data_yf87_tv6k.csv",
+]
+
+
+def test_out_of_scope_patterns_cover_known_files_and_never_an_in_scope_table(tmp_path, classifier):
+    import re
+
+    patterns = [re.compile(p) for p in make_settings(tmp_path).sources.out_of_scope_patterns]
+    for name in OUT_OF_SCOPE:
+        assert classifier.classify(name) == OTHER and any(p.search(name) for p in patterns), name
+    for name, table in CASES.items():
+        if table != OTHER:
+            assert not any(p.search(name) for p in patterns), name

@@ -243,6 +243,20 @@ def test_zip_with_no_recognised_table_exits_2(fake_cms, make_ctx):
     assert a["severity"] == "error" and "2 CSV files" in a["detail"]
 
 
+def test_zip_with_only_known_out_of_scope_files_is_not_an_error(fake_cms, make_ctx):
+    """Known CMS files we don't ingest (e.g. FireSafety) are not "unrecognised"."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("NH_FireSafetyCitations_Sep2026.csv", csv_bytes(SEP))
+        zf.writestr("NH_Ownership_Sep2026_3.csv", csv_bytes(SEP))
+    fake_cms.add("2026-10-08", buf.getvalue())
+    ctx = make_ctx(fake_cms)
+    res = run_step1(ctx)
+    assert res.exit_code == 0, res.failures
+    kinds = {a["kind"] for a in ctx.metadata.read("anomalies", {"run_id": ctx.run_id})}
+    assert "no_tables_recognised" not in kinds
+
+
 def test_the_higher_file_version_wins_numerically(fake_cms, make_ctx):
     """`_10` beats `_9` in the same zip, and the duplicate anomaly names both files."""
     v9 = "4pq5-n9py_2026-09-01_NH_ProviderInfo_Sep2026_9.csv"

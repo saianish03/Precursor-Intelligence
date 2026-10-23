@@ -74,6 +74,7 @@ def resolve(ctx: Context) -> ResolveOutput:
     inv = ctx.metadata.read("inventory")
     catalog = {r["entry_id"]: r for r in ctx.metadata.read("catalog")}
     dlog = ctx.metadata.read("download_log")
+    out_of_scope = [re.compile(p) for p in ctx.cfg.out_of_scope_patterns]
     anomalies: list[dict[str, Any]] = []
 
     def anomaly(entry_id: str | None, kind: str, severity: str, detail: str) -> None:
@@ -163,19 +164,22 @@ def resolve(ctx: Context) -> ResolveOutput:
             if r["table_name"] not in (OTHER, JUNK) and r.get("vintage_month")
         }
         # A zip whose CSVs match no table pattern would otherwise be dropped silently (how the `_N`
-        # file-name suffix went unnoticed): an error, and step1 exits 2.
-        csvs = [
+        # file-name suffix went unnoticed): an error, and step1 exits 2. Known out-of-scope CMS files
+        # (e.g. FireSafety) don't count, so a zip holding only those is not an error.
+        unrecognised = [
             r["file_name"]
             for r in rows
-            if r["table_name"] != JUNK and r["file_name"].lower().endswith(".csv")
+            if r["table_name"] == OTHER
+            and r["file_name"].lower().endswith(".csv")
+            and not any(p.search(r["file_name"]) for p in out_of_scope)
         ]
-        if csvs and not present:
+        if unrecognised and not present:
             anomaly(
                 eid,
                 "no_tables_recognised",
                 "error",
-                f"{zip_name}: {len(csvs)} CSV files, none matches a table pattern "
-                f"(configs/ingestion/sources.yaml), e.g. {csvs[:3]}",
+                f"{zip_name}: {len(unrecognised)} CSV files match no table pattern and no known "
+                f"out-of-scope file (configs/ingestion/sources.yaml), e.g. {unrecognised[:3]}",
             )
         if vintages and max(vintages) >= start and (missing := sorted(set(tables) - present)):
             anomaly(
