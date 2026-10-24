@@ -13,6 +13,7 @@ from precursorintelligence.gold.build import build_spine
 from precursorintelligence.gold.dataset import assemble, by_t, dataset_manifest
 from precursorintelligence.gold.features import FAMILIES, build_features
 from precursorintelligence.gold.labels import build_labels
+from precursorintelligence.gold.splits import add_splits
 
 
 @pytest.fixture(scope="module")
@@ -28,6 +29,7 @@ def parts(silver):
         cfg=load_labels_config(),
         v=V,
     )
+    labels = add_splits(labels, V, load_labels_config(), load_splits_config())  # as run_gold does
     features = {f: build_features(f, silver, spine) for f in FAMILIES}
     return spine, features, labels
 
@@ -81,7 +83,23 @@ def test_the_manifest_is_the_same_for_the_same_inputs_but_the_timestamp(parts, t
     assert {k: v for k, v in a.items() if k != "built_at"} == {
         k: v for k, v in b.items() if k != "built_at"
     }
-    assert a["rows_per_label_status"]["g12"]["positive"] == labels["y_g12"].sum()
+    # Rows per split per label, every split listed (the toy g6 answers, test_expected_answers.py).
+    assert a["rows_per_split"]["g6"] == {
+        "train": 4,
+        "calib": 13,
+        "purge": 28,
+        "test": 8,
+        "score": 56,
+    }
+    assert a["rows_per_split"]["g12"] == {
+        "train": 0,
+        "calib": 0,
+        "purge": 17,
+        "test": 15,
+        "score": 77,
+    }
+    assert all(sum(c.values()) == labels.height for c in a["rows_per_split"].values())
+    assert "rows_per_label_status" not in a
     assert a["feature_families_pending"] == ["quality"]
     assert a["verified"] is False
     assert set(a) >= {"git_commit", "git_dirty"}

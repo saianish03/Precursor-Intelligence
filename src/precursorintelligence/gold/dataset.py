@@ -22,6 +22,7 @@ from ..common.io.metadata_store import MetadataStore
 from ..harmonize.silver import latest_bronze
 from . import GoldCheckError
 from .features import FAMILY_ORDER
+from .splits import SPLITS
 
 DATASET = "facility_month_dataset"
 MANIFEST_NAME = "dataset_manifest.json"
@@ -109,12 +110,13 @@ def _flags(meta: MetadataStore, v: str) -> dict[str, list[str]]:
     return {flag: sorted(months) for flag, months in sorted(out.items())}
 
 
-def _status_counts(labels: pl.DataFrame, cfg: LabelsConfig) -> dict[str, dict[str, int]]:
-    """Rows per status per label (the split columns come with the splits step, spec §9.5)."""
-    return {
-        name: dict(sorted(labels[f"status_{name}"].value_counts().iter_rows()))
-        for name in cfg.labels
-    }
+def _split_counts(labels: pl.DataFrame, cfg: LabelsConfig) -> dict[str, dict[str, int]]:
+    """Rows per split per label (spec §9.5), every split listed in SPLITS order, 0 when it has no rows."""
+    out = {}
+    for name in cfg.labels:
+        counts = dict(labels[f"split_{name}"].value_counts().iter_rows())
+        out[name] = {split: counts.get(split, 0) for split in SPLITS}
+    return out
 
 
 def dataset_manifest(
@@ -159,7 +161,7 @@ def dataset_manifest(
         "git_commit": commit,
         "git_dirty": dirty,
         "rows": {"total": labels.height, "months": labels["t"].n_unique()},
-        "rows_per_label_status": _status_counts(labels, labels_cfg),
+        "rows_per_split": _split_counts(labels, labels_cfg),
         "partitions_sha256": dict(sorted(partition_sha256.items())),
         "built_at": built_at.isoformat(timespec="seconds"),
     }
