@@ -98,7 +98,8 @@ def test_gold_builds_the_features_and_the_dataset(toy, monkeypatch, capsys):
         parts = sorted(p.name.removeprefix("t=") for p in (toy.root / "gold" / table).iterdir())
         assert parts == months
     ds = toy.read("facility_month_dataset/t=2024-01")
-    assert ds.columns[:3] == ["ccn", "t", "cutoff_date"] and ds.columns[-1] == "status_pen12"
+    assert ds.columns[:3] == ["ccn", "t", "cutoff_date"]
+    assert ds.columns[-4:] == ["status_pen12", "split_g12", "split_g6", "split_pen12"]
     oak = ds.filter(pl.col("ccn") == "015002").row(0, named=True)
     assert (oak["n_fines_24m"], oak["y_g12"]) == (2, None)  # immature at t = 2024-01
     manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
@@ -285,3 +286,21 @@ def test_the_process_log_is_shipped_next_to_the_gold_run(toy, monkeypatch):
     assert toy.gold(monkeypatch) == EXIT_OK
     (m,) = toy.manifests()
     assert len(toy.store.list(f"reports/gold/run={m['run_id']}/logs")) == 1
+
+
+def test_gold_labels_carry_a_split_column_per_label(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    labels = toy.read("labels")
+    assert [c for c in labels.columns if c.startswith("split_")] == [
+        "split_g12",
+        "split_g6",
+        "split_pen12",
+    ]
+    for name in ("g12", "g6", "pen12"):  # score rows are exactly the immature ones
+        assert labels.filter(pl.col(f"split_{name}") == "score").equals(
+            labels.filter(pl.col(f"status_{name}") == "immature")
+        )
+    dataset = pl.read_parquet(
+        toy.root / "gold" / "facility_month_dataset" / "t=2023-01" / "part-0.parquet"
+    )
+    assert {"split_g12", "split_g6", "split_pen12"} <= set(dataset.columns)

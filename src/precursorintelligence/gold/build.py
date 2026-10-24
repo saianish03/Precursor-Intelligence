@@ -44,6 +44,7 @@ from .features import FAMILIES, FAMILY_ORDER, build_family
 from .features.reader import FeatureReader
 from .labels import build_labels
 from .spine import build_spine
+from .splits import add_splits
 
 SILVER_INPUTS = ("facility_universe", "facility_presence", "ledger_citations", "ledger_penalties")
 # spec §0.5: vintages from 2021-01; project scope is 2021-2026
@@ -215,6 +216,8 @@ def _run(
             cfg=labels_cfg,
             v=result.v_labels,
         )
+        # Splits are measured from the label vintage, like maturity, so score rows are the immature ones.
+        labels = add_splits(labels, result.v_labels, labels_cfg, splits_cfg)
         # Features read silver only through the reader, which refuses anything after V (spec §8, §11.3).
         reader = FeatureReader.from_store(ctx.object_store, published=published, limit=result.v)
         features_cfg = load_features_config()
