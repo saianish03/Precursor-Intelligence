@@ -279,8 +279,9 @@ raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module
   - star ratings (`overall_rating`, `health_inspection_rating`, `qm_rating`, `staffing_rating` and their `_fn`
     columns): the spec says `ablation_only`, the project rules say never features; the registry must settle it
     (open item 6);
-  - `high_performing_icon` (2026-09+) is a CMS badge like the star ratings: `ablation_only`, never `model`
-    (open item 12);
+  - `high_performing_icon` (2026-09+) is a CMS badge: never a feature, in no model use. It is not in the
+    column contract or the feature registry, and `tests/leakage/test_gold_inputs.py` keeps it out of all gold
+    code (open item 12);
   - `chain_id` is `product_only`;
   - ML training must never join `dim_facility_latest`.
 - **Penalties:** for features every row counts, including `dup_seq > 1`; only labels use `revision_group`.
