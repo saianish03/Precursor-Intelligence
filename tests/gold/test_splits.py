@@ -90,3 +90,33 @@ def test_add_splits_gives_every_row_one_split_and_score_after_last_labeled_t():
 def _hb(name: str) -> tuple[int, int]:
     cfg = load_labels_config()
     return cfg.labels[name].horizon_months, cfg.buffer(name)
+
+
+# The spec's own example (§9.3, §9.5) at V = 2026-08, with the measured buffers and test_months = 3.
+NEVER_PUBLISHED = {"2021-12", "2022-12", "2023-12", "2024-12", "2025-01", "2025-08", "2026-01"}
+SPEC_EXAMPLE = {
+    "g12": {"last_labeled_t": "2024-12", "train": ["2023-01", "2023-06"], "calib": ["2023-07", "2023-09"],
+            "purge": ["2023-10", "2024-09"], "test": ["2024-10", "2024-12"], "train_months": 6},
+    "g6": {"last_labeled_t": "2025-06", "train": ["2023-01", "2024-06"], "calib": ["2024-07", "2024-09"],
+           "purge": ["2024-10", "2025-03"], "test": ["2025-04", "2025-06"], "train_months": 17},
+    "pen12": {"last_labeled_t": "2024-08", "train": ["2023-01", "2023-02"], "calib": ["2023-03", "2023-05"],
+              "purge": ["2023-06", "2024-05"], "test": ["2024-06", "2024-08"], "train_months": 2},
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("label", ["g12", "g6", "pen12"])
+def test_the_spec_example_at_v_2026_08(label):
+    expected = SPEC_EXAMPLE[label]
+    w = split_windows("2026-08", *_hb(label), CFG)
+    assert {k: w[k] for k in ("last_labeled_t", "train", "calib", "purge", "test")} == {
+        k: v for k, v in expected.items() if k != "train_months"
+    }
+    # The spec's table counts published training months (2023-12 was never published).
+    first, last = w["train"]
+    months = [shift(first, i) for i in range(_months(first, last))]
+    assert len([m for m in months if m not in NEVER_PUBLISHED]) == expected["train_months"]
+
+
+def test_the_g12_test_window_holds_an_unpublished_month():
+    # Spec §9.5: at V = 2026-08 the g12 test window is 2024-10 -> 12, and 2024-12 was never published.
+    assert split_windows("2026-08", *_hb("g12"), CFG)["test"] == ["2024-10", "2024-12"]
