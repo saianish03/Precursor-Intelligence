@@ -59,6 +59,11 @@ part. A small **toy silver world** with hand-written answers lets you test every
 verification report and warehouse publish (§11), `checks.yaml`. Who builds each is in §1. The manifest has rows
 per label status instead of per split until the splits exist.
 
+**Unverified until the §11 gate exists.** Spec §11 says gold/ holds only validated data, but the verification gate is
+not built yet. Every run therefore writes `"verified": false` (`VERIFIED` in `gold/build.py`) to
+`gold/_current.json`, `gold/dataset_manifest.json` and the run manifest. The gate sets it to `true` only when all its
+checks pass; until then nothing should train on the dataset, and the ML layer should refuse `verified: false`.
+
 **Features as built (this branch).** Every feature table and dataset partition is staged, checked (exactly the
 spine's rows of its month) and promoted with the spine and labels, and hashed in `gold/_current.json`, so take
 partitions from the names `_current.json` lists: a month left over from an earlier `--v` run stays on disk.
@@ -79,8 +84,8 @@ gold/spine/part-0.parquet                  # zstd; sorted by t, then ccn
 gold/labels/part-0.parquet                 # same rows, same order as the spine
 gold/features_<family>/t=YYYY-MM/part-0.parquet          # 5 families; one row per spine row of t
 gold/facility_month_dataset/t=YYYY-MM/part-0.parquet     # spine + features + labels (§10)
-gold/dataset_manifest.json                 # sources, flags, config hashes, git commit, rows per label status
-gold/_current.json                         # which run gold/ holds: state, run id, V, sha256 of each file
+gold/dataset_manifest.json                 # sources, flags, config hashes, git commit, rows per label status, verified
+gold/_current.json                         # which run gold/ holds: state, run id, V, verified, sha256 of each file
 gold/_staging/run=<run_id>/...            # what each run built and checked, same layout (kept)
 metadata/gold/run_date=<YYYY-MM-DD>/gold_run_<run_id>_<timestamp>.json   # one per run, never overwritten
 reports/gold/run=<run_id>/logs/<file>.json # the process log of each run

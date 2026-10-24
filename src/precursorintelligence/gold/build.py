@@ -50,6 +50,9 @@ SILVER_INPUTS = ("facility_universe", "facility_presence", "ledger_citations", "
 VINTAGE_RANGE = ("2021-01", "2026-12")
 STALE_REFRESH = "stale_refresh"
 CURRENT_KEY = "gold/_current.json"  # which run's spine and labels gold/ holds, written last
+# Spec §11: gold/ holds only validated data. The verification gate is not built yet, so every run marks its
+# outputs unverified; the gate sets this to True only when all its checks pass. ML must refuse verified=false.
+VERIFIED = False
 _YYYY_MM = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 
 
@@ -238,6 +241,7 @@ def _run(
             labels_cfg=labels_cfg,
             splits_cfg=splits_cfg,
             built_at=now,
+            verified=VERIFIED,
         )
         _put_json(ctx, f"gold/_staging/run={ctx.run_id}/{MANIFEST_NAME}", manifest)
         _promote(ctx, staged, result, {f"gold/{MANIFEST_NAME}": manifest})
@@ -313,6 +317,7 @@ def _promote(
         ctx,
         CURRENT_KEY,
         {"state": "current", "run_id": ctx.run_id, "v": result.v, "v_labels": result.v_labels,
+         "verified": VERIFIED,
          "sha256": result.outputs},
     )  # fmt: skip
 
@@ -372,6 +377,7 @@ def _write_manifest(
         "rows": result.rows,
         "outputs_sha256": result.outputs,
         "promoted": result.promoted,
+        "verified": VERIFIED,
         "error": error,
         "failures": result.failures,
     }

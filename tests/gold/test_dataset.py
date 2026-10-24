@@ -74,7 +74,7 @@ def test_the_manifest_is_the_same_for_the_same_inputs_but_the_timestamp(parts, t
     kwargs = dict(
         meta=meta, v=V, v_labels=V, partition_sha256={"facility_month_dataset/t=2025-03": "ab"},
         families=list(features), labels=labels, labels_cfg=load_labels_config(),
-        splits_cfg=load_splits_config(),
+        splits_cfg=load_splits_config(), verified=False,
     )  # fmt: skip
     a = dataset_manifest(**kwargs, built_at=datetime(2026, 1, 1, tzinfo=UTC))
     b = dataset_manifest(**kwargs, built_at=datetime(2026, 2, 1, tzinfo=UTC))
@@ -83,3 +83,4 @@ def test_the_manifest_is_the_same_for_the_same_inputs_but_the_timestamp(parts, t
     }
     assert a["rows_per_label_status"]["g12"]["positive"] == labels["y_g12"].sum()
     assert a["feature_families_pending"] == ["quality"]
+    assert a["verified"] is False

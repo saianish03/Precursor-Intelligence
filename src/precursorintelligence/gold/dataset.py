@@ -119,13 +119,18 @@ def dataset_manifest(
     labels_cfg: LabelsConfig,
     splits_cfg: SplitsConfig,
     built_at: datetime,
+    verified: bool,
 ) -> dict[str, Any]:
-    """``gold/dataset_manifest.json`` (spec §10.5). Only ``built_at`` changes between identical builds."""
+    """``gold/dataset_manifest.json`` (spec §10.5). Only ``built_at`` changes between identical builds.
+
+    ``verified`` is False until the spec §11 gate has passed on this dataset; nothing should train on it before.
+    """
     version = hashlib.sha256(
         "".join(f"{k}:{s}" for k, s in sorted(partition_sha256.items())).encode()
     ).hexdigest()[:16]
     return {
         "dataset_version": version,
+        "verified": verified,
         "v": v,
         "v_labels": v_labels,
         "spine_start": splits_cfg.spine_start,

@@ -107,6 +107,15 @@ def test_gold_builds_the_features_and_the_dataset(toy, monkeypatch, capsys):
     assert set(manifest["partitions_sha256"]) == {f"facility_month_dataset/t={t}" for t in months}
 
 
+def test_gold_marks_its_outputs_unverified_until_the_section_11_gate_exists(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
+    assert manifest["verified"] is False
+    assert read_current_gold(toy.store)["verified"] is False
+    (m,) = toy.manifests()
+    assert m["verified"] is False
+
+
 def test_a_rerun_with_the_same_silver_gives_byte_identical_gold(toy, monkeypatch):
     assert toy.gold(monkeypatch) == EXIT_OK
     first = (toy.sha("spine"), toy.sha("labels"))
