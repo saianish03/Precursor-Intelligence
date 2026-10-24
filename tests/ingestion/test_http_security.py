@@ -155,3 +155,11 @@ def test_retry_after_on_503_then_success(client_factory):
     fake.request = flaky
     client = client_factory(fake)
     assert client.head(client.download_url(rel)).size == len(body)
+
+
+def test_user_agent_names_the_project_and_the_real_client(tmp_path):
+    s = make_settings(tmp_path).sources
+    ua = SafeHttpClient(s.source, s.http, s.security).session.headers["User-Agent"]
+    assert ua.startswith("PrecursorIntelligence-ingest/") and "+https://github.com/" in ua
+    assert ua.endswith(f"python-requests/{requests.__version__}")
+    assert "httpx" not in ua

@@ -96,6 +96,12 @@ def _is_retryable(exc: BaseException) -> bool:
     )
 
 
+def user_agent(name: str) -> str:
+    """The configured name plus the real client token (``python-requests/<version>``): truthful about the
+    library that sends the request, and the CMS firewall rejects a UA without a known client token."""
+    return f"{name} {requests.utils.default_user_agent()}"
+
+
 class SafeHttpClient:
     def __init__(
         self,
@@ -113,7 +119,7 @@ class SafeHttpClient:
         self.session = session or requests.Session()
         if isinstance(self.session, requests.Session):
             self.session.headers.update(
-                {"User-Agent": http.user_agent, "Accept-Encoding": "identity"}
+                {"User-Agent": user_agent(http.user_agent), "Accept-Encoding": "identity"}
             )
             self.session.max_redirects = http.max_redirects
 
