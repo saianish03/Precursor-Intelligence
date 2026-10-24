@@ -42,8 +42,10 @@ def build_family(
         raise NotImplementedError(f"feature family {family!r} is not built yet")
     cfg = cfg or load_features_config()
     builder = FAMILIES[family]
+    # Each month gets a reader limited to it: row t can read nothing after t, whatever the family asks.
     parts = [
-        builder(reader, rows, t, cfg) for (t,), rows in spine.group_by("t", maintain_order=True)
+        builder(reader.limited_to(str(t)), rows, str(t), cfg)
+        for (t,), rows in spine.group_by("t", maintain_order=True)
     ]
     out = spine.select("ccn", "t").join(
         pl.concat(parts), on=["ccn", "t"], how="left", validate="1:1", maintain_order="left"

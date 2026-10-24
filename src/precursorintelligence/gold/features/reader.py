@@ -74,6 +74,14 @@ class FeatureReader:
             return None
         return self._load(table, vintage)
 
+    def limited_to(self, t: str) -> FeatureReader:
+        """A reader for the rows of month t: limit = min(this limit, t). It shares the loader and the read log,
+        so a family that reads past its own t fails in every run, not only in the time-travel test."""
+        limit = t if self.limit is None else min(self.limit, t)
+        child = FeatureReader(self._load, published=self.published, limit=limit)
+        child.reads = self.reads
+        return child
+
     @classmethod
     def from_frames(
         cls, silver: dict[str, pl.DataFrame], *, limit: str | None = None

@@ -3,9 +3,12 @@
 import sys
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from precursorintelligence.common.io.object_store import LocalObjectStore
+from precursorintelligence.gold import features
+from precursorintelligence.gold.build import build_spine
 from precursorintelligence.gold.features.reader import (
     FEATURE_INPUTS,
     FeatureReader,
@@ -14,7 +17,7 @@ from precursorintelligence.gold.features.reader import (
 )
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "gold"))  # the toy world lives in tests/gold
-from silver_fakes import VINTAGES, build_silver, write_silver  # noqa: E402
+from silver_fakes import VINTAGES, V, build_silver, write_silver  # noqa: E402
 
 FORBIDDEN = [
     "ledger_citations",
@@ -81,6 +84,32 @@ def test_a_limited_reader_refuses_anything_after_its_limit():
         r.read("provider_by_vintage", "2024-06")
     with pytest.raises(FeatureReadError, match="limit"):  # t−6 is allowed, but t itself is too late
         r.read("provider_by_vintage", "2024-11", months_back=6)
+
+
+def test_limited_to_narrows_the_limit_and_shares_the_read_log():
+    parent = FeatureReader.from_frames(build_silver(), limit="2024-08")
+    child = parent.limited_to("2024-06")
+    assert child.limit == "2024-06"
+    assert parent.limited_to("2025-01").limit == "2024-08"  # never widens the parent's limit
+    child.read("provider_by_vintage", "2024-06")
+    assert parent.reads == [("provider_by_vintage", "2024-06")]
+    with pytest.raises(FeatureReadError, match="limit 2024-06"):
+        child.read("provider_by_vintage", "2024-07")
+
+
+def test_a_family_that_reads_after_its_own_t_fails_even_when_that_month_is_before_v(monkeypatch):
+    silver = build_silver()
+    spine = build_spine(
+        silver["facility_universe"], published_vintages=VINTAGES, spine_start="2023-01", v=V
+    ).filter(pl.col("t") == "2024-05")
+
+    def peeks_ahead(reader, rows, t, cfg):
+        reader.read("provider_by_vintage", shift_month(t, 1))  # 2024-06 <= V = 2025-03
+        return rows.select("ccn", "t")
+
+    monkeypatch.setitem(features.FAMILIES, "survey_timing", peeks_ahead)
+    with pytest.raises(FeatureReadError, match="past the limit 2024-05"):
+        features.build_family("survey_timing", FeatureReader.from_frames(silver, limit=V), spine)
 
 
 def test_store_reader_opens_only_the_partition_it_needs(tmp_path):
