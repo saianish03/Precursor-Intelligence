@@ -1,4 +1,10 @@
-# Spine and split rules for gold (docs/DATA_PIPELINE_SPEC.md §7, §9.5).
-# Train/calib/test windows are added with the splits step.
+# Spine and split rules for gold (docs/DATA_PIPELINE_SPEC.md §7, §9.3, §9.5).
+# Per label, windows are calendar months ending at last_labeled_t = V - (H + B): test = the last test_months
+# months, purge = the H months before test, calib = the calib_months before purge, train = from spine_start up to
+# calib; every later row is score. Recomputed from V on every run.
 
-spine_start: "2023-01"   # first prediction month t; 2021-2022 are history only
+spine_start: "2023-01"   # first prediction month t, and where training starts; 2021-2022 are history only
+                         # (2022-01 is the spec's recommendation, §14 #10: not decided yet)
+test_months: 3           # §14 #11: 6 only if training starts in 2022-01
+calib_months: 3
+required_labels: [g12, g6]   # gold stops (exit 2) when one of these has no training month; pen12 is reported only
