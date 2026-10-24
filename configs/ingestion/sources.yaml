@@ -52,7 +52,7 @@ extract:
   only_in_scope: true                      # other members are inventoried from the zip directory only
 
 http:
-  user_agent: "PrecursorIntelligence-ingest/0.1 (academic MLOps project)"
+  user_agent: "precursorintelligence-ingest/0.1 python-httpx/0.28.1"   # CMS WAF 403s UAs without a known client token (2026-10-22)
   connect_timeout_s: 10
   read_timeout_s: 120
   max_retries: 5
