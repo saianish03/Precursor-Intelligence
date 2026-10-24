@@ -118,3 +118,35 @@ def test_citations_after_the_cutoff_are_ignored(silver, spine):
     before = _row(build_features("citations", silver, spine), ccn, "2024-09")
     after = _row(build_features("citations", world, spine), ccn, "2024-09")
     assert after == before
+
+
+@pytest.fixture
+def gplus_from_labels(monkeypatch):
+    """Point the features' G+ set at a stand-in labels.yaml (the helper caches the real one)."""
+    from precursorintelligence.common.config import load_labels_config
+    from precursorintelligence.gold.features import common
+
+    def use(letters):
+        cfg = load_labels_config().model_copy(update={"gplus_severities": letters})
+        monkeypatch.setattr(common, "load_labels_config", lambda: cfg)
+        common.gplus_min_ordinal.cache_clear()
+
+    yield use
+    common.gplus_min_ordinal.cache_clear()
+
+
+def test_g_plus_comes_from_labels_yaml(silver, spine, gplus_from_labels):
+    gplus_from_labels(["H", "I", "J", "K", "L"])  # Sunny Acres' G no longer counts
+    row = _row(build_features("citations", silver, spine), "015001", "2023-08")
+    assert (row["max_sev_last_std"], row["gplus_last_std"]) == (7.0, False)
+    assert row["n_gplus_surveys_36m"] == 0 and row["days_since_last_gplus"] is None
+    ctx = build_features("context", silver, spine)
+    assert set(ctx.filter(pl.col("t") == "2023-08")["state_gplus_rate_12m"]) == {0.0}
+
+
+def test_a_g_plus_set_with_a_gap_is_refused(silver, spine, gplus_from_labels):
+    from precursorintelligence.common.config import ConfigError
+
+    gplus_from_labels(["G", "J", "K", "L"])
+    with pytest.raises(ConfigError, match="every letter above it"):
+        build_features("citations", silver, spine)

@@ -5,7 +5,8 @@
 # domain, scope/severity grid). The substandard-quality-of-care uplift is ignored.
 severity_points: {A: 0, B: 0, C: 0, D: 4, E: 8, F: 16, G: 20, H: 35, I: 45, J: 50, K: 100, L: 150}
 severity_bands: {AC: [A, B, C], DF: [D, E, F], GI: [G, H, I], JL: [J, K, L]}
-# Ordinal severity (A = 1 ... L = 12) and G+ (ordinal >= 7) are fixed by the letters, not configured.
+# Ordinal severity (A = 1 ... L = 12) is fixed by the letters. G+ is not set here: features read
+# labels.yaml gplus_severities, the set the labels use, so the two never disagree.
 
 std_survey_due_days: 456          # a standard survey is due within 15.9 months (spec §8.2)
 occupancy_cap: 1.5                # avg_residents_per_day / certified_beds, capped (spec §8.5)

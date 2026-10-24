@@ -2,12 +2,34 @@
 
 from __future__ import annotations
 
+from functools import cache
+
 import polars as pl
 
-from ...common.config import FeaturesConfig
+from ...common.config import ConfigError, FeaturesConfig, load_labels_config
 from .. import GoldCheckError
 
 CUTOFF = pl.col("cutoff_date")
+SEVERITIES = "ABCDEFGHIJKL"  # ordinal severity: A = 1 ... L = 12 (spec §8.1)
+
+
+@cache
+def gplus_min_ordinal() -> int:
+    """The ordinal of the least severe G+ letter, from ``configs/labels.yaml: gplus_severities``, the set the
+    labels use, so features and labels never disagree on what G+ is. Features test ``max severity >= it``, which
+    equals "any G+" only when the set is a letter and everything above it, so any other set is refused."""
+    letters = sorted(load_labels_config().gplus_severities)
+    start = SEVERITIES.index(letters[0])
+    if letters != list(SEVERITIES[start:]):
+        raise ConfigError(
+            f"labels.yaml gplus_severities {letters} must be one letter and every letter above it"
+        )
+    return start + 1
+
+
+def gplus_severities() -> list[str]:
+    """The G+ letters (from labels.yaml), e.g. G-L."""
+    return list(SEVERITIES[gplus_min_ordinal() - 1 :])
 
 
 def within(date_col: str, months: int) -> pl.Expr:

@@ -10,10 +10,9 @@ import polars as pl
 
 from ...common.config import FeaturesConfig
 from . import citations, facility_staffing
-from .common import attach, within
+from .common import attach, gplus_severities, within
 from .reader import FeatureReader
 
-GPLUS = citations.SEVERITIES[citations.GPLUS_ORDINAL - 1 :]  # G-L
 COLUMNS = [
     "state_gplus_rate_12m", "state_median_hprd_total", "rel_hprd_total", "rel_sev_points_24m",
     "era", "penalty_regime_2025_10",
@@ -27,7 +26,7 @@ def build(reader: FeatureReader, rows: pl.DataFrame, t: str, cfg: FeaturesConfig
     assert raw is not None
     gplus_12m = (
         raw.filter(
-            pl.col("scope_severity").is_in(list(GPLUS)),
+            pl.col("scope_severity").is_in(gplus_severities()),
             within("survey_date", 12),
             pl.col("survey_date") <= pl.col("cutoff_date"),
         )

@@ -12,12 +12,10 @@ import polars as pl
 
 from ...common.config import FeaturesConfig
 from ...harmonize.columns import load_silver_config
-from .common import attach, days_since, fill_zero, within
+from .common import SEVERITIES, attach, days_since, fill_zero, gplus_min_ordinal, within
 from .reader import FeatureReader
 from .survey_timing import STANDARD
 
-SEVERITIES = "ABCDEFGHIJKL"
-GPLUS_ORDINAL = 7  # G
 COLUMNS = [
     "n_cit_12m", "n_cit_24m", "n_cit_AC_24m", "n_cit_DF_24m", "n_cit_GI_24m", "n_cit_JL_24m",
     "sev_points_12m", "sev_points_24m", "sev_points_per_bed_24m",
@@ -72,7 +70,8 @@ def build(reader: FeatureReader, rows: pl.DataFrame, t: str, cfg: FeaturesConfig
         complaint=pl.col("is_complaint").fill_null(False),
     )
     w12, w24, w36 = (within("survey_date", m) for m in (12, 24, 36))
-    gplus = pl.col("ordinal") >= GPLUS_ORDINAL
+    gplus_from = gplus_min_ordinal()  # G with labels.yaml's G-L
+    gplus = pl.col("ordinal") >= gplus_from
     category = pl.col("deficiency_category")
 
     def count(cond: pl.Expr) -> pl.Expr:
@@ -138,8 +137,8 @@ def build(reader: FeatureReader, rows: pl.DataFrame, t: str, cfg: FeaturesConfig
             ),
         )
         .with_columns(
-            gplus_last_std=pl.col("max_sev_last_std") >= GPLUS_ORDINAL,
-            gplus_prev_std=pl.col("max_sev_prev_std") >= GPLUS_ORDINAL,
+            gplus_last_std=pl.col("max_sev_last_std") >= gplus_from,
+            gplus_prev_std=pl.col("max_sev_prev_std") >= gplus_from,
         )
         .select("ccn", "t", *COLUMNS)
     )
