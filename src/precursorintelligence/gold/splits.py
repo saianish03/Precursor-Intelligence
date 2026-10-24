@@ -20,7 +20,7 @@ from typing import Any, cast
 
 import polars as pl
 
-from ..common.config import LabelsConfig, SplitsConfig
+from ..common.config import ConfigError, LabelsConfig, SplitsConfig
 
 SPLITS = ("train", "calib", "purge", "test", "score")
 
@@ -78,6 +78,18 @@ def _split_expr(windows: dict[str, Any]) -> pl.Expr:
     for condition, split in branches:
         expr = expr.when(condition).then(pl.lit(split))
     return cast(pl.Expr, expr.otherwise(pl.lit(None, dtype=pl.String)))
+
+
+def check_required_labels(labels_cfg: LabelsConfig, splits_cfg: SplitsConfig) -> None:
+    """Every required label must be a label in labels.yaml (a ConfigError, exit 3)."""
+    unknown = sorted(set(splits_cfg.required_labels) - set(labels_cfg.labels))
+    if unknown:
+        raise ConfigError(f"splits.yaml required_labels {unknown} are not labels in labels.yaml")
+
+
+def labels_without_training(labels: pl.DataFrame, required: list[str]) -> list[str]:
+    """The required labels with no ``train`` row: gold must not publish then (spec §9.5)."""
+    return [n for n in required if not (labels[f"split_{n}"] == "train").any()]
 
 
 def add_splits(

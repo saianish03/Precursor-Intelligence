@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -45,7 +46,14 @@ from .features import FAMILIES, FAMILY_ORDER, build_family
 from .features.reader import FeatureReader
 from .labels import build_labels
 from .spine import build_spine
-from .splits import add_splits
+from .splits import (
+    add_splits,
+    check_required_labels,
+    label_windows,
+    labels_without_training,
+)
+
+log = logging.getLogger(__name__)
 
 SILVER_INPUTS = ("facility_universe", "facility_presence", "ledger_citations", "ledger_penalties")
 # spec §0.5: vintages from 2021-01; project scope is 2021-2026
@@ -67,6 +75,9 @@ class GoldResult:
     outputs: dict[str, str] = field(default_factory=dict)  # name -> sha256 of the promoted file
     failures: list[str] = field(default_factory=list)
     promoted: bool = False
+    split_windows: dict[str, Any] = field(
+        default_factory=dict
+    )  # label -> its split months (spec §9.5)
     manifest_key: str = ""
 
     @property
@@ -201,6 +212,7 @@ def _run(
         sink = ParquetTableSink(ctx.object_store, prefix="silver")
         published = published_vintages(sink)
         result.v = resolve_v(published, v, splits_cfg.spine_start)
+        check_required_labels(labels_cfg, splits_cfg)
         not_current = stale_silver(ctx, sink)
         if not_current:
             raise GoldCheckError(
@@ -227,6 +239,19 @@ def _run(
         )
         # Splits are measured from the label vintage, like maturity, so score rows are the immature ones.
         labels = add_splits(labels, result.v_labels, labels_cfg, splits_cfg)
+        result.split_windows = label_windows(result.v_labels, labels_cfg, splits_cfg)
+        if not splits_cfg.required_labels:  # never silent: also in the run manifest (split_gate)
+            log.warning("split gate disabled: no required labels")
+        untrainable = labels_without_training(labels, splits_cfg.required_labels)
+        if untrainable:  # spec §9.5: gold refuses to publish
+            raise GoldCheckError(
+                "no training month for the required labels "
+                + ", ".join(
+                    f"{n} (train window {result.split_windows[n]['train']})" for n in untrainable
+                )
+                + f": every training window ends before spine_start {splits_cfg.spine_start} "
+                "(spec §9.5, §14 #10)"
+            )
         # Features read silver only through the reader, which refuses anything after V (spec §8, §11.3).
         reader = FeatureReader.from_store(ctx.object_store, published=published, limit=result.v)
         features_cfg = load_features_config()
@@ -374,6 +399,11 @@ def _write_manifest(
         "v": result.v,
         "v_labels": result.v_labels,
         "stale_refresh_skipped": stale,
+        "split_windows": result.split_windows,
+        "split_gate": {
+            "required_labels": splits_cfg.required_labels,
+            "enabled": bool(splits_cfg.required_labels),
+        },
         CHECK_NAME: {  # null when the run stopped before the check
             "passed": None if not_current is None else not not_current,
             "missing": not_current or [],

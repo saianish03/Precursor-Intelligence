@@ -25,7 +25,7 @@ from precursorintelligence.gold.features.reader import FEATURE_INPUTS
 from precursorintelligence.ingestion.context import build_context
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "gold"))  # the toy world lives in tests/gold
-from make_toy_silver import TOY_SPLITS, make_toy  # noqa: E402
+from make_toy_silver import TOY_SPLITS, make_toy, no_gate_splits  # noqa: E402
 
 GOLD_SRC = project_root() / "src" / "precursorintelligence" / "gold"
 ALLOWED = {"facility_universe", "facility_presence", "ledger_citations", "ledger_penalties"}
@@ -113,7 +113,9 @@ def test_a_run_with_an_earlier_v_reads_no_feature_input_after_it(tmp_path):
     result = run_gold(
         ctx,
         labels_cfg=load_labels_config(),
-        splits_cfg=load_splits_config(env.parent / TOY_SPLITS),
+        splits_cfg=load_splits_config(
+            no_gate_splits(env.parent)
+        ),  # no toy training month at 2024-06
         v="2024-06",
     )
     assert result.exit_code == 0, result.failures

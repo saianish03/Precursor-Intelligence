@@ -62,6 +62,15 @@ def make_toy(root: Path, stale: tuple[str, ...] = ()) -> Path:
     return env_file
 
 
+def no_gate_splits(root: Path) -> Path:
+    """The toy splits.yaml with ``required_labels: []`` (gate off), for tests that run gold at an earlier or
+    stale V, where the toy world has no training month for any label."""
+    path = root / "splits_no_gate.yaml"
+    cfg = load_splits_config(root / TOY_SPLITS).model_copy(update={"required_labels": []})
+    path.write_text(yaml.safe_dump(cfg.model_dump(), sort_keys=False), encoding="utf-8")
+    return path
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
