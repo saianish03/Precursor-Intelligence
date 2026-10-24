@@ -54,6 +54,26 @@ def test_fines_leave_the_24_month_window(enf):
     assert _row(enf, "015001", V)["n_fines_24m"] == 1
 
 
+def test_penalties_after_the_cutoff_are_ignored(silver, spine):
+    # Silver keeps a few events dated just after their file's cutoff (SILVER_CONTRACT §9); a feature must not.
+    late = pl.DataFrame(
+        {
+            "ccn": ["015004", "015004"], "penalty_date": [date(2024, 6, 5), date(2024, 6, 9)],
+            "penalty_type": ["Fine", "Payment Denial"], "fine_amount": [9000.0, None],
+            "payment_denial_start_date": [None, date(2024, 6, 9)],
+            "payment_denial_length_days": [None, 20.0], "fine_id": [None, None], "dup_seq": [1, 1],
+            "penalty_event_key": ["015004|2024-06-05|late", "015004|2024-06-09|late"],
+            "vintage_month": ["2024-06"] * 2, "cutoff_date": [cutoff("2024-06")] * 2,
+        },
+        schema=silver["penalties_by_vintage"].schema,
+    )  # fmt: skip
+    world = silver | {"penalties_by_vintage": pl.concat([silver["penalties_by_vintage"], late])}
+    row = _row(build_features("enforcement", world, spine), "015004", "2024-06")
+    assert row == _row(build_features("enforcement", silver, spine), "015004", "2024-06")
+    assert (row["n_fines_24m"], row["n_denials_24m"], row["any_penalty_36m"]) == (0, 0, False)
+    assert row["days_since_last_penalty"] is None
+
+
 def test_payment_denials(silver, spine):
     denial = pl.DataFrame(
         {
