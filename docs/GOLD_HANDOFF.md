@@ -84,7 +84,7 @@ gold/spine/part-0.parquet                  # zstd; sorted by t, then ccn
 gold/labels/part-0.parquet                 # same rows, same order as the spine
 gold/features_<family>/t=YYYY-MM/part-0.parquet          # 5 families; one row per spine row of t
 gold/facility_month_dataset/t=YYYY-MM/part-0.parquet     # spine + features + labels (§10)
-gold/dataset_manifest.json                 # sources, flags, config hashes, git commit, rows per label status, verified
+gold/dataset_manifest.json                 # sources, flags, config hashes, git commit and dirty flag, rows per label status, verified
 gold/_current.json                         # which run gold/ holds: state, run id, V, verified, sha256 of each file
 gold/_staging/run=<run_id>/...            # what each run built and checked, same layout (kept)
 metadata/gold/run_date=<YYYY-MM-DD>/gold_run_<run_id>_<timestamp>.json   # one per run, never overwritten

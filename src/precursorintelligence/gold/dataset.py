@@ -12,6 +12,7 @@ import os
 import subprocess
 from collections.abc import Mapping
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import polars as pl
@@ -57,21 +58,29 @@ def _sha256_file(name: str) -> str:
     return hashlib.sha256((project_root() / "configs" / name).read_bytes()).hexdigest()
 
 
-def git_commit() -> str | None:
-    """The commit the code was built from: ``PI_GIT_COMMIT``, else ``git rev-parse HEAD``, else None."""
-    if os.environ.get(GIT_COMMIT_ENV):
-        return os.environ[GIT_COMMIT_ENV]
+def _git(args: list[str], cwd: Path) -> str | None:
     try:
-        out = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=project_root(),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        out = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
     except (OSError, subprocess.CalledProcessError):
         return None
-    return out.stdout.strip() or None
+    return out.stdout
+
+
+def git_state(cwd: Path | None = None) -> tuple[str | None, bool | None]:
+    """(commit, dirty): the commit the code was built from, and whether the working tree differed from it.
+
+    ``PI_GIT_COMMIT`` (images carry no .git) gives the commit with dirty unknown (None). Otherwise
+    ``git rev-parse HEAD``; dirty = any tracked change or untracked file that git does not ignore, so a manifest
+    never names a commit the running code does not match without saying so. (None, None) outside a checkout.
+    """
+    if os.environ.get(GIT_COMMIT_ENV):
+        return os.environ[GIT_COMMIT_ENV], None
+    cwd = cwd or project_root()
+    head = _git(["rev-parse", "HEAD"], cwd)
+    if not head or not head.strip():
+        return None, None
+    status = _git(["status", "--porcelain", "--untracked-files=normal"], cwd)
+    return head.strip(), None if status is None else bool(status.strip())
 
 
 def _sources(meta: MetadataStore, v: str) -> list[dict[str, Any]]:
@@ -125,6 +134,7 @@ def dataset_manifest(
 
     ``verified`` is False until the spec §11 gate has passed on this dataset; nothing should train on it before.
     """
+    commit, dirty = git_state()
     version = hashlib.sha256(
         "".join(f"{k}:{s}" for k, s in sorted(partition_sha256.items())).encode()
     ).hexdigest()[:16]
@@ -141,7 +151,8 @@ def dataset_manifest(
         "sources": _sources(meta, v),
         "flags": _flags(meta, v),
         "config_sha256": {name: _sha256_file(name) for name in HASHED_CONFIGS},
-        "git_commit": git_commit(),
+        "git_commit": commit,
+        "git_dirty": dirty,
         "rows": {"total": labels.height, "months": labels["t"].n_unique()},
         "rows_per_label_status": _status_counts(labels, labels_cfg),
         "partitions_sha256": dict(sorted(partition_sha256.items())),

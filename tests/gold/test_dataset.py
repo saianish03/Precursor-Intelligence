@@ -84,3 +84,46 @@ def test_the_manifest_is_the_same_for_the_same_inputs_but_the_timestamp(parts, t
     assert a["rows_per_label_status"]["g12"]["positive"] == labels["y_g12"].sum()
     assert a["feature_families_pending"] == ["quality"]
     assert a["verified"] is False
+    assert set(a) >= {"git_commit", "git_dirty"}
+
+
+def _repo(tmp_path):
+    import subprocess
+
+    def git(*args):
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (tmp_path / ".gitignore").write_text("data/\n")
+    (tmp_path / "code.py").write_text("x = 1\n")
+    git("add", ".")
+    git("commit", "-q", "-m", "init")
+    return tmp_path
+
+
+def test_git_state_marks_a_dirty_working_tree(tmp_path, monkeypatch):
+    from precursorintelligence.gold.dataset import GIT_COMMIT_ENV, git_state
+
+    monkeypatch.delenv(GIT_COMMIT_ENV, raising=False)
+    repo = _repo(tmp_path)
+    commit, dirty = git_state(repo)
+    assert commit and len(commit) == 40 and dirty is False
+    (repo / "data").mkdir()
+    (repo / "data" / "big.parquet").write_text("ignored")  # git-ignored files are not a change
+    assert git_state(repo) == (commit, False)
+    (repo / "code.py").write_text("x = 2\n")  # a tracked change
+    assert git_state(repo) == (commit, True)
+    (repo / "code.py").write_text("x = 1\n")
+    (repo / "new.py").write_text("y = 1\n")  # new code git does not ignore
+    assert git_state(repo) == (commit, True)
+
+
+def test_git_state_without_a_checkout(tmp_path, monkeypatch):
+    from precursorintelligence.gold.dataset import GIT_COMMIT_ENV, git_state
+
+    monkeypatch.delenv(GIT_COMMIT_ENV, raising=False)
+    assert git_state(tmp_path) == (None, None)
+    monkeypatch.setenv(GIT_COMMIT_ENV, "abc123")  # images: the commit is known, the tree is not
+    assert git_state(tmp_path) == ("abc123", None)
