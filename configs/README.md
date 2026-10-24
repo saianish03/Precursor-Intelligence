@@ -7,7 +7,7 @@
 | `logging.yaml` | ✅ in use | Standard-library logging config (console text/JSON + per-run JSON-lines file) |
 | `ingestion/sources.yaml` | ✅ in use | Step 1: CMS endpoints, scope dates, the 7 in-scope tables (file patterns, dataset IDs), HTTP and security limits |
 | `labels.yaml` | ✅ in use | Gold labels: G+ severities, horizons, maturity buffers (B_cit, B_pen), strict censoring |
-| `splits.yaml` | ✅ in use | Gold spine start (`spine_start`); split windows to follow |
+| `splits.yaml` | ✅ in use | Gold spine and training start (`spine_start`), `test_months`, `calib_months`, and `required_labels` (gold stops when one has no training month; `[]` turns the gate off). `precursor-pipeline gold --splits-config` reads another file |
 | `base.yaml` | planned | Shared project settings: project, region, bucket names, BigQuery datasets |
 | `column_map.yaml` | ✅ in use | Silver: raw CMS header → canonical column per table, with vintage ranges and dtype (`to: null` = still valid) |
 | `keep_columns.yaml` | ✅ in use | Silver: the columns each silver table keeps, and its within-vintage key |
