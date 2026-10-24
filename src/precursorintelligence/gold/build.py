@@ -24,6 +24,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import polars as pl
@@ -145,8 +146,11 @@ def run_gold(
     v: str | None = None,
     own_lock: bool = True,
     now: datetime | None = None,
+    splits_file: Path | None = None,
 ) -> GoldResult:
-    """``own_lock=True``: take the run lock for this call (RunLockHeldError if another run holds it).
+    """``splits_file``: the file ``splits_cfg`` came from when it is not ``configs/splits.yaml`` (the dataset
+    manifest hashes the file actually used).
+    ``own_lock=True``: take the run lock for this call (RunLockHeldError if another run holds it).
     ``own_lock=False`` (DAG task): the run must already hold it (RunLockNotHeldError otherwise).
     Data and gate problems are returned (exit 2); a bad ``v`` raises ConfigError (exit 3)."""
     now = now or datetime.now(UTC)
@@ -159,7 +163,7 @@ def run_gold(
             acquired = False
         try:
             with task_scope(ctx, "gold") as detail:
-                result = _run(ctx, labels_cfg, splits_cfg, v, now)
+                result = _run(ctx, labels_cfg, splits_cfg, v, now, splits_file)
                 # run_log marks the step failed when it reports failures (task_scope on dev)
                 detail.update(rows=result.rows, failed=len(result.failures))
                 return result
@@ -182,7 +186,12 @@ def _read(ctx: Context, key: str) -> pl.DataFrame:
 
 
 def _run(
-    ctx: Context, labels_cfg: LabelsConfig, splits_cfg: SplitsConfig, v: str | None, now: datetime
+    ctx: Context,
+    labels_cfg: LabelsConfig,
+    splits_cfg: SplitsConfig,
+    v: str | None,
+    now: datetime,
+    splits_file: Path | None = None,
 ) -> GoldResult:
     result = GoldResult(run_id=ctx.run_id)
     published: list[str] = []
@@ -245,6 +254,7 @@ def _run(
             splits_cfg=splits_cfg,
             built_at=now,
             verified=VERIFIED,
+            config_files={"splits.yaml": splits_file} if splits_file else None,
         )
         _put_json(ctx, f"gold/_staging/run={ctx.run_id}/{MANIFEST_NAME}", manifest)
         _promote(ctx, staged, result, {f"gold/{MANIFEST_NAME}": manifest})

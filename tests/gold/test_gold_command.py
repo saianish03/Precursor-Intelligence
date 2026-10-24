@@ -6,7 +6,7 @@ import sys
 
 import polars as pl
 import pytest
-from make_toy_silver import make_toy
+from make_toy_silver import TOY_SPLITS, make_toy
 
 from precursorintelligence.common.config import (
     load_labels_config,
@@ -42,13 +42,22 @@ class Toy:
     def __init__(self, root, stale=()):
         self.root = root
         self.env_file = str(make_toy(root, stale))
+        self.splits_file = str(root / TOY_SPLITS)
         self.store = LocalObjectStore(root, immutable=None)
         self.meta = SqlAlchemyMetadataStore(
             f"sqlite:///{(root / 'ops' / 'metadata.db').as_posix()}"
         )
 
     def gold(self, monkeypatch, *extra):
-        return run(monkeypatch, "gold", "--env-file", self.env_file, *extra)
+        return run(
+            monkeypatch,
+            "gold",
+            "--env-file",
+            self.env_file,
+            "--splits-config",
+            self.splits_file,
+            *extra,
+        )
 
     def read(self, name):
         return pl.read_parquet(self.root / "gold" / name / "part-0.parquet")
@@ -260,7 +269,12 @@ def test_a_failure_during_promotion_is_never_read_as_a_valid_gold(toy, monkeypat
 
     monkeypatch.setattr(ctx.object_store, "put_bytes", put)
     with pytest.raises(OSError, match="injected"):
-        run_gold(ctx, labels_cfg=load_labels_config(), splits_cfg=load_splits_config(), v="2024-06")
+        run_gold(
+            ctx,
+            labels_cfg=load_labels_config(),
+            splits_cfg=load_splits_config(toy.splits_file),
+            v="2024-06",
+        )
 
     assert toy.read("spine")["t"].max() == "2024-06"  # new spine, old labels: torn
     assert toy.read("labels")["t"].max() == "2025-03"
@@ -304,3 +318,19 @@ def test_gold_labels_carry_a_split_column_per_label(toy, monkeypatch):
         toy.root / "gold" / "facility_month_dataset" / "t=2023-01" / "part-0.parquet"
     )
     assert {"split_g12", "split_g6", "split_pen12"} <= set(dataset.columns)
+
+
+def test_splits_config_is_read_from_the_given_file_and_hashed_in_the_dataset_manifest(
+    toy, monkeypatch
+):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
+    sha = hashlib.sha256((toy.root / TOY_SPLITS).read_bytes()).hexdigest()
+    assert manifest["config_sha256"]["splits.yaml"] == sha
+    assert toy.manifests()[0]["configs"]["splits"]["required_labels"] == ["g6"]
+
+
+def test_a_missing_splits_config_is_a_config_error(toy, monkeypatch, capsys):
+    toy.splits_file = str(toy.root / "no-such-splits.yaml")
+    assert toy.gold(monkeypatch) == EXIT_CONFIG
+    assert "config error" in capsys.readouterr().err

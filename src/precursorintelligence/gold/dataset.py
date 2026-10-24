@@ -54,8 +54,8 @@ def by_t(df: pl.DataFrame) -> dict[str, pl.DataFrame]:
     return {t: part for (t,), part in sorted(df.group_by("t"), key=lambda kv: str(kv[0][0]))}
 
 
-def _sha256_file(name: str) -> str:
-    return hashlib.sha256((project_root() / "configs" / name).read_bytes()).hexdigest()
+def _sha256_file(name: str, path: Path | None = None) -> str:
+    return hashlib.sha256((path or project_root() / "configs" / name).read_bytes()).hexdigest()
 
 
 def _git(args: list[str], cwd: Path) -> str | None:
@@ -129,10 +129,13 @@ def dataset_manifest(
     splits_cfg: SplitsConfig,
     built_at: datetime,
     verified: bool,
+    config_files: Mapping[str, Path] | None = None,
 ) -> dict[str, Any]:
     """``gold/dataset_manifest.json`` (spec §10.5). Only ``built_at`` changes between identical builds.
 
     ``verified`` is False until the spec §11 gate has passed on this dataset; nothing should train on it before.
+    ``config_files`` names a config read from somewhere other than ``configs/`` (e.g. ``--splits-config``), so
+    its hash is the hash of the file actually used.
     """
     commit, dirty = git_state()
     version = hashlib.sha256(
@@ -150,7 +153,9 @@ def dataset_manifest(
         "feature_families_pending": [f for f in FAMILY_ORDER if f not in families],
         "sources": _sources(meta, v),
         "flags": _flags(meta, v),
-        "config_sha256": {name: _sha256_file(name) for name in HASHED_CONFIGS},
+        "config_sha256": {
+            name: _sha256_file(name, (config_files or {}).get(name)) for name in HASHED_CONFIGS
+        },
         "git_commit": commit,
         "git_dirty": dirty,
         "rows": {"total": labels.height, "months": labels["t"].n_unique()},

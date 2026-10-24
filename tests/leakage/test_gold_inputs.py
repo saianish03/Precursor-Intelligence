@@ -25,7 +25,7 @@ from precursorintelligence.gold.features.reader import FEATURE_INPUTS
 from precursorintelligence.ingestion.context import build_context
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "gold"))  # the toy world lives in tests/gold
-from make_toy_silver import make_toy  # noqa: E402
+from make_toy_silver import TOY_SPLITS, make_toy  # noqa: E402
 
 GOLD_SRC = project_root() / "src" / "precursorintelligence" / "gold"
 ALLOWED = {"facility_universe", "facility_presence", "ledger_citations", "ledger_penalties"}
@@ -87,7 +87,9 @@ def test_a_gold_run_reads_nothing_but_the_allowed_inputs(tmp_path):
     ctx = build_context(load_settings(env_path=env))
     store = RecordingStore(tmp_path / "toy")
     ctx = dataclasses.replace(ctx, object_store=store)
-    result = run_gold(ctx, labels_cfg=load_labels_config(), splits_cfg=load_splits_config())
+    result = run_gold(
+        ctx, labels_cfg=load_labels_config(), splits_cfg=load_splits_config(env.parent / TOY_SPLITS)
+    )
     assert result.exit_code == 0, result.failures
 
     silver_reads = {k for k in store.reads if not k.startswith(f"gold/_staging/run={ctx.run_id}/")}
@@ -109,7 +111,10 @@ def test_a_run_with_an_earlier_v_reads_no_feature_input_after_it(tmp_path):
     store = RecordingStore(tmp_path / "toy")
     ctx = dataclasses.replace(ctx, object_store=store)
     result = run_gold(
-        ctx, labels_cfg=load_labels_config(), splits_cfg=load_splits_config(), v="2024-06"
+        ctx,
+        labels_cfg=load_labels_config(),
+        splits_cfg=load_splits_config(env.parent / TOY_SPLITS),
+        v="2024-06",
     )
     assert result.exit_code == 0, result.failures
     vintages = {k.split("vintage=")[1][:7] for k in store.reads if "/vintage=" in k}
