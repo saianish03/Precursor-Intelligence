@@ -82,7 +82,38 @@ def test_gold_builds_spine_and_labels_and_records_the_run(toy, monkeypatch, caps
     assert maple.select("t", "y_g12").rows() == [("2023-02", 0), ("2023-03", 1)]
     (m,) = toy.manifests()
     assert (m["exit_code"], m["v"], m["v_labels"], m["promoted"]) == (0, "2025-03", "2025-03", True)
-    assert m["outputs_sha256"] == {"spine": toy.sha("spine"), "labels": toy.sha("labels")}
+    assert m["outputs_sha256"] == {name: toy.sha(name) for name in m["outputs_sha256"]}
+    assert {"spine", "labels", "facility_month_dataset/t=2025-03"} <= set(m["outputs_sha256"])
+
+
+def test_gold_builds_the_features_and_the_dataset(toy, monkeypatch, capsys):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    out = capsys.readouterr().out
+    assert (
+        "gold/features_citations: 109 rows" in out
+        and "gold/facility_month_dataset: 109 rows" in out
+    )
+    months = sorted(set(toy.read("spine")["t"]))
+    for table in ("features_enforcement", "facility_month_dataset"):
+        parts = sorted(p.name.removeprefix("t=") for p in (toy.root / "gold" / table).iterdir())
+        assert parts == months
+    ds = toy.read("facility_month_dataset/t=2024-01")
+    assert ds.columns[:3] == ["ccn", "t", "cutoff_date"] and ds.columns[-1] == "status_pen12"
+    oak = ds.filter(pl.col("ccn") == "015002").row(0, named=True)
+    assert (oak["n_fines_24m"], oak["y_g12"]) == (2, None)  # immature at t = 2024-01
+    manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
+    assert manifest["feature_families_pending"] == ["quality"]
+    assert manifest["flags"] == {} and manifest["rows"] == {"total": 109, "months": 26}
+    assert set(manifest["partitions_sha256"]) == {f"facility_month_dataset/t={t}" for t in months}
+
+
+def test_gold_marks_its_outputs_unverified_until_the_section_11_gate_exists(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
+    assert manifest["verified"] is False
+    assert read_current_gold(toy.store)["verified"] is False
+    (m,) = toy.manifests()
+    assert m["verified"] is False
 
 
 def test_a_rerun_with_the_same_silver_gives_byte_identical_gold(toy, monkeypatch):
@@ -91,6 +122,8 @@ def test_a_rerun_with_the_same_silver_gives_byte_identical_gold(toy, monkeypatch
     assert toy.gold(monkeypatch) == EXIT_OK
     assert (toy.sha("spine"), toy.sha("labels")) == first
     assert len(toy.manifests()) == 2  # one manifest per run
+    a, b = toy.manifests()
+    assert a["outputs_sha256"] == b["outputs_sha256"]  # every feature and dataset partition too
 
 
 def test_a_stale_v_measures_labels_from_the_last_fresh_vintage(tmp_path, monkeypatch, capsys):
@@ -236,10 +269,8 @@ def test_a_failure_during_promotion_is_never_read_as_a_valid_gold(toy, monkeypat
     assert failed["promoted"] is False and "disk full (injected)" in failed["error"]
 
     assert toy.gold(monkeypatch) == EXIT_OK  # a rerun heals it
-    assert read_current_gold(toy.store)["sha256"] == {
-        "spine": toy.sha("spine"),
-        "labels": toy.sha("labels"),
-    }
+    sha = read_current_gold(toy.store)["sha256"]
+    assert (sha["spine"], sha["labels"]) == (toy.sha("spine"), toy.sha("labels"))
 
 
 def test_read_current_gold_refuses_files_that_changed_after_promotion(toy, monkeypatch):

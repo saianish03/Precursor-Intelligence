@@ -4,8 +4,8 @@ Two kinds of test:
 - fixture tests check that the fake silver data says what the story says, and uses silver's own column
   names (configs/keep_columns.yaml);
 - gold tests run the real spine and labels builders on it and compare with hand-computed answers
-  (spec §7, §9). Feature tests are xfail until gold/features exists; then a wrong answer fails for
-  real (only ModuleNotFoundError is expected).
+  (spec §7, §9). A feature test is xfail while its family is not built; then a wrong answer fails
+  for real (only NotImplementedError is expected).
 
 Label arithmetic, V = 2025-03, H = 12, W_12 = (cutoff_date, cutoff_date + 12 months]:
 - y_g12, B_cit = 8: mature only if t + 20 months <= V, so the last labelable t is 2023-07;
@@ -368,18 +368,17 @@ def test_late_posted_citation_still_labels_earlier_months(labels):
 # ------------------------------------------------------------------ gold features (not built yet)
 
 not_built = pytest.mark.xfail(
-    raises=ModuleNotFoundError, strict=True, reason="gold features not implemented yet"
+    raises=NotImplementedError, strict=True, reason="gold feature family not implemented yet"
 )
 
 
 def _features(silver, spine, family: str) -> pl.DataFrame:
     """gold/features_<family> (§8). Point this at the real builder when features land."""
-    from precursorintelligence.gold.features import build_features  # type: ignore[import-not-found]
+    from precursorintelligence.gold.features import build_features
 
     return build_features(family, silver, spine)
 
 
-@not_built
 def test_fine_counts_use_only_what_was_posted_at_t(silver, spine):
     enf = _features(silver, spine, "enforcement")
     got = {

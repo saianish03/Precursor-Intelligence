@@ -160,8 +160,8 @@ months; spec §9.5 recommends training rows from 2022-01 (decision §14 #10).
 - **Citation survey type** comes from the three `is_*` flags, not a column. Complaint surveys in
   `surveys_by_vintage` exist only if they produced a citation: name such features `*_cited`.
 - **Star ratings** (`overall_rating`, `health_inspection_rating`) are `ablation_only`; `chain_id` is `product_only`.
-- **`high_performing_icon`** (2026-09+) is a status flag CMS assigns, like the star ratings: tag it the
-  same way in the feature registry, never `model`. It is null before 2026-09.
+- **`high_performing_icon`** (2026-09+) is a status flag CMS assigns: never a feature. It is not in the
+  column contract or the feature registry, and gold code may not name it. It is null before 2026-09.
 - **QM bridges:** `measure_code` changes (405→480, 453→479 in 2025-02; 419→481 in 2026-02). A Δ across a code
   change, or across an unchanged `measure_period_end`, must be null (§8.6).
 - **Unpublished months** have no partitions: t−6 / t−12 lookups must handle absence (Δ = null).
