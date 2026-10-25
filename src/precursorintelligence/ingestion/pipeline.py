@@ -41,6 +41,7 @@ LOCK_NAME = "data_pipeline"  # shared by every data step (Step 2 takes the same 
 EXIT_OK, EXIT_ERROR, EXIT_VALIDATION, EXIT_CONFIG = 0, 1, 2, 3
 VALIDATION_DOWNLOAD_STATUSES = {"quarantined", "rejected"}
 VALIDATION_ERRORS = (UnsafeArchiveError, UnsafeUrlError, CatalogContractError)
+FAILING_ANOMALIES = {"no_tables_recognised"}  # resolve anomalies that fail the run (exit 2)
 
 
 @contextmanager
@@ -55,7 +56,7 @@ def task_scope(
         try:
             yield detail
             # a step that returns its data failures instead of raising them still fails in run_log
-            if detail.get("failed"):
+            if detail.get("n_failures"):
                 status = "failed"
         except Exception as exc:
             status, detail["error"] = "failed", f"{exc.__class__.__name__}: {exc}"
@@ -168,6 +169,7 @@ def _run_steps(
     if "download" in steps and entries:
         with task_scope(ctx, "download") as d:
             results = run_download(ctx, entries)
+            d["n_failures"] = sum(not r.ok for r in results)
             for r in results:
                 res.downloads[r.status] = res.downloads.get(r.status, 0) + 1
                 if not r.ok:
@@ -216,6 +218,7 @@ def _run_steps(
                 latest_vintage=resolved.latest_vintage,
                 duplicates=len(resolved.duplicates),
                 anomalies=len(resolved.anomalies),
+                n_failures=sum(a["kind"] in FAILING_ANOMALIES for a in resolved.anomalies),
             )
     if "report" in steps:
         with task_scope(ctx, "report") as d:
@@ -223,7 +226,7 @@ def _run_steps(
             res.reports = report(ctx, resolved)
             d.update(reports=list(res.reports.values()))
     for a in resolved.anomalies if resolved else []:
-        if a["kind"] == "no_tables_recognised":
+        if a["kind"] in FAILING_ANOMALIES:
             res.fail(a["detail"], validation=True)  # a data problem: fix the patterns, don't retry
 
     if res.failures:

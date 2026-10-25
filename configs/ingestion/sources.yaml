@@ -63,7 +63,10 @@ extract:
   only_in_scope: true                      # other members are inventoried from the zip directory only
 
 http:
-  user_agent: "PrecursorIntelligence-ingest/0.1 (academic MLOps project)"
+  # The client appends the real library token (python-requests/<version>). The CMS firewall 403s a UA
+  # without a known client token, and also a bare name + client token; a name with a contact URL passes
+  # (measured 2026-10-24 on the archive endpoint and a zip HEAD).
+  user_agent: "PrecursorIntelligence-ingest/0.1 (academic MLOps project; +https://github.com/saianish03/Precursor-Intelligence)"
   connect_timeout_s: 10
   read_timeout_s: 120
   max_retries: 5

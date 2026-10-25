@@ -2,6 +2,7 @@
 quarantine, URL rejection, and identical results on two different storage backends."""
 
 import io
+import json
 import zipfile
 
 import pytest
@@ -155,6 +156,9 @@ def test_corrupt_zip_is_quarantined(fake_cms, make_ctx):
     assert res.downloads == {"quarantined": 1}
     assert not ctx.object_store.list("landing/cms_nh/zips")
     assert ctx.object_store.list("quarantine/cms_nh")
+    # a quarantined zip fails the download step in run_log, like a failed download
+    (step,) = [r for r in ctx.metadata.read("run_log") if r["task"] == "download"]
+    assert step["status"] == "failed" and json.loads(step["detail"])["n_failures"] == 1
 
 
 def test_unsafe_catalog_url_is_rejected_without_a_request(fake_cms, make_ctx):
@@ -241,6 +245,8 @@ def test_zip_with_no_recognised_table_exits_2(fake_cms, make_ctx):
         if a["kind"] == "no_tables_recognised"
     ]
     assert a["severity"] == "error" and "2 CSV files" in a["detail"]
+    (step,) = [r for r in ctx.metadata.read("run_log") if r["task"] == "resolve"]
+    assert step["status"] == "failed" and json.loads(step["detail"])["n_failures"] == 1
 
 
 def test_zip_with_only_known_out_of_scope_files_is_not_an_error(fake_cms, make_ctx):
