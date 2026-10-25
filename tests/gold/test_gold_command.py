@@ -389,6 +389,22 @@ def test_gold_stops_when_a_required_labels_training_rows_are_all_censored(toy, m
     assert not (toy.root / "gold" / "labels").exists()
 
 
+def test_a_null_split_stops_gold_before_promotion(toy, monkeypatch, capsys):
+    real = build.add_splits
+
+    def one_null(*args, **kwargs):
+        labels = real(*args, **kwargs)
+        first = pl.int_range(pl.len()) == 0
+        return labels.with_columns(
+            pl.when(first).then(None).otherwise(pl.col("split_pen12")).alias("split_pen12")
+        )
+
+    monkeypatch.setattr(build, "add_splits", one_null)
+    assert toy.gold(monkeypatch) == EXIT_VALIDATION
+    assert "staged labels: null values in ['split_pen12']" in capsys.readouterr().err
+    assert not (toy.root / "gold" / "labels").exists()
+
+
 def test_a_required_label_missing_from_labels_yaml_is_a_config_error(toy, monkeypatch, capsys):
     path = toy.root / "splits_bad.yaml"
     path.write_text((toy.root / TOY_SPLITS).read_text().replace("- g6", "- g24"), encoding="utf-8")

@@ -328,6 +328,9 @@ def _stage(ctx: Context, tables: dict[str, pl.DataFrame]) -> dict[str, bytes]:
         raise GoldCheckError("staged spine: (ccn, t) is not unique")
     if not labels.select("ccn", "t").equals(spine.select("ccn", "t")):
         raise GoldCheckError("staged labels: not exactly the spine's rows, in the spine's order")
+    null_splits = [c for c in labels.columns if c.startswith("split_") and labels[c].null_count()]
+    if null_splits:  # every row has a split (spec §9.5); rows_per_split would drop a null
+        raise GoldCheckError(f"staged labels: null values in {null_splits}")
     # Partitioned outputs (<table>/t=YYYY-MM): each holds exactly the spine's rows of its month.
     spine_by_t = {t: p.select("ccn", "t") for t, p in by_t(spine).items()}
     for name, df in back.items():
