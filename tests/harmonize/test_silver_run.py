@@ -116,7 +116,7 @@ def test_an_unmapped_header_fails_closed_and_is_retried_after_the_fix(
     assert statuses(meta) == [("2025-06", "failed"), ("2025-06", "built")]
     # silver returns its failures instead of raising them; run_log must still show the failed step
     steps = [r for r in meta.read("run_log") if r["task"] == "silver"]
-    assert [(r["status"], json.loads(r["detail"])["failed"]) for r in steps] == [
+    assert [(r["status"], json.loads(r["detail"])["n_failures"]) for r in steps] == [
         ("failed", 1),
         ("ok", 0),
     ]
