@@ -147,7 +147,16 @@ def test_a_stale_v_measures_labels_from_the_last_fresh_vintage(tmp_path, monkeyp
     # t + 12 + 8 = 2025-03 is mature only if V is fresh: with V stale it is immature, not negative.
     sunny = labels.filter(pl.col("ccn") == "015001", pl.col("t") == "2023-07")
     assert sunny.select("status_g12", "y_g12").rows() == [("immature", None)]
-    assert toy.manifests()[0]["stale_refresh_skipped"] == ["2025-03"]
+    (m,) = toy.manifests()
+    assert m["stale_refresh_skipped"] == ["2025-03"]
+    # Splits are measured from the same fresh vintage: score rows are exactly the immature ones.
+    for name in ("g12", "g6", "pen12"):
+        assert labels.filter(pl.col(f"split_{name}") == "score").equals(
+            labels.filter(pl.col(f"status_{name}") == "immature")
+        )
+    assert (
+        m["split_windows"]["g12"]["last_labeled_t"] == "2023-06"
+    )  # 2025-02 - 20, not 2025-03 - 20
 
 
 def test_missing_vintage_flags_stops_instead_of_guessing(toy, monkeypatch, capsys):
