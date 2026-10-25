@@ -150,7 +150,8 @@ months; spec §9.5 recommends training rows from 2022-01 (decision §14 #10).
 | `configs/labels.yaml` (horizons, `B_cit = 8`, `B_pen = 12`, G+ set, due interval 456 days, `censor_requires_buffer: true`) | proposal in `04_lag_analysis.md`, awaiting approval | silver owner commits after Checkpoint 3 |
 | `configs/qm_measures.yaml` (14 stable, bridges 453→479 and 419→481, **405→480 doubtful**, 5 dropped) | proposal in `05_qm_measures.proposed.csv`, awaiting approval | silver owner commits after Checkpoint 4 |
 | `value_maps.yaml: not_corrected_values` (for `n_uncorrected`) | default = the two "Deficient, Provider has (no) plan of correction" values; §14 #4 open | team |
-| `configs/splits.yaml`, `checks.yaml`, `feature_registry.yaml` | not started | gold |
+| `configs/splits.yaml` (`spine_start`, `test_months`, `calib_months`, `required_labels`) | done (gold splits); training start 2023-01 vs 2022-01 and `test_months` 3 vs 6 open, §14 #10–12 | gold |
+| `checks.yaml`, `feature_registry.yaml` | not started | gold |
 
 ## 10. Pitfalls (each one has bitten the sample run or the analysis)
 
