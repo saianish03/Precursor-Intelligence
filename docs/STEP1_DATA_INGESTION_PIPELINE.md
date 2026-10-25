@@ -607,7 +607,7 @@ Before any byte is trusted:
 ### 9.8 Rate limiting and polite use
 - At most `max_parallel_downloads` (3) concurrent downloads.
 - Backoff with jitter, and `Retry-After` is honoured.
-- A descriptive `User-Agent`. No contact email is sent unless you add one to `http.user_agent`.
+- A descriptive `User-Agent`: `http.user_agent` (the project name and the repository URL as contact; no email) plus the real client token `python-requests/<version>`, appended by the client. Since 2026-10-22 the CMS firewall returns 403 to a UA without a known client token, and also to a bare name plus a client token; the name with a contact URL passes.
 
 ### 9.9 Cloud storage and credentials (GCP)
 
