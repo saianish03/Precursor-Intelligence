@@ -54,7 +54,7 @@ part. A small **toy silver world** with hand-written answers lets you test every
 | Feature reader (§8, §11.3) | `gold/features/reader.py` → `FeatureReader` | The only way feature code reads silver: `*_by_vintage` and `citation_lookup` at t, t−6, t−12. Refuses any other table or offset, and with `limit` any vintage after it; records every read. The run uses `limit = V`. |
 | Features (§8) | `gold/features/{survey_timing,citations,enforcement,facility_staffing,context}.py` → `build_family` / `build_features` | 95 features in 5 families, one row per spine row. `quality` raises `NotImplementedError` until `configs/qm_measures.yaml` is approved (open item 3). Rules in `configs/features.yaml` (severity points, bands, 456 days, occupancy cap, categories, footnote reasons, era months). |
 | Registry (§8) | `configs/feature_registry.yaml`, `load_feature_registry()` | Generated from the column contract: every built feature with family, source table, formula, first available vintage (measured), dtype, `model_use`. |
-| Splits (§9.3, §9.5) | `gold/splits.py` → `add_splits`, `split_windows` | `split_g12`, `split_g6`, `split_pen12` on `gold/labels`: per label, calendar months back from `last_labeled_t = V − (H + B)` (V = the label vintage). Test = the last `test_months`, purge = H months before, calib = `calib_months` before that, train = `spine_start` up to calib, score = after `last_labeled_t` (exactly the `immature` rows). Gold stops (exit 2) when a `required_labels` label has no training month. Settings in `configs/splits.yaml`. |
+| Splits (§9.3, §9.5) | `gold/splits.py` → `add_splits`, `split_windows` | `split_g12`, `split_g6`, `split_pen12` on `gold/labels`: per label, calendar months back from `last_labeled_t = V − (H + B)` (V = the label vintage). Test = the last `test_months`, purge = H months before, calib = `calib_months` before that, train = `spine_start` up to calib, score = after `last_labeled_t` (exactly the `immature` rows). Gold stops (exit 2) unless every `required_labels` label has at least one positive and one negative `train` row (censored and immature rows don't count). Settings in `configs/splits.yaml`. |
 | Assembly (§10) | `gold/dataset.py` → `assemble`, `dataset_manifest` | spine → 5 families → labels, row count and `(ccn, t)` checked after every join; `gold/dataset_manifest.json`. |
 
 **Not built:** the `quality` family (waits for `configs/qm_measures.yaml`), aux labels (§9.4), the verification
@@ -148,7 +148,7 @@ uv run precursor-pipeline gold --env-file <yaml>       # any other store / metad
 |---|---|
 | 0 | Spine and labels built and promoted |
 | 1 | Error: another run holds the lock, or a bug or outage. Retry |
-| 2 | Data or gate failure (silver not current, missing silver input, missing `vintage_flags`, a required label with no training month, a failed check). `gold/` untouched |
+| 2 | Data or gate failure (silver not current, missing silver input, missing `vintage_flags`, a required label without a positive and a negative training row, a failed check). `gold/` untouched |
 | 3 | Config or usage error: bad `--v`, bad config (including a `required_labels` entry that is not a label in `labels.yaml`), a DAG task whose run does not hold the lock |
 
 **On the toy world:**

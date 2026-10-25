@@ -7,9 +7,11 @@ from precursorintelligence.common.config import SplitsConfig, load_labels_config
 from precursorintelligence.gold.splits import (
     SPLITS,
     add_splits,
+    labels_without_training,
     last_labeled_t,
     shift,
     split_windows,
+    training_gate_failures,
 )
 
 CFG = SplitsConfig(
@@ -120,3 +122,57 @@ def test_the_spec_example_at_v_2026_08(label):
 def test_the_g12_test_window_holds_an_unpublished_month():
     # Spec §9.5: at V = 2026-08 the g12 test window is 2024-10 -> 12, and 2024-12 was never published.
     assert split_windows("2026-08", *_hb("g12"), CFG)["test"] == ["2024-10", "2024-12"]
+
+
+def _g6(rows: list[tuple[str, int | None]]) -> pl.DataFrame:
+    """A labels frame of (split_g6, y_g6) rows; y is null for censored and immature rows."""
+    return pl.DataFrame(
+        {
+            "ccn": [f"0150{i:02d}" for i in range(len(rows))],
+            "t": ["2023-01"] * len(rows),
+            "split_g6": [s for s, _ in rows],
+            "y_g6": pl.Series([y for _, y in rows], dtype=pl.Int8),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("ys", "untrainable"),
+    [
+        ([1, 0], []),
+        ([1, 0, None], []),
+        ([None, None], ["g6"]),  # every train row censored: nothing to learn from
+        ([1, 1, None], ["g6"]),  # no negative
+        ([0, None], ["g6"]),  # no positive
+    ],
+)
+def test_the_gate_needs_a_positive_and_a_negative_training_row(ys, untrainable):
+    assert labels_without_training(_g6([("train", y) for y in ys]), ["g6"]) == untrainable
+
+
+WINDOWS = {"g6": {"train": ["2023-01", "2023-01"]}, "g12": {"train": None}}
+
+
+def test_the_gate_says_no_labelled_training_rows_when_the_window_holds_only_censored_rows():
+    labels = _g6([("train", None), ("train", None), ("score", 1)])
+    assert training_gate_failures(labels, ["g6"], WINDOWS, "2023-01") == [
+        "required label g6: no labelled training rows in 2023-01..2023-01 "
+        "(2 train rows, none positive or negative)"
+    ]
+
+
+def test_the_gate_names_the_missing_class():
+    labels = _g6([("train", 1), ("train", None)])
+    assert training_gate_failures(labels, ["g6"], WINDOWS, "2023-01") == [
+        "required label g6: no negative training rows in 2023-01..2023-01 (1 positive, 0 negative)"
+    ]
+
+
+def test_the_gate_keeps_the_no_training_month_message_for_an_empty_window():
+    labels = _g6([("purge", 1), ("test", 0)]).with_columns(
+        split_g12=pl.col("split_g6"), y_g12=pl.col("y_g6")
+    )
+    assert training_gate_failures(labels, ["g12"], WINDOWS, "2023-01") == [
+        "no training month for the required labels g12 (train window None): "
+        "every training window ends before spine_start 2023-01"
+    ]

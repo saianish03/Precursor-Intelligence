@@ -17,7 +17,7 @@ from precursorintelligence.common.config import (
 from precursorintelligence.common.io.metadata_store import SqlAlchemyMetadataStore
 from precursorintelligence.common.io.object_store import LocalObjectStore
 from precursorintelligence.common.io.run_lock import RunLock
-from precursorintelligence.gold import GoldCheckError
+from precursorintelligence.gold import GoldCheckError, build
 from precursorintelligence.gold.build import read_current_gold, run_gold
 from precursorintelligence.harmonize.cli import main
 from precursorintelligence.ingestion.context import build_context, new_run_id
@@ -352,6 +352,31 @@ def test_gold_stops_when_a_required_label_has_no_training_month(toy, monkeypatch
     (m,) = toy.manifests()
     assert m["promoted"] is False and m["split_windows"]["g12"]["train"] is None
     assert m["split_windows"]["g6"]["train"] == ["2023-01", "2023-01"]
+
+
+def test_gold_stops_when_a_required_labels_training_rows_are_all_censored(toy, monkeypatch, capsys):
+    real = build.build_labels
+
+    def censored_g6(*args, **kwargs):  # g6 trains on 2023-01 only: censor all its rows
+        labels = real(*args, **kwargs)
+        train = pl.col("t") == "2023-01"
+        return labels.with_columns(
+            pl.when(train).then(pl.lit(None, pl.Int8)).otherwise(pl.col("y_g6")).alias("y_g6"),
+            pl.when(train)
+            .then(pl.lit("censored"))
+            .otherwise(pl.col("status_g6"))
+            .alias("status_g6"),
+        )
+
+    monkeypatch.setattr(build, "build_labels", censored_g6)
+    assert toy.gold(monkeypatch) == EXIT_VALIDATION
+    err = capsys.readouterr().err
+    assert (
+        "required label g6: no labelled training rows in 2023-01..2023-01 "
+        "(4 train rows, none positive or negative)" in err
+    )
+    assert "no training month" not in err  # the window is not empty
+    assert not (toy.root / "gold" / "labels").exists()
 
 
 def test_a_required_label_missing_from_labels_yaml_is_a_config_error(toy, monkeypatch, capsys):

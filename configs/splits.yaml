@@ -7,4 +7,4 @@ spine_start: "2023-01"   # first prediction month t, and where training starts; 
                          # (2022-01 is the spec's recommendation, §14 #10: not decided yet)
 test_months: 3           # §14 #11: 6 only if training starts in 2022-01
 calib_months: 3
-required_labels: [g12, g6]   # gold stops (exit 2) when one of these has no training month; pen12 is reported only
+required_labels: [g12, g6]   # gold stops (exit 2) unless each has a positive and a negative training row; pen12 is reported only

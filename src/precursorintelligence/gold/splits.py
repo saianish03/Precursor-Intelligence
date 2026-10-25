@@ -87,9 +87,50 @@ def check_required_labels(labels_cfg: LabelsConfig, splits_cfg: SplitsConfig) ->
         raise ConfigError(f"splits.yaml required_labels {unknown} are not labels in labels.yaml")
 
 
+def _train_classes(labels: pl.DataFrame, name: str) -> tuple[int, int, int]:
+    """(train rows, positives, negatives) of one label; censored and immature rows have a null label."""
+    y = labels.filter(pl.col(f"split_{name}") == "train")[f"y_{name}"]
+    return y.len(), int((y == 1).sum()), int((y == 0).sum())
+
+
 def labels_without_training(labels: pl.DataFrame, required: list[str]) -> list[str]:
-    """The required labels with no ``train`` row: gold must not publish then (spec §9.5)."""
-    return [n for n in required if not (labels[f"split_{n}"] == "train").any()]
+    """The required labels whose ``train`` rows hold no positive (y = 1) or no negative (y = 0): the model
+    cannot learn from them, so gold must not publish (spec §9.5)."""
+    return [n for n in required if 0 in _train_classes(labels, n)[1:]]
+
+
+def training_gate_failures(
+    labels: pl.DataFrame, required: list[str], windows: dict[str, Any], spine_start: str
+) -> list[str]:
+    """One message per required label in ``labels_without_training``; [] when the gate passes."""
+    empty: list[str] = []
+    messages: list[str] = []
+    for n in labels_without_training(labels, required):
+        window = windows[n]["train"]
+        if window is None:
+            empty.append(n)
+            continue
+        rows, pos, neg = _train_classes(labels, n)
+        where = f"{window[0]}..{window[1]}"
+        if pos + neg == 0:
+            messages.append(
+                f"required label {n}: no labelled training rows in {where} "
+                f"({rows} train rows, none positive or negative)"
+            )
+        else:
+            missing = "positive" if pos == 0 else "negative"
+            messages.append(
+                f"required label {n}: no {missing} training rows in {where} "
+                f"({pos} positive, {neg} negative)"
+            )
+    if empty:
+        messages.insert(
+            0,
+            "no training month for the required labels "
+            + ", ".join(f"{n} (train window None)" for n in empty)
+            + f": every training window ends before spine_start {spine_start}",
+        )
+    return messages
 
 
 def add_splits(

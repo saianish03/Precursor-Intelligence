@@ -50,7 +50,7 @@ from .splits import (
     add_splits,
     check_required_labels,
     label_windows,
-    labels_without_training,
+    training_gate_failures,
 )
 
 log = logging.getLogger(__name__)
@@ -242,16 +242,11 @@ def _run(
         result.split_windows = label_windows(result.v_labels, labels_cfg, splits_cfg)
         if not splits_cfg.required_labels:  # never silent: also in the run manifest (split_gate)
             log.warning("split gate disabled: no required labels")
-        untrainable = labels_without_training(labels, splits_cfg.required_labels)
-        if untrainable:  # spec §9.5: gold refuses to publish
-            raise GoldCheckError(
-                "no training month for the required labels "
-                + ", ".join(
-                    f"{n} (train window {result.split_windows[n]['train']})" for n in untrainable
-                )
-                + f": every training window ends before spine_start {splits_cfg.spine_start} "
-                "(spec §9.5, §14 #10)"
-            )
+        problems = training_gate_failures(
+            labels, splits_cfg.required_labels, result.split_windows, splits_cfg.spine_start
+        )
+        if problems:  # spec §9.5: gold refuses to publish
+            raise GoldCheckError("; ".join(problems) + " (spec §9.5, §14 #10)")
         # Features read silver only through the reader, which refuses anything after V (spec §8, §11.3).
         reader = FeatureReader.from_store(ctx.object_store, published=published, limit=result.v)
         features_cfg = load_features_config()
