@@ -287,6 +287,7 @@ def test_a_failure_during_promotion_is_never_read_as_a_valid_gold(toy, monkeypat
         read_current_gold(toy.store)
     (failed,) = [m for m in toy.manifests() if m["run_id"] == ctx.run_id]
     assert failed["promoted"] is False and "disk full (injected)" in failed["error"]
+    assert failed["exit_code"] == EXIT_ERROR  # what the CLI exits with when the run raises
 
     assert toy.gold(monkeypatch) == EXIT_OK  # a rerun heals it
     sha = read_current_gold(toy.store)["sha256"]
@@ -385,6 +386,22 @@ def test_a_required_label_missing_from_labels_yaml_is_a_config_error(toy, monkey
     toy.splits_file = str(path)
     assert toy.gold(monkeypatch) == EXIT_CONFIG
     assert "required_labels ['g24'] are not labels in labels.yaml" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", ["required_label", "v"])
+def test_the_run_manifest_records_the_clis_exit_code_for_a_config_error(toy, monkeypatch, bad):
+    extra: tuple[str, ...] = ("--v", "2023-12")  # never published
+    if bad == "required_label":
+        path = toy.root / "splits_bad.yaml"
+        path.write_text(
+            (toy.root / TOY_SPLITS).read_text().replace("- g6", "- g24"), encoding="utf-8"
+        )
+        toy.splits_file, extra = str(path), ()
+    code = toy.gold(monkeypatch, *extra)
+    assert code == EXIT_CONFIG
+    (m,) = toy.manifests()
+    assert m["exit_code"] == code and m["promoted"] is False and "ConfigError" in m["error"]
+    assert RunLock(toy.meta, LOCK_NAME).holder() is None  # checked before the lock was taken
 
 
 def test_the_run_manifest_records_every_labels_split_windows(toy, monkeypatch):

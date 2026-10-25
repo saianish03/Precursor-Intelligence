@@ -39,7 +39,14 @@ from ..harmonize.columns import load_silver_config
 from ..harmonize.silver import latest_bronze
 from ..harmonize.silver_pipeline import CHECK_NAME, partitions_without_current_silver
 from ..ingestion.context import Context
-from ..ingestion.pipeline import EXIT_OK, EXIT_VALIDATION, LOCK_NAME, task_scope
+from ..ingestion.pipeline import (
+    EXIT_CONFIG,
+    EXIT_ERROR,
+    EXIT_OK,
+    EXIT_VALIDATION,
+    LOCK_NAME,
+    task_scope,
+)
 from . import GoldCheckError
 from .dataset import DATASET, MANIFEST_NAME, assemble, by_t, dataset_manifest
 from .features import FAMILIES, FAMILY_ORDER, build_family
@@ -99,6 +106,12 @@ def resolve_v(published: list[str], requested: str | None, spine_start: str) -> 
         raise GoldCheckError(f"silver has vintages outside {VINTAGE_RANGE}: {outside}")
     if requested is None:
         return published[-1]
+    check_v(published, requested, spine_start)
+    return requested
+
+
+def check_v(published: list[str], requested: str, spine_start: str) -> None:
+    """A ConfigError (exit 3) unless ``requested`` is a published vintage from spine_start on."""
     if not _YYYY_MM.fullmatch(requested):
         raise ConfigError(f"--v {requested!r} is not a YYYY-MM month")
     if requested > published[-1]:
@@ -107,7 +120,6 @@ def resolve_v(published: list[str], requested: str | None, spine_start: str) -> 
         raise ConfigError(f"--v {requested} was never published (no silver partition)")
     if requested < spine_start:
         raise ConfigError(f"--v {requested} is before spine_start {spine_start}")
-    return requested
 
 
 def stale_silver(ctx: Context, sink: ParquetTableSink) -> list[str]:
@@ -163,10 +175,22 @@ def run_gold(
     manifest hashes the file actually used).
     ``own_lock=True``: take the run lock for this call (RunLockHeldError if another run holds it).
     ``own_lock=False`` (DAG task): the run must already hold it (RunLockNotHeldError otherwise).
-    Data and gate problems are returned (exit 2); a bad ``v`` raises ConfigError (exit 3)."""
+    Data and gate problems are returned (exit 2); a bad ``v`` or required label raises ConfigError (exit 3)
+    before the lock is taken, with a run manifest that records exit 3."""
     now = now or datetime.now(UTC)
     lock = RunLock(ctx.metadata, LOCK_NAME)
     with log_context(run_id=ctx.run_id, env=ctx.settings.env.env):
+        try:
+            check_required_labels(labels_cfg, splits_cfg)
+            published = published_vintages(ParquetTableSink(ctx.object_store, prefix="silver"))
+            if v is not None and published:  # no silver at all is a data failure, inside the run
+                check_v(published, v, splits_cfg.spine_start)
+        except ConfigError as exc:
+            _write_manifest(
+                ctx, GoldResult(run_id=ctx.run_id), [], [], None, labels_cfg, splits_cfg, now,
+                error=f"{type(exc).__name__}: {exc}", exit_code=EXIT_CONFIG,
+            )  # fmt: skip
+            raise
         if own_lock:
             acquired = lock.acquire(ctx.run_id, stale_after=ctx.settings.env.run_lock.stale_after)
         else:
@@ -212,7 +236,6 @@ def _run(
         sink = ParquetTableSink(ctx.object_store, prefix="silver")
         published = published_vintages(sink)
         result.v = resolve_v(published, v, splits_cfg.spine_start)
-        check_required_labels(labels_cfg, splits_cfg)
         not_current = stale_silver(ctx, sink)
         if not_current:
             raise GoldCheckError(
@@ -284,7 +307,7 @@ def _run(
     except Exception as exc:  # an error (exit 1): record the run, then let it fail
         result.manifest_key = _write_manifest(
             ctx, result, published, stale, not_current, labels_cfg, splits_cfg, now,
-            error=f"{type(exc).__name__}: {exc}",
+            error=f"{type(exc).__name__}: {exc}", exit_code=EXIT_ERROR,
         )  # fmt: skip
         raise
     result.manifest_key = _write_manifest(
@@ -384,13 +407,15 @@ def _write_manifest(
     splits_cfg: SplitsConfig,
     now: datetime,
     error: str | None = None,
+    exit_code: int | None = None,
 ) -> str:
-    """One JSON per run under metadata/gold/. The timestamp in the name means a retry never overwrites it."""
+    """One JSON per run under metadata/gold/. The timestamp in the name means a retry never overwrites it.
+    ``exit_code``: the CLI's when the run raises (default: the result's)."""
     manifest = {
         "run_id": ctx.run_id,
         "started_at": ctx.started_at,
         "finished_at": now.isoformat(timespec="seconds"),
-        "exit_code": result.exit_code,
+        "exit_code": result.exit_code if exit_code is None else exit_code,
         "v": result.v,
         "v_labels": result.v_labels,
         "stale_refresh_skipped": stale,
