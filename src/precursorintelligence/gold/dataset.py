@@ -8,6 +8,7 @@ from: every (table, vintage) source zip, the release flags, the config and regis
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
 from collections.abc import Mapping
@@ -27,7 +28,7 @@ from .splits import SPLITS
 DATASET = "facility_month_dataset"
 MANIFEST_NAME = "dataset_manifest.json"
 KEYS = ["ccn", "t"]
-HASHED_CONFIGS = ("features.yaml", "feature_registry.yaml", "labels.yaml", "splits.yaml")
+HASHED_CONFIGS = ("features.yaml", "feature_registry.yaml", "labels.yaml")
 GIT_COMMIT_ENV = "PI_GIT_COMMIT"  # set in images, which carry no .git
 
 
@@ -55,8 +56,15 @@ def by_t(df: pl.DataFrame) -> dict[str, pl.DataFrame]:
     return {t: part for (t,), part in sorted(df.group_by("t"), key=lambda kv: str(kv[0][0]))}
 
 
-def _sha256_file(name: str, path: Path | None = None) -> str:
-    return hashlib.sha256((path or project_root() / "configs" / name).read_bytes()).hexdigest()
+def _sha256_file(name: str) -> str:
+    return hashlib.sha256((project_root() / "configs" / name).read_bytes()).hexdigest()
+
+
+def _sha256_settings(cfg: SplitsConfig) -> str:
+    """The settings themselves, as canonical JSON: the same whichever file (or code) they came from."""
+    return hashlib.sha256(
+        json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()
+    ).hexdigest()
 
 
 def _git(args: list[str], cwd: Path) -> str | None:
@@ -131,13 +139,11 @@ def dataset_manifest(
     splits_cfg: SplitsConfig,
     built_at: datetime,
     verified: bool,
-    config_files: Mapping[str, Path] | None = None,
 ) -> dict[str, Any]:
     """``gold/dataset_manifest.json`` (spec §10.5). Only ``built_at`` changes between identical builds.
 
     ``verified`` is False until the spec §11 gate has passed on this dataset; nothing should train on it before.
-    ``config_files`` names a config read from somewhere other than ``configs/`` (e.g. ``--splits-config``), so
-    its hash is the hash of the file actually used.
+    ``splits.yaml`` is hashed from ``splits_cfg``, the settings actually used (``--splits-config`` or code).
     """
     commit, dirty = git_state()
     version = hashlib.sha256(
@@ -155,9 +161,8 @@ def dataset_manifest(
         "feature_families_pending": [f for f in FAMILY_ORDER if f not in families],
         "sources": _sources(meta, v),
         "flags": _flags(meta, v),
-        "config_sha256": {
-            name: _sha256_file(name, (config_files or {}).get(name)) for name in HASHED_CONFIGS
-        },
+        "config_sha256": {name: _sha256_file(name) for name in HASHED_CONFIGS}
+        | {"splits.yaml": _sha256_settings(splits_cfg)},
         "git_commit": commit,
         "git_dirty": dirty,
         "rows": {"total": labels.height, "months": labels["t"].n_unique()},

@@ -56,7 +56,6 @@ def gold(
             splits_cfg=load_splits_config(splits_config),
             v=v,
             own_lock=not orchestrated,
-            splits_file=splits_config,
         )
     except ConfigError as exc:
         typer.echo(f"config error: {exc}", err=True)

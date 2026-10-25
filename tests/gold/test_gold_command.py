@@ -340,9 +340,25 @@ def test_splits_config_is_read_from_the_given_file_and_hashed_in_the_dataset_man
 ):
     assert toy.gold(monkeypatch) == EXIT_OK
     manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
-    sha = hashlib.sha256((toy.root / TOY_SPLITS).read_bytes()).hexdigest()
-    assert manifest["config_sha256"]["splits.yaml"] == sha
+    used = load_splits_config(toy.root / TOY_SPLITS)
+    assert manifest["config_sha256"]["splits.yaml"] == _settings_sha(used)
+    assert manifest["config_sha256"]["splits.yaml"] != _settings_sha(load_splits_config())
     assert toy.manifests()[0]["configs"]["splits"]["required_labels"] == ["g6"]
+
+
+def _settings_sha(cfg) -> str:
+    return hashlib.sha256(
+        json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()
+    ).hexdigest()
+
+
+def test_the_dataset_manifest_hashes_the_splits_settings_passed_from_code(toy):
+    # No --splits-config here: run_gold gets the toy settings directly, as the leakage tests call it.
+    used = load_splits_config(toy.root / TOY_SPLITS)
+    ctx = build_context(load_settings(env_path=toy.env_file))
+    assert run_gold(ctx, labels_cfg=load_labels_config(), splits_cfg=used).exit_code == EXIT_OK
+    manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
+    assert manifest["config_sha256"]["splits.yaml"] == _settings_sha(used)
 
 
 def test_a_missing_splits_config_is_a_config_error(toy, monkeypatch, capsys):
