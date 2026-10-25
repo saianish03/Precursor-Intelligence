@@ -176,3 +176,8 @@ def test_the_gate_keeps_the_no_training_month_message_for_an_empty_window():
         "no training month for the required labels g12 (train window None): "
         "every training window ends before spine_start 2023-01"
     ]
+
+
+def test_calib_rows_do_not_count_as_training_rows():
+    labels = _g6([("calib", 1), ("calib", 0), ("purge", 1), ("test", 0)])
+    assert labels_without_training(labels, ["g6"]) == ["g6"]
