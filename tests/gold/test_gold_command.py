@@ -6,17 +6,18 @@ import sys
 
 import polars as pl
 import pytest
-from make_toy_silver import make_toy
+from make_toy_silver import TOY_SPLITS, make_toy, no_gate_splits
 
 from precursorintelligence.common.config import (
     load_labels_config,
     load_settings,
     load_splits_config,
+    project_root,
 )
 from precursorintelligence.common.io.metadata_store import SqlAlchemyMetadataStore
 from precursorintelligence.common.io.object_store import LocalObjectStore
 from precursorintelligence.common.io.run_lock import RunLock
-from precursorintelligence.gold import GoldCheckError
+from precursorintelligence.gold import GoldCheckError, build
 from precursorintelligence.gold.build import read_current_gold, run_gold
 from precursorintelligence.harmonize.cli import main
 from precursorintelligence.ingestion.context import build_context, new_run_id
@@ -42,13 +43,22 @@ class Toy:
     def __init__(self, root, stale=()):
         self.root = root
         self.env_file = str(make_toy(root, stale))
+        self.splits_file = str(root / TOY_SPLITS)
         self.store = LocalObjectStore(root, immutable=None)
         self.meta = SqlAlchemyMetadataStore(
             f"sqlite:///{(root / 'ops' / 'metadata.db').as_posix()}"
         )
 
     def gold(self, monkeypatch, *extra):
-        return run(monkeypatch, "gold", "--env-file", self.env_file, *extra)
+        return run(
+            monkeypatch,
+            "gold",
+            "--env-file",
+            self.env_file,
+            "--splits-config",
+            self.splits_file,
+            *extra,
+        )
 
     def read(self, name):
         return pl.read_parquet(self.root / "gold" / name / "part-0.parquet")
@@ -98,7 +108,8 @@ def test_gold_builds_the_features_and_the_dataset(toy, monkeypatch, capsys):
         parts = sorted(p.name.removeprefix("t=") for p in (toy.root / "gold" / table).iterdir())
         assert parts == months
     ds = toy.read("facility_month_dataset/t=2024-01")
-    assert ds.columns[:3] == ["ccn", "t", "cutoff_date"] and ds.columns[-1] == "status_pen12"
+    assert ds.columns[:3] == ["ccn", "t", "cutoff_date"]
+    assert ds.columns[-4:] == ["status_pen12", "split_g12", "split_g6", "split_pen12"]
     oak = ds.filter(pl.col("ccn") == "015002").row(0, named=True)
     assert (oak["n_fines_24m"], oak["y_g12"]) == (2, None)  # immature at t = 2024-01
     manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
@@ -128,6 +139,7 @@ def test_a_rerun_with_the_same_silver_gives_byte_identical_gold(toy, monkeypatch
 
 def test_a_stale_v_measures_labels_from_the_last_fresh_vintage(tmp_path, monkeypatch, capsys):
     toy = Toy(tmp_path / "toy", stale=("2025-03",))
+    toy.splits_file = str(no_gate_splits(toy.root))  # labels from 2025-02: no toy training month
     assert toy.gold(monkeypatch) == EXIT_OK
     assert "V=2025-03 labels measured from 2025-02" in capsys.readouterr().out
     labels = toy.read("labels")
@@ -135,7 +147,16 @@ def test_a_stale_v_measures_labels_from_the_last_fresh_vintage(tmp_path, monkeyp
     # t + 12 + 8 = 2025-03 is mature only if V is fresh: with V stale it is immature, not negative.
     sunny = labels.filter(pl.col("ccn") == "015001", pl.col("t") == "2023-07")
     assert sunny.select("status_g12", "y_g12").rows() == [("immature", None)]
-    assert toy.manifests()[0]["stale_refresh_skipped"] == ["2025-03"]
+    (m,) = toy.manifests()
+    assert m["stale_refresh_skipped"] == ["2025-03"]
+    # Splits are measured from the same fresh vintage: score rows are exactly the immature ones.
+    for name in ("g12", "g6", "pen12"):
+        assert labels.filter(pl.col(f"split_{name}") == "score").equals(
+            labels.filter(pl.col(f"status_{name}") == "immature")
+        )
+    assert (
+        m["split_windows"]["g12"]["last_labeled_t"] == "2023-06"
+    )  # 2025-02 - 20, not 2025-03 - 20
 
 
 def test_missing_vintage_flags_stops_instead_of_guessing(toy, monkeypatch, capsys):
@@ -163,6 +184,7 @@ def test_a_bad_v_is_a_config_error(toy, monkeypatch, capsys, v, message):
 
 
 def test_an_earlier_v_builds_the_spine_only_up_to_it(toy, monkeypatch, capsys):
+    toy.splits_file = str(no_gate_splits(toy.root))  # no toy training month at V = 2024-06
     assert toy.gold(monkeypatch, "--v", "2024-06") == EXIT_OK
     assert "V=2024-06 labels measured from 2024-06" in capsys.readouterr().out
     assert toy.read("spine")["t"].max() == "2024-06"
@@ -259,7 +281,14 @@ def test_a_failure_during_promotion_is_never_read_as_a_valid_gold(toy, monkeypat
 
     monkeypatch.setattr(ctx.object_store, "put_bytes", put)
     with pytest.raises(OSError, match="injected"):
-        run_gold(ctx, labels_cfg=load_labels_config(), splits_cfg=load_splits_config(), v="2024-06")
+        run_gold(
+            ctx,
+            labels_cfg=load_labels_config(),
+            splits_cfg=load_splits_config(
+                no_gate_splits(toy.root)
+            ),  # no toy training month at 2024-06
+            v="2024-06",
+        )
 
     assert toy.read("spine")["t"].max() == "2024-06"  # new spine, old labels: torn
     assert toy.read("labels")["t"].max() == "2025-03"
@@ -267,6 +296,7 @@ def test_a_failure_during_promotion_is_never_read_as_a_valid_gold(toy, monkeypat
         read_current_gold(toy.store)
     (failed,) = [m for m in toy.manifests() if m["run_id"] == ctx.run_id]
     assert failed["promoted"] is False and "disk full (injected)" in failed["error"]
+    assert failed["exit_code"] == EXIT_ERROR  # what the CLI exits with when the run raises
 
     assert toy.gold(monkeypatch) == EXIT_OK  # a rerun heals it
     sha = read_current_gold(toy.store)["sha256"]
@@ -285,3 +315,163 @@ def test_the_process_log_is_shipped_next_to_the_gold_run(toy, monkeypatch):
     assert toy.gold(monkeypatch) == EXIT_OK
     (m,) = toy.manifests()
     assert len(toy.store.list(f"reports/gold/run={m['run_id']}/logs")) == 1
+
+
+def test_gold_labels_carry_a_split_column_per_label(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    labels = toy.read("labels")
+    assert [c for c in labels.columns if c.startswith("split_")] == [
+        "split_g12",
+        "split_g6",
+        "split_pen12",
+    ]
+    for name in ("g12", "g6", "pen12"):  # score rows are exactly the immature ones
+        assert labels.filter(pl.col(f"split_{name}") == "score").equals(
+            labels.filter(pl.col(f"status_{name}") == "immature")
+        )
+    dataset = pl.read_parquet(
+        toy.root / "gold" / "facility_month_dataset" / "t=2023-01" / "part-0.parquet"
+    )
+    assert {"split_g12", "split_g6", "split_pen12"} <= set(dataset.columns)
+
+
+def test_splits_config_is_read_from_the_given_file_and_hashed_in_the_dataset_manifest(
+    toy, monkeypatch
+):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
+    used = load_splits_config(toy.root / TOY_SPLITS)
+    assert manifest["config_sha256"]["splits.yaml"] == _settings_sha(used)
+    assert manifest["config_sha256"]["splits.yaml"] != _settings_sha(load_splits_config())
+    assert toy.manifests()[0]["configs"]["splits"]["required_labels"] == ["g6"]
+
+
+def _settings_sha(cfg) -> str:
+    return hashlib.sha256(
+        json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()
+    ).hexdigest()
+
+
+def test_the_dataset_manifest_hashes_the_splits_settings_passed_from_code(toy):
+    # No --splits-config here: run_gold gets the toy settings directly, as the leakage tests call it.
+    used = load_splits_config(toy.root / TOY_SPLITS)
+    ctx = build_context(load_settings(env_path=toy.env_file))
+    assert run_gold(ctx, labels_cfg=load_labels_config(), splits_cfg=used).exit_code == EXIT_OK
+    manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
+    assert manifest["config_sha256"]["splits.yaml"] == _settings_sha(used)
+
+
+def test_a_missing_splits_config_is_a_config_error(toy, monkeypatch, capsys):
+    toy.splits_file = str(toy.root / "no-such-splits.yaml")
+    assert toy.gold(monkeypatch) == EXIT_CONFIG
+    assert "config error" in capsys.readouterr().err
+
+
+def test_gold_stops_when_a_required_label_has_no_training_month(toy, monkeypatch, capsys):
+    toy.splits_file = str(
+        project_root() / "configs" / "splits.yaml"
+    )  # g12 required: no train month at toy V
+    assert toy.gold(monkeypatch) == EXIT_VALIDATION
+    err = capsys.readouterr().err
+    assert "no training month for the required labels g12 (train window None)" in err
+    assert not (toy.root / "gold" / "labels").exists()  # nothing promoted
+    (m,) = toy.manifests()
+    assert m["promoted"] is False and m["split_windows"]["g12"]["train"] is None
+    assert m["split_windows"]["g6"]["train"] == ["2023-01", "2023-01"]
+
+
+def test_gold_stops_when_a_required_labels_training_rows_are_all_censored(toy, monkeypatch, capsys):
+    real = build.build_labels
+
+    def censored_g6(*args, **kwargs):  # g6 trains on 2023-01 only: censor all its rows
+        labels = real(*args, **kwargs)
+        train = pl.col("t") == "2023-01"
+        return labels.with_columns(
+            pl.when(train).then(pl.lit(None, pl.Int8)).otherwise(pl.col("y_g6")).alias("y_g6"),
+            pl.when(train)
+            .then(pl.lit("censored"))
+            .otherwise(pl.col("status_g6"))
+            .alias("status_g6"),
+        )
+
+    monkeypatch.setattr(build, "build_labels", censored_g6)
+    assert toy.gold(monkeypatch) == EXIT_VALIDATION
+    err = capsys.readouterr().err
+    assert (
+        "required label g6: no labelled training rows in 2023-01..2023-01 "
+        "(4 train rows, none positive or negative)" in err
+    )
+    assert "no training month" not in err  # the window is not empty
+    assert not (toy.root / "gold" / "labels").exists()
+
+
+def test_a_null_split_stops_gold_before_promotion(toy, monkeypatch, capsys):
+    real = build.add_splits
+
+    def one_null(*args, **kwargs):
+        labels = real(*args, **kwargs)
+        first = pl.int_range(pl.len()) == 0
+        return labels.with_columns(
+            pl.when(first).then(None).otherwise(pl.col("split_pen12")).alias("split_pen12")
+        )
+
+    monkeypatch.setattr(build, "add_splits", one_null)
+    assert toy.gold(monkeypatch) == EXIT_VALIDATION
+    assert "staged labels: null values in ['split_pen12']" in capsys.readouterr().err
+    assert not (toy.root / "gold" / "labels").exists()
+
+
+def test_a_required_label_missing_from_labels_yaml_is_a_config_error(toy, monkeypatch, capsys):
+    path = toy.root / "splits_bad.yaml"
+    path.write_text((toy.root / TOY_SPLITS).read_text().replace("- g6", "- g24"), encoding="utf-8")
+    toy.splits_file = str(path)
+    assert toy.gold(monkeypatch) == EXIT_CONFIG
+    assert "required_labels ['g24'] are not labels in labels.yaml" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", ["required_label", "v"])
+def test_the_run_manifest_records_the_clis_exit_code_for_a_config_error(toy, monkeypatch, bad):
+    extra: tuple[str, ...] = ("--v", "2023-12")  # never published
+    if bad == "required_label":
+        path = toy.root / "splits_bad.yaml"
+        path.write_text(
+            (toy.root / TOY_SPLITS).read_text().replace("- g6", "- g24"), encoding="utf-8"
+        )
+        toy.splits_file, extra = str(path), ()
+    code = toy.gold(monkeypatch, *extra)
+    assert code == EXIT_CONFIG
+    (m,) = toy.manifests()
+    assert m["exit_code"] == code and m["promoted"] is False and "ConfigError" in m["error"]
+    assert RunLock(toy.meta, LOCK_NAME).holder() is None  # checked before the lock was taken
+
+
+def test_the_run_manifest_records_every_labels_split_windows(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    w = toy.manifests()[0]["split_windows"]
+    assert w["g6"] == {
+        "last_labeled_t": "2024-01", "train": ["2023-01", "2023-01"], "calib": ["2023-02", "2023-04"],
+        "purge": ["2023-05", "2023-10"], "test": ["2023-11", "2024-01"], "score": ["2024-02", None],
+    }  # fmt: skip
+    assert w["g12"]["last_labeled_t"] == "2023-07" and w["pen12"]["last_labeled_t"] == "2023-03"
+
+
+def _shipped_log(toy) -> list[dict]:
+    (m,) = toy.manifests()
+    (key,) = toy.store.list(f"reports/gold/run={m['run_id']}/logs")
+    lines = (toy.root / key).read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
+
+
+def test_a_disabled_split_gate_logs_a_warning_and_is_recorded(toy, monkeypatch):
+    toy.splits_file = str(no_gate_splits(toy.root))
+    assert toy.gold(monkeypatch) == EXIT_OK
+    # The run's own log (shipped to reports/gold/run=<id>/logs/) carries the warning.
+    warnings = [r for r in _shipped_log(toy) if r.get("level") == "WARNING"]
+    assert any("split gate disabled: no required labels" in r.get("msg", "") for r in warnings)
+    assert toy.manifests()[0]["split_gate"] == {"required_labels": [], "enabled": False}
+
+
+def test_an_enabled_split_gate_is_recorded_without_a_warning(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    assert toy.manifests()[0]["split_gate"] == {"required_labels": ["g6"], "enabled": True}
+    assert not any("split gate disabled" in r.get("msg", "") for r in _shipped_log(toy))

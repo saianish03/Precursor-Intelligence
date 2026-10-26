@@ -19,7 +19,7 @@ part. A small **toy silver world** with hand-written answers lets you test every
 
 | Who | Done | Next |
 |---|---|---|
-| Sai (gold lead) | Spine, labels, `precursor-pipeline gold` | Splits (§9.5), the final checks and verification gate (§11), publishing to the warehouse (§11.5) |
+| Sai (gold lead) | Spine, labels, `precursor-pipeline gold`, splits (§9.5) | The final checks and verification gate (§11), publishing to the warehouse (§11.5) |
 | You (features partner) | — | The 6 feature families (§8), the leakage-safe feature reader, `configs/feature_registry.yaml`, the assembly and `dataset_manifest.json` (§10) |
 
 **Start here**
@@ -30,7 +30,8 @@ part. A small **toy silver world** with hand-written answers lets you test every
 2. **Run the tests:** `uv run pytest tests/gold tests/leakage`. Everything passes except the two waiting feature
    tests, which show as `xfail`.
 3. **Run gold on the toy world:** `uv run python tests/gold/make_toy_silver.py data/toy`, then
-   `uv run precursor-pipeline gold --env-file data/toy/env.yaml`, and open `data/toy/gold/labels/part-0.parquet`.
+   `uv run precursor-pipeline gold --env-file data/toy/env.yaml --splits-config data/toy/splits.yaml`, and open
+   `data/toy/gold/labels/part-0.parquet`.
 4. **Read sections 8–10** below: what you build, the leakage rules, the join rules.
 5. **Build in this order**, each piece with its own toy-world tests and a leakage test:
    - the feature reader;
@@ -53,11 +54,11 @@ part. A small **toy silver world** with hand-written answers lets you test every
 | Feature reader (§8, §11.3) | `gold/features/reader.py` → `FeatureReader` | The only way feature code reads silver: `*_by_vintage` and `citation_lookup` at t, t−6, t−12. Refuses any other table or offset, and with `limit` any vintage after it; records every read. The run uses `limit = V`. |
 | Features (§8) | `gold/features/{survey_timing,citations,enforcement,facility_staffing,context}.py` → `build_family` / `build_features` | 95 features in 5 families, one row per spine row. `quality` raises `NotImplementedError` until `configs/qm_measures.yaml` is approved (open item 3). Rules in `configs/features.yaml` (severity points, bands, 456 days, occupancy cap, categories, footnote reasons, era months). |
 | Registry (§8) | `configs/feature_registry.yaml`, `load_feature_registry()` | Generated from the column contract: every built feature with family, source table, formula, first available vintage (measured), dtype, `model_use`. |
+| Splits (§9.3, §9.5) | `gold/splits.py` → `add_splits`, `split_windows` | `split_g12`, `split_g6`, `split_pen12` on `gold/labels`: per label, calendar months back from `last_labeled_t = V − (H + B)` (V = the label vintage). Test = the last `test_months`, purge = H months before, calib = `calib_months` before that, train = `spine_start` up to calib, score = after `last_labeled_t` (exactly the `immature` rows). Gold stops (exit 2) unless every `required_labels` label has at least one positive and one negative `train` row (censored and immature rows don't count). Settings in `configs/splits.yaml`. |
 | Assembly (§10) | `gold/dataset.py` → `assemble`, `dataset_manifest` | spine → 5 families → labels, row count and `(ccn, t)` checked after every join; `gold/dataset_manifest.json`. |
 
-**Not built:** the `quality` family (waits for `configs/qm_measures.yaml`), splits (§9.5), aux labels (§9.4), the
-verification report and warehouse publish (§11), `checks.yaml`. Who builds each is in §1. The manifest has rows
-per label status instead of per split until the splits exist.
+**Not built:** the `quality` family (waits for `configs/qm_measures.yaml`), aux labels (§9.4), the verification
+report and warehouse publish (§11), `checks.yaml`. Who builds each is in §1.
 
 **Unverified until the §11 gate exists.** Spec §11 says gold/ holds only validated data, but the verification gate is
 not built yet. Every run therefore writes `"verified": false` (`VERIFIED` in `gold/build.py`) to
@@ -99,7 +100,7 @@ between leaves `_current.json` at `promoting`, and a reader must not trust that 
 | Table | Columns (type) |
 |---|---|
 | `gold/spine` | `ccn` (str, 6 characters), `t` (str `YYYY-MM`), `cutoff_date` (date, the 1st of t) |
-| `gold/labels` | `ccn`, `t`, then for each of `g12`, `g6`, `pen12`: `y_<label>` (Int8: 1, 0 or null) and `status_<label>` (str: `positive`, `negative`, `censored`, `immature`) |
+| `gold/labels` | `ccn`, `t`, then for each of `g12`, `g6`, `pen12`: `y_<label>` (Int8: 1, 0 or null) and `status_<label>` (str: `positive`, `negative`, `censored`, `immature`); then `split_g12`, `split_g6`, `split_pen12` (str: `train`, `calib`, `purge`, `test`, `score`) |
 
 `y` is 1 only for `positive`, 0 only for `negative`, null for `censored` and `immature`. Training uses only the
 positive and negative rows of the label being trained.
@@ -121,11 +122,16 @@ The **manifest** records `run_id`, `exit_code`, `v`, `v_labels`, `stale_refresh_
    past stale months (2025-09 → 2025-07). The spine still runs to V. If a month it needs has **no flag row, the
    run stops (exit 2)** with a message naming the month; it never guesses.
 5. **No peeking.** Ledger events with `first_seen_vintage` after the label vintage are dropped.
-6. **Stage, check, promote.** Write to `gold/_staging/run=<id>/`, read back, check that the spine is unique and
+6. **Splits.** Add `split_<label>` from the label vintage and `configs/splits.yaml` (or `--splits-config`). If a
+   label in `required_labels` has no `train` row, the run stops (exit 2, nothing promoted) and names the label and
+   its train window. `required_labels: []` turns that gate off; the run then logs the warning "split gate
+   disabled: no required labels". The run manifest records each label's windows (`split_windows`) and the gate
+   (`split_gate`).
+7. **Stage, check, promote.** Write to `gold/_staging/run=<id>/`, read back, check that the spine is unique and
    the labels have exactly the spine's rows; then set `gold/_current.json` to `promoting`, copy the same bytes
    to `gold/`, and set `_current.json` to `current` with the run id, V and both sha256. A check failure: exit 2,
    `gold/` untouched. Reruns on unchanged silver give byte-identical files.
-7. **Manifest.** Written for every run, also a failed one, with the freshness check's result, `promoted`, and
+8. **Manifest.** Written for every run, also a failed one, with the freshness check's result, `promoted`, and
    the error of a run that failed unexpectedly (exit 1). Gold reports `n_failures` to `run_log`, which marks the
    step `failed` when that is non-zero or the run raises.
 
@@ -142,16 +148,21 @@ uv run precursor-pipeline gold --env-file <yaml>       # any other store / metad
 |---|---|
 | 0 | Spine and labels built and promoted |
 | 1 | Error: another run holds the lock, or a bug or outage. Retry |
-| 2 | Data or gate failure (silver not current, missing silver input, missing `vintage_flags`, a failed check). `gold/` untouched |
-| 3 | Config or usage error: bad `--v`, bad config, a DAG task whose run does not hold the lock |
+| 2 | Data or gate failure (silver not current, missing silver input, missing `vintage_flags`, a required label without a positive and a negative training row, a failed check). `gold/` untouched |
+| 3 | Config or usage error: bad `--v`, bad config (including a `required_labels` entry that is not a label in `labels.yaml`), a DAG task whose run does not hold the lock |
 
 **On the toy world:**
 
 ```bash
-uv run python tests/gold/make_toy_silver.py data/toy                 # silver, metadata.db, env.yaml
-uv run precursor-pipeline gold --env-file data/toy/env.yaml
+uv run python tests/gold/make_toy_silver.py data/toy                 # silver, metadata.db, env.yaml, splits.yaml
+uv run precursor-pipeline gold --env-file data/toy/env.yaml --splits-config data/toy/splits.yaml
 uv run python tests/gold/make_toy_silver.py data/toy --stale 2025-03 # try a stale V
 ```
+
+The toy `splits.yaml` is the repo's with `required_labels: [g6]`: at the toy V (2025-03) `y_g12` has no training
+month, so with the repo's `[g12, g6]` gold stops on the toy world (exit 2). At an earlier `--v` or a stale V the
+toy world has no training month at all; tests then use `required_labels: []` (`no_gate_splits` in
+`tests/gold/make_toy_silver.py`).
 
 **On real data:**
 
@@ -240,8 +251,8 @@ antipsychotic code is **419 up to 2024-05 and 481 from 2024-06**. MDS period for
 3. **`configs/feature_registry.yaml`**: every feature with `name, family, source_table, formula,
    first_available_vintage, dtype, model_use` (`model` / `ablation_only` / `product_only`).
 4. **Assembly (§10)**: `gold/facility_month_dataset/t=YYYY-MM/` and `gold/dataset_manifest.json`. Read the
-   spine and labels through `read_current_gold()` (section 3). Join the split columns from `gold/labels` once
-   the splits exist (§9.5, built by Sai).
+   spine and labels through `read_current_gold()` (section 3). The split columns are part of `gold/labels`, so
+   they reach the dataset with the labels; the manifest counts rows per split (`rows_per_split`).
 5. **Wire into the run**: add your tables to the dict passed to `_stage` in `gold/build.py`, so they are built,
    checked and promoted with the spine and labels. Features are partitioned by t (`gold/features_<family>/t=…/`);
    `_stage` and `_promote` currently write single files, so extend them for partitions.
@@ -327,7 +338,7 @@ raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module
 | 1 | ~~Where do features live?~~ **Settled:** the `gold/features/` package (what the tests import) | Partner | Done on `feat/gold-features` |
 | 2 | Buffers `B_cit = 8`, `B_pen = 12` | Team | In `configs/labels.yaml`; still a Checkpoint 3 proposal awaiting approval |
 | 3 | `configs/qm_measures.yaml`, especially 405 → 480 | Silver owner | Checkpoint 4 decision |
-| 4 | Training rows from 2022-01 instead of 2023-01 | Sai | Spec §14 #10: with the buffers, `y_g12` has very few training months |
+| 4 | Training rows from 2022-01 instead of 2023-01 | Team | Spec §14 #10: at V = 2026-08, `y_g12` trains on 6 months from 2023-01 (17 from 2022-01). It is one line, `spine_start` in `configs/splits.yaml`; it also adds ~160k spine rows for 2022-01 → 11, all `train` |
 | 5 | **Done** (`tests/leakage/test_feature_reader.py`, `test_feature_time_travel.py`, `test_feature_registry_inputs.py`). Leakage contract test for features: the feature reader and `feature_registry.yaml` limited to the `*_by_vintage` tables and `citation_lookup` at t (plus t−6, t−12), never the ledgers, `facility_presence`, `facility_universe` beyond t, `citation_lookup_versions` or `dim_facility_latest` | Partner | Review follow-up 1, feature part; the spine/labels part is done (section 9) |
 | 6 | Star ratings: **settled by following the column contract** (see the features note in §2) | Partner | Review follow-up 2 |
 | 7 | Silver edge cases: a provider partition without `ownership_type` exits 1 (retried) instead of 2; `citation_lookup` has no Processing Date, so its vintage comes from the inventory only | Silver owner | Review follow-up 5, not urgent |

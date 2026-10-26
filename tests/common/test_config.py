@@ -119,6 +119,40 @@ def test_labels_config_rejects_unknown_gplus_severities(tmp_path, bad):
 @pytest.mark.parametrize("bad", ["2023-13", "2023-00", "2023-1"])
 def test_splits_config_rejects_a_spine_start_that_is_not_a_month(tmp_path, bad):
     f = tmp_path / "splits.yaml"
-    f.write_text(f'spine_start: "{bad}"\n', encoding="utf-8")
+    f.write_text(SPLITS.replace('"2023-01"', f'"{bad}"'), encoding="utf-8")
     with pytest.raises(ConfigError, match="spine_start"):
+        load_splits_config(f)
+
+
+SPLITS = 'spine_start: "2023-01"\ntest_months: 3\ncalib_months: 3\nrequired_labels: [g12, g6]\n'
+
+
+def test_repo_splits_config_has_the_spec_settings():
+    cfg = load_splits_config()
+    assert (cfg.spine_start, cfg.test_months, cfg.calib_months) == ("2023-01", 3, 3)
+    assert cfg.required_labels == ["g12", "g6"]
+
+
+def test_splits_config_allows_no_required_labels(tmp_path):
+    f = tmp_path / "splits.yaml"
+    f.write_text(
+        SPLITS.replace("required_labels: [g12, g6]", "required_labels: []"), encoding="utf-8"
+    )
+    assert load_splits_config(f).required_labels == []
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("test_months: 3", "test_months: 0"),
+        ("calib_months: 3", "calib_months: -1"),
+        ("required_labels: [g12, g6]", "required_labels: [g12, g12]"),
+        ("calib_months: 3\n", ""),  # every setting is required
+        ("calib_months: 3\n", "calib_months: 3\npurge_months: 12\n"),  # unknown key
+    ],
+)
+def test_splits_config_rejects_bad_settings(tmp_path, old, new):
+    f = tmp_path / "splits.yaml"
+    f.write_text(SPLITS.replace(old, new), encoding="utf-8")
+    with pytest.raises(ConfigError):
         load_splits_config(f)

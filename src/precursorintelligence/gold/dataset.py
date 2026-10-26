@@ -8,6 +8,7 @@ from: every (table, vintage) source zip, the release flags, the config and regis
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
 from collections.abc import Mapping
@@ -22,11 +23,12 @@ from ..common.io.metadata_store import MetadataStore
 from ..harmonize.silver import latest_bronze
 from . import GoldCheckError
 from .features import FAMILY_ORDER
+from .splits import SPLITS
 
 DATASET = "facility_month_dataset"
 MANIFEST_NAME = "dataset_manifest.json"
 KEYS = ["ccn", "t"]
-HASHED_CONFIGS = ("features.yaml", "feature_registry.yaml", "labels.yaml", "splits.yaml")
+HASHED_CONFIGS = ("features.yaml", "feature_registry.yaml", "labels.yaml")
 GIT_COMMIT_ENV = "PI_GIT_COMMIT"  # set in images, which carry no .git
 
 
@@ -56,6 +58,13 @@ def by_t(df: pl.DataFrame) -> dict[str, pl.DataFrame]:
 
 def _sha256_file(name: str) -> str:
     return hashlib.sha256((project_root() / "configs" / name).read_bytes()).hexdigest()
+
+
+def _sha256_settings(cfg: SplitsConfig) -> str:
+    """The settings themselves, as canonical JSON: the same whichever file (or code) they came from."""
+    return hashlib.sha256(
+        json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()
+    ).hexdigest()
 
 
 def _git(args: list[str], cwd: Path) -> str | None:
@@ -109,12 +118,13 @@ def _flags(meta: MetadataStore, v: str) -> dict[str, list[str]]:
     return {flag: sorted(months) for flag, months in sorted(out.items())}
 
 
-def _status_counts(labels: pl.DataFrame, cfg: LabelsConfig) -> dict[str, dict[str, int]]:
-    """Rows per status per label (the split columns come with the splits step, spec §9.5)."""
-    return {
-        name: dict(sorted(labels[f"status_{name}"].value_counts().iter_rows()))
-        for name in cfg.labels
-    }
+def _split_counts(labels: pl.DataFrame, cfg: LabelsConfig) -> dict[str, dict[str, int]]:
+    """Rows per split per label (spec §9.5), every split listed in SPLITS order, 0 when it has no rows."""
+    out = {}
+    for name in cfg.labels:
+        counts = dict(labels[f"split_{name}"].value_counts().iter_rows())
+        out[name] = {split: counts.get(split, 0) for split in SPLITS}
+    return out
 
 
 def dataset_manifest(
@@ -133,6 +143,7 @@ def dataset_manifest(
     """``gold/dataset_manifest.json`` (spec §10.5). Only ``built_at`` changes between identical builds.
 
     ``verified`` is False until the spec §11 gate has passed on this dataset; nothing should train on it before.
+    ``splits.yaml`` is hashed from ``splits_cfg``, the settings actually used (``--splits-config`` or code).
     """
     commit, dirty = git_state()
     version = hashlib.sha256(
@@ -150,11 +161,12 @@ def dataset_manifest(
         "feature_families_pending": [f for f in FAMILY_ORDER if f not in families],
         "sources": _sources(meta, v),
         "flags": _flags(meta, v),
-        "config_sha256": {name: _sha256_file(name) for name in HASHED_CONFIGS},
+        "config_sha256": {name: _sha256_file(name) for name in HASHED_CONFIGS}
+        | {"splits.yaml": _sha256_settings(splits_cfg)},
         "git_commit": commit,
         "git_dirty": dirty,
         "rows": {"total": labels.height, "months": labels["t"].n_unique()},
-        "rows_per_label_status": _status_counts(labels, labels_cfg),
+        "rows_per_split": _split_counts(labels, labels_cfg),
         "partitions_sha256": dict(sorted(partition_sha256.items())),
         "built_at": built_at.isoformat(timespec="seconds"),
     }

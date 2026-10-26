@@ -3,6 +3,7 @@
   precursor-pipeline gold --run-id R        # DAG task: the run must hold the data_pipeline lock
   precursor-pipeline gold                   # local run: takes and releases the lock itself
   precursor-pipeline gold --v 2025-07       # an earlier published V (events first seen after it are ignored)
+  precursor-pipeline gold --splits-config data/toy/splits.yaml   # split settings from another file
 
 Exit codes: 0 ok, 1 error (retried, e.g. another run holds the lock), 2 data or gate failure (gold/ not promoted),
 3 config or usage error (e.g. a bad --v).
@@ -21,6 +22,12 @@ from ..ingestion.context import build_context
 from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR
 from .build import run_gold
 
+SPLITS_OPT = typer.Option(
+    None,
+    "--splits-config",
+    help="split settings file (test_months, calib_months, required_labels, spine_start); "
+    "default: configs/splits.yaml",
+)
 V_OPT = typer.Option(
     None,
     "--v",
@@ -36,6 +43,7 @@ def gold(
     env_file: Path | None = ENV_FILE_OPT,
     log_level: str | None = typer.Option(None, help="override the configured log level"),
     v: str | None = V_OPT,
+    splits_config: Path | None = SPLITS_OPT,
 ) -> None:
     """Build gold/spine and gold/labels from silver, checked in gold/_staging first (spec §7, §9, §11)."""
     orchestrated = run_id is not None
@@ -45,7 +53,7 @@ def gold(
         res = run_gold(
             ctx,
             labels_cfg=load_labels_config(),
-            splits_cfg=load_splits_config(),
+            splits_cfg=load_splits_config(splits_config),
             v=v,
             own_lock=not orchestrated,
         )

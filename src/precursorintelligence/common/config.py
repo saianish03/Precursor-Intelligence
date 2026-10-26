@@ -285,7 +285,18 @@ class LabelsConfig(BaseModel):
 class SplitsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    spine_start: str
+    spine_start: str  # first spine month t, and where training starts (spec §9.5)
+    test_months: int = Field(ge=1)
+    calib_months: int = Field(ge=0)
+    # [] turns the training-month gate off (gold then logs a warning and records it in the run manifest)
+    required_labels: list[str]
+
+    @field_validator("required_labels")
+    @classmethod
+    def _no_repeats(cls, v: list[str]) -> list[str]:
+        if len(set(v)) != len(v):
+            raise ValueError(f"required_labels repeats a label: {v}")
+        return v
 
     @field_validator("spine_start")
     @classmethod

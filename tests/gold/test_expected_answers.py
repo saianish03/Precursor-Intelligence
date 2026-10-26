@@ -25,6 +25,7 @@ from precursorintelligence.common.io.table_sink import ParquetTableSink
 from precursorintelligence.gold import GoldCheckError
 from precursorintelligence.gold.labels import build_labels
 from precursorintelligence.gold.spine import build_spine
+from precursorintelligence.gold.splits import add_splits
 
 LAST_LABELED_G12 = "2023-07"
 
@@ -415,3 +416,51 @@ def test_spine_refuses_a_ccn_that_is_not_six_character_text(ccn):
     universe = pl.DataFrame({"ccn": ccn, "vintage_month": ["2023-01"]})
     with pytest.raises(GoldCheckError, match="6-character text"):
         build_spine(universe, published_vintages=["2023-01"], spine_start="2023-01", v="2023-01")
+
+
+# ------------------------------------------------------------------ splits (spec §9.3, §9.5)
+
+# Toy V = 2025-03, test_months = 3, calib_months = 3, spine from 2023-01. Calendar months; 2023-12 has no rows.
+#   g6:    last_labeled_t 2024-01 -> train 2023-01, calib 2023-02..04, purge 2023-05..10, test 2023-11..2024-01
+#   g12:   last_labeled_t 2023-07 -> test 2023-05..07, purge 2022-05..2023-04 (spine: 2023-01..04), no calib/train
+#   pen12: last_labeled_t 2023-03 -> test 2023-01..03, the purge, calib and train windows fall before the spine
+EXPECTED_SPLIT_MONTHS = {
+    "g6": {"train": _months("2023-01", "2023-01"), "calib": _months("2023-02", "2023-04"),
+           "purge": _months("2023-05", "2023-10"), "test": _months("2023-11", "2024-01"),
+           "score": _months("2024-02", "2025-03")},
+    "g12": {"purge": _months("2023-01", "2023-04"), "test": _months("2023-05", "2023-07"),
+            "score": _months("2023-08", "2025-03")},
+    "pen12": {"test": _months("2023-01", "2023-03"), "score": _months("2023-04", "2025-03")},
+}  # fmt: skip
+EXPECTED_SPLIT_ROWS = {
+    "g6": {"train": 4, "calib": 13, "purge": 28, "test": 8, "score": 56},
+    "g12": {"purge": 17, "test": 15, "score": 77},
+    "pen12": {"test": 12, "score": 97},
+}
+
+
+@pytest.fixture(scope="module")
+def split_labels(labels) -> pl.DataFrame:
+    return add_splits(labels, V, load_labels_config(), load_splits_config())
+
+
+@pytest.mark.parametrize("label", ["g6", "g12", "pen12"])
+def test_split_months_on_the_toy_world(split_labels, label):
+    got = {
+        split: sorted(set(rows["t"])) for (split,), rows in split_labels.group_by(f"split_{label}")
+    }
+    assert got == EXPECTED_SPLIT_MONTHS[label]
+
+
+@pytest.mark.parametrize("label", ["g6", "g12", "pen12"])
+def test_split_rows_on_the_toy_world(split_labels, label):
+    counts = dict(split_labels[f"split_{label}"].value_counts().iter_rows())
+    assert counts == EXPECTED_SPLIT_ROWS[label]
+    assert sum(counts.values()) == 109
+
+
+def test_g6_trains_on_sunny_positive_oak_and_maple_negative_and_pine_censored(split_labels):
+    train = split_labels.filter(pl.col("split_g6") == "train").sort("ccn")
+    assert train.select("ccn", "status_g6").rows() == [
+        ("015001", "positive"), ("015002", "negative"), ("015004", "negative"), ("01A193", "censored"),
+    ]  # fmt: skip
