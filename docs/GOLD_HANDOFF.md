@@ -52,7 +52,7 @@ part. A small **toy silver world** with hand-written answers lets you test every
 | Command | `gold/cli.py`, registered in `harmonize/cli.py` | `precursor-pipeline gold` (§5). |
 | Configs | `configs/labels.yaml`, `configs/splits.yaml` | G–L, `B_cit = 8`, `B_pen = 12`, strict censoring, horizons; `spine_start: "2023-01"`. Loaded by `load_labels_config()` / `load_splits_config()` in `common/config.py`. Silver's lag analysis (`harmonize/calibrate.py`) reads its G+ set and horizons from `labels.yaml` too; the file is not part of silver's `config_hash`. |
 | Feature reader (§8, §11.3) | `gold/features/reader.py` → `FeatureReader` | The only way feature code reads silver: `*_by_vintage` and `citation_lookup` at t, t−6, t−12. Refuses any other table or offset, and with `limit` any vintage after it; records every read. The run uses `limit = V`. |
-| Features (§8) | `gold/features/{survey_timing,citations,enforcement,facility_staffing,context}.py` → `build_family` / `build_features` | 95 features in 5 families, one row per spine row. `quality` raises `NotImplementedError` until `configs/qm_measures.yaml` is approved (open item 3). Rules in `configs/features.yaml` (severity points, bands, 456 days, occupancy cap, categories, footnote reasons, era months). |
+| Features (§8) | `gold/features/{survey_timing,citations,enforcement,facility_staffing,context}.py` → `build_family` / `build_features` | 95 features in 5 families, one row per spine row. `quality` raises `NotImplementedError` until `configs/qm_measures.yaml` is approved (open item 3). Rules in `configs/features.yaml` (severity points, bands, 456 days, occupancy cap, categories, footnote reasons, era months). The G+ set is not in `features.yaml`: the run passes the labels config's `gplus_severities` in, so features and labels always use one G+ set. |
 | Registry (§8) | `configs/feature_registry.yaml`, `load_feature_registry()` | Generated from the column contract: every built feature with family, source table, formula, first available vintage (measured), dtype, `model_use`. |
 | Splits (§9.3, §9.5) | `gold/splits.py` → `add_splits`, `split_windows` | `split_g12`, `split_g6`, `split_pen12` on `gold/labels`: per label, calendar months back from `last_labeled_t = V − (H + B)` (V = the label vintage). Test = the last `test_months`, purge = H months before, calib = `calib_months` before that, train = `spine_start` up to calib, score = after `last_labeled_t` (exactly the `immature` rows). Gold stops (exit 2) unless every `required_labels` label has at least one positive and one negative `train` row (censored and immature rows don't count). Settings in `configs/splits.yaml`. |
 | Assembly (§10) | `gold/dataset.py` → `assemble`, `dataset_manifest` | spine → 5 families → labels, row count and `(ccn, t)` checked after every join; `gold/dataset_manifest.json`. |
@@ -85,7 +85,7 @@ gold/spine/part-0.parquet                  # zstd; sorted by t, then ccn
 gold/labels/part-0.parquet                 # same rows, same order as the spine
 gold/features_<family>/t=YYYY-MM/part-0.parquet          # 5 families; one row per spine row of t
 gold/facility_month_dataset/t=YYYY-MM/part-0.parquet     # spine + features + labels (§10)
-gold/dataset_manifest.json                 # sources, flags, config hashes, git commit and dirty flag, rows per label status, verified
+gold/dataset_manifest.json                 # sources, flags, config hashes (labels, splits: the settings used; the rest: the files), git commit and dirty flag, rows per label status, verified
 gold/_current.json                         # which run gold/ holds: state, run id, V, verified, sha256 of each file
 gold/_staging/run=<run_id>/...            # what each run built and checked, same layout (kept)
 metadata/gold/run_date=<YYYY-MM-DD>/gold_run_<run_id>_<timestamp>.json   # one per run, never overwritten
@@ -131,9 +131,12 @@ The **manifest** records `run_id`, `exit_code`, `v`, `v_labels`, `stale_refresh_
    the labels have exactly the spine's rows; then set `gold/_current.json` to `promoting`, copy the same bytes
    to `gold/`, and set `_current.json` to `current` with the run id, V and both sha256. A check failure: exit 2,
    `gold/` untouched. Reruns on unchanged silver give byte-identical files.
-8. **Manifest.** Written for every run, also a failed one, with the freshness check's result, `promoted`, and
-   the error of a run that failed unexpectedly (exit 1). Gold reports `n_failures` to `run_log`, which marks the
-   step `failed` when that is non-zero or the run raises.
+8. **Manifest.** Written for every run that reaches `run_gold`, also a failed one, with the freshness check's result, `promoted`, and
+   the error of a run that failed unexpectedly, and the CLI's exit code (3 for a config error, 1 otherwise). Gold
+   reports `n_failures` to `run_log`, which marks the step `failed` when that is non-zero or the run raises. Config
+   errors found before the lock (`--v`, `required_labels`, the G+ set, `features.yaml`, the silver config) write
+   the manifest but no `run_log` row, as in silver: the step never started. No manifest: a `labels.yaml` or
+   `--splits-config` the CLI cannot load, and a lock error (held by another run, or not held by the DAG's run).
 
 ## 5. Running it
 
@@ -149,7 +152,7 @@ uv run precursor-pipeline gold --env-file <yaml>       # any other store / metad
 | 0 | Spine and labels built and promoted |
 | 1 | Error: another run holds the lock, or a bug or outage. Retry |
 | 2 | Data or gate failure (silver not current, missing silver input, missing `vintage_flags`, a required label without a positive and a negative training row, a failed check). `gold/` untouched |
-| 3 | Config or usage error: bad `--v`, bad config (including a `required_labels` entry that is not a label in `labels.yaml`), a DAG task whose run does not hold the lock |
+| 3 | Config or usage error: bad `--v`, bad config (including a `required_labels` entry that is not a label in `labels.yaml`, or a G+ set that is not one letter and every letter above it), a DAG task whose run does not hold the lock |
 
 **On the toy world:**
 

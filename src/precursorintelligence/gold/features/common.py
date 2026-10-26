@@ -14,11 +14,19 @@ SEVERITIES = "ABCDEFGHIJKL"  # ordinal severity: A = 1 ... L = 12 (spec §8.1)
 
 
 @cache
-def gplus_min_ordinal() -> int:
-    """The ordinal of the least severe G+ letter, from ``configs/labels.yaml: gplus_severities``, the set the
-    labels use, so features and labels never disagree on what G+ is. Features test ``max severity >= it``, which
-    equals "any G+" only when the set is a letter and everything above it, so any other set is refused."""
-    letters = sorted(load_labels_config().gplus_severities)
+def _labels_yaml_gplus() -> tuple[str, ...]:
+    return tuple(load_labels_config().gplus_severities)
+
+
+def gplus_min_ordinal(cfg: FeaturesConfig) -> int:
+    """The ordinal of the least severe G+ letter, from ``cfg.gplus_severities`` (the run's labels config; by
+    default ``configs/labels.yaml``), the set the labels use, so features and labels never disagree on what G+
+    is. Features test ``max severity >= it``, which equals "any G+" only when the set is a letter and everything
+    above it, so any other set is refused."""
+    gplus = cfg.gplus_severities if cfg.gplus_severities is not None else _labels_yaml_gplus()
+    letters = sorted(set(gplus))
+    if not letters or not set(letters) <= set(SEVERITIES):
+        raise ConfigError(f"labels.yaml gplus_severities {gplus} must be letters A-L")
     start = SEVERITIES.index(letters[0])
     if letters != list(SEVERITIES[start:]):
         raise ConfigError(
@@ -27,9 +35,9 @@ def gplus_min_ordinal() -> int:
     return start + 1
 
 
-def gplus_severities() -> list[str]:
-    """The G+ letters (from labels.yaml), e.g. G-L."""
-    return list(SEVERITIES[gplus_min_ordinal() - 1 :])
+def gplus_severities(cfg: FeaturesConfig) -> list[str]:
+    """The G+ letters (from the labels config), e.g. G-L."""
+    return list(SEVERITIES[gplus_min_ordinal(cfg) - 1 :])
 
 
 def within(date_col: str, months: int) -> pl.Expr:

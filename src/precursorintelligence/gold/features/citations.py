@@ -70,7 +70,7 @@ def build(reader: FeatureReader, rows: pl.DataFrame, t: str, cfg: FeaturesConfig
         complaint=pl.col("is_complaint").fill_null(False),
     )
     w12, w24, w36 = (within("survey_date", m) for m in (12, 24, 36))
-    gplus_from = gplus_min_ordinal()  # G with labels.yaml's G-L
+    gplus_from = gplus_min_ordinal(cfg)  # G with labels.yaml's G-L
     gplus = pl.col("ordinal") >= gplus_from
     category = pl.col("deficiency_category")
 
