@@ -219,20 +219,25 @@ Also: `run_log` marks a step failed when it raises, or when it reports `n_failur
 |---|---|---|
 | Per-task JSON log (one file per container) | `reports/<node>/run=<run_id>/logs/` (`step1` for ingestion) | every CLI process |
 | Checkpoint reports | `reports/step1/` (inventory), `step2/` (harmonisation), `step4/` (posting lag), `step5/` (universe and QM), each as `run=<id>/` and `latest/` | ingestion, silver |
-| Per-run manifests (D11) | `metadata/<ingestion\|bronze\|silver>/run_date=<date>/<layer>_run_<run_id>_<ts>.json` | each node |
+| Per-run manifests (D11) | `metadata/<ingestion\|bronze\|silver\|gold\|validation>/run_date=<date>/<layer>_run_<run_id>_<ts>.json` | each node |
 | Airflow task logs (container output) | `airflow-logs` volume: `dag_id=…/run_id=…/task_id=…/attempt=N.log` | Airflow |
-| Data layers | `landing/`, `quarantine/`, `bronze/`, `silver/`, `gold/dim_facility_latest` | the nodes |
+| Data layers, one folder each | `landing/`, `quarantine/` (failed downloads only), `bronze/`, `silver/`, `gold/` (the silver node writes `gold/dim_facility_latest`, gold the rest) | the nodes |
 
-**Environment, the only difference between a laptop and GCP** (`docker/airflow-local/.env`):
+Every key is relative to one root, the local folder or `gs://precursor-intel-mlops-data`, so the folder layout is identical on both. `tests/ingestion/test_bronze_end_to_end.py` and `tests/gold/test_gold_on_object_store.py` check that each node writes only its own folders.
 
-| Setting | Laptop | GCP VM |
-|---|---|---|
-| `PI_PIPELINE_ENV` | `dev` (configs/dev.yaml: local disk) | `prod` (configs/prod.yaml: GCS) |
-| `PI_HOST_DATA_DIR` | a host folder, bind-mounted at `/app/data` | empty |
-| `PI_BUCKET_URI` | — | `gs://precursor-intel-mlops-data` |
-| `PI_DAG_SCHEDULE` | empty (manual) | a daily cron inside the VM's up-window |
-| `PI_TASK_MEM_LIMIT`, `PI_AUTO_REMOVE` | empty, `success` | `6g`, `force` |
-| credentials | none | the VM's service account `sa-pipeline` (no key files) |
+**Environment: local disk, a laptop against GCS, and the VM** (`docker/airflow-local/.env`):
+
+| Setting | Laptop, local disk | Laptop → GCS | GCP VM |
+|---|---|---|---|
+| `PI_PIPELINE_ENV` | `dev` (configs/dev.yaml: local disk) | `prod` (configs/prod.yaml: GCS) | `prod` |
+| `PI_HOST_DATA_DIR` | a host folder, bind-mounted at `/app/data` | empty | empty |
+| `PI_BUCKET_URI` | — | empty (the bucket root) or `gs://precursor-intel-mlops-data/trial-<date>` | `gs://precursor-intel-mlops-data` |
+| `PI_GCP_CREDENTIALS_FILE` | — | host path of your gcloud ADC file, mounted read-only into task containers | empty |
+| `PI_DAG_SCHEDULE` | empty (manual) | empty (manual) | a daily cron inside the VM's up-window |
+| `PI_TASK_MEM_LIMIT`, `PI_AUTO_REMOVE` | empty, `success` | empty, `success` | `6g`, `force` |
+| credentials | none | you (`gcloud auth application-default login`) | the VM's service account `sa-pipeline` (no key files) |
+
+With `--env prod`, gcsfs uses `token: google_default`: missing credentials fail at once instead of turning into anonymous 401s later. A `gcs` root that doesn't start with `gs://` is a config error (exit 3), so an empty or bare `PI_BUCKET_URI` can't make the tasks write to the container's disk instead.
 
 ## 7. What makes it production-grade
 

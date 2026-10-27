@@ -35,6 +35,33 @@ docker compose up -d --wait --pull never     # --pull never: the two precursor-*
 - **Laptop:** set `PI_DAG_SCHEDULE=` (empty), so runs are manual only. With `@daily`, unpausing starts a run over **every** in-scope zip (about 2.5 GB).
 - **The DAG starts paused.** Unpause it: `docker compose exec airflow-scheduler airflow dags unpause cms_nh_pipeline`.
 
+### 2.1 Against the GCS bucket from a laptop
+Each layer gets its own folder in one bucket: `gs://precursor-intel-mlops-data/{landing,bronze,silver,gold,reports,metadata}/…`. `quarantine/` appears only if a download failed. Each folder appears on its first write.
+
+**Don't create folders by hand in the console:** a zero-byte placeholder inside a table folder breaks the reads.
+
+1. **Log in once** (each command opens the browser):
+   ```bash
+   gcloud auth login
+   gcloud config set project precursor-intel-mlops
+   gcloud auth application-default login     # writes ~/.config/gcloud/application_default_credentials.json
+   gcloud auth application-default set-quota-project precursor-intel-mlops
+   gcloud storage ls gs://precursor-intel-mlops-data/      # access check
+   ```
+2. **In `.env`:**
+   - `PI_PIPELINE_ENV=prod`
+   - `PI_HOST_DATA_DIR=` (empty)
+   - `PI_BUCKET_URI=` (empty, so the bucket root), or `gs://precursor-intel-mlops-data/trial-<date>` for a trial
+   - `PI_GCP_CREDENTIALS_FILE=<absolute path of that ADC file>`
+
+   Every task container then gets the file mounted read-only (`GOOGLE_APPLICATION_CREDENTIALS`). On the VM, leave it empty: the VM's own identity is used.
+3. **Start the stack and trigger runs as in §2–§3.** The metadata database is the compose Postgres. A fresh database pointed at a bucket that already holds data adopts the zips there after validating them, then rebuilds bronze and silver.
+4. **Delete a trial prefix.** Versioning keeps every old version unless you delete them all:
+   `gcloud storage rm -r --all-versions gs://precursor-intel-mlops-data/trial-<date>/`
+
+**Without Airflow**, the CLI on the host uses your login directly:
+`PI_DATABASE_URL=sqlite:///<file> PI_BUCKET_URI=gs://… uv run precursor-ingest step1 --env prod …`
+
 ## 3. Run it
 In the UI use "Trigger DAG w/ config", or from the CLI:
 ```bash
