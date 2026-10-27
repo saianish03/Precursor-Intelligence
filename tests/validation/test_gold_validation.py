@@ -131,3 +131,11 @@ def test_a_bad_status_value_is_an_error(put_gold, ctx, gold_cfg):
     put_gold("labels", labels_month("2025-01", status="unknown"))
     found = {(a.column, a.check) for a in run_validation(ctx, gold_cfg, layer="gold").anomalies}
     assert {(f"status_{n}", "allowed_values") for n in LABELS} <= found
+
+
+def test_a_label_stored_as_text_is_a_wrong_dtype_error_not_a_crash(put_gold, ctx, gold_cfg):
+    name = LABELS[0]
+    put_gold("labels", labels_month("2025-01").with_columns(pl.col(f"y_{name}").cast(pl.String)))
+    res = run_validation(ctx, gold_cfg, layer="gold")
+    assert res.exit_code == EXIT_VALIDATION
+    assert [(a.check, a.column) for a in res.anomalies] == [("wrong_dtype", f"y_{name}")]

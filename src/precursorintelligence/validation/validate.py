@@ -160,6 +160,11 @@ def _rules(df: pl.DataFrame, schema: TableSchema, month: str) -> list[Anomaly]:
             needed += [f"split_{n}"] if rule == "score_iff_immature" else []
             if not set(needed) <= set(df.columns):
                 continue  # reported as missing_column
+            rules = [schema.columns.get(c) for c in needed]
+            if any(
+                r is None or str(df[c].dtype) != r.dtype for c, r in zip(needed, rules, strict=True)
+            ):
+                continue  # reported as wrong_dtype (or unexpected_column)
             bad_rows, should = _rule_violations(rule, n)
             bad = df.filter(bad_rows).select(needed)
             if not bad.height:
