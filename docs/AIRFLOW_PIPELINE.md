@@ -67,12 +67,14 @@ you / @daily -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080     
        v
 ┌─ silver ─────────────────────────────────────────────────────┐
 │ build_silver                         => asset cms_nh_silver  │
+│ validate_silver   (schema + drift; exit 2 stops before gold) │
 └──────────────────────────────────────────────────────────────┘
        |  continue_after_silver      (skips gold if stop_after=silver)
        v
 ┌─ gold ───────────────────────────────────────────────────────┐
-│ build_gold                           => asset cms_nh_gold    │
-│   (emitted only when gold was published)                     │
+│ build_gold                                                   │
+│ validate_gold                        => asset cms_nh_gold    │
+│   (emitted only when gold was published and validated)       │
 └──────────────────────────────────────────────────────────────┘
        |
        v
@@ -93,6 +95,8 @@ release_lock      teardown of acquire_lock: runs whenever the lock was taken (§
 | `bronze.load_bronze` | `precursor-pipeline bronze` | Lossless all-text Parquet per selected file; reconciles against the inventory; content hash, `stale_refresh`, `revised_after_publication` |
 | `silver.build_silver` | `precursor-pipeline silver --calibrate\|--no-calibrate` | Typed per-vintage tables, ledgers, universe, QM inventory; Checkpoint 2 report (with calibration also Checkpoints 3–4) |
 | `gold.build_gold` | `precursor-pipeline gold` | Spine, labels and splits, 5 feature families and `facility_month_dataset`, built in `gold/_staging/run=<id>/`, checked, then promoted to `gold/` with `_current.json` and `dataset_manifest.json`. A failed check or the training gate (`configs/splits.yaml: required_labels`) exits 2: nothing is published and the run fails without a retry |
+| `silver.validate_silver` | `precursor-pipeline validate --layer silver` (`--all-months` in a backfill) | Pandera schema checks, per-month statistics and drift against the previous month (`docs/VALIDATION.md`). A schema violation is exit 2: no retry, gold does not run |
+| `gold.validate_gold` | `precursor-pipeline validate --layer gold` | The same checks on every gold month, plus the label rules. Emits `cms_nh_gold`; it runs after the publish, so a failure holds back the asset but cannot unpublish |
 | `continue_after_*` | (Python) | `stop_after` short-circuit: skip the next node |
 | `release_lock` | `precursor-ingest lock release` | Releases the lock (§3) |
 
@@ -130,7 +134,7 @@ release_lock      teardown of acquire_lock: runs whenever the lock was taken (§
   - Run E: `discover_download` failed with exit 3 and all downstream tasks were `upstream_failed`, yet the run showed `success`.
   - Run B (silver exit 2) did the same.
   - No alert would ever fire.
-- **As a teardown** (`release.as_teardown(setups=acquire)`), Airflow leaves it out of the leaves. The leaf becomes the last node's task (`build_silver` then, `build_gold` now; `tests/dags` checks it is the only leaf), so a failure anywhere upstream makes the run `failed`, while the release still runs (`ALL_DONE_SETUP_SUCCESS`). Runs E2 and E4: `failed`, lock released.
+- **As a teardown** (`release.as_teardown(setups=acquire)`), Airflow leaves it out of the leaves. The leaf becomes the last node's task (`build_silver` then, `validate_gold` now; `tests/dags` checks it is the only leaf), so a failure anywhere upstream makes the run `failed`, while the release still runs (`ALL_DONE_SETUP_SUCCESS`). Runs E2 and E4: `failed`, lock released.
 - **Not with `on_failure_fail_dagrun=True`** either. That flag (meant to fail the run when the teardown fails) makes Airflow count the teardown as a leaf again, so its success hid the failure once more (run E3).
 - **What covers a release that fails:** 2 retries, and the next run's `acquire_lock` failing loudly (or taking over the lock after 12 h).
 

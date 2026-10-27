@@ -894,8 +894,8 @@ check_release ──(short-circuit unless proceed)──▶ ┌ ingestion ──
   (skipped when run_check_release=false)          │ acquire_lock → discover_download → pending_entries →           │
                                                   │ extract_inventory[mapped per zip] → resolve_report ──(cms_nh_landing)
                                                   └────────────────────────────────────────────────────────────────┘
-                     ──▶ bronze: load_bronze ──(cms_nh_bronze)──▶ silver: build_silver [+ calibrate] ──(cms_nh_silver)──▶
-                     ──▶ gold: build_gold (gate; publish) ──(cms_nh_gold)──▶ release_lock (teardown of acquire_lock, retries=2)
+                     ──▶ bronze: load_bronze ──(cms_nh_bronze)──▶ silver: build_silver [+ calibrate] ──(cms_nh_silver)──▶ validate_silver ──▶
+                     ──▶ gold: build_gold (gate; publish) ──▶ validate_gold ──(cms_nh_gold)──▶ release_lock (teardown of acquire_lock, retries=2)
 ```
 
 - The `data_pipeline` lock is taken by the first ingestion task and released by the last task, also on failure. Every task in between `require`s it.
@@ -928,7 +928,9 @@ check_release ──(short-circuit unless proceed)──▶ ┌ ingestion ──
 | | `resolve_report` | `precursor-ingest step1 --steps resolve,report --run-id R` | `trigger_rule=none_failed`; emits `cms_nh_landing` |
 | bronze | `load_bronze` | `bronze --run-id R` | Refuses to start if any inventory row is `pending` (exit 2). Can later be mapped per (table, vintage). |
 | silver | `build_silver` | `silver --run-id R [--calibrate]` | `--calibrate` in backfill (Checkpoints 3–4); monthly runs read buffers and QMs from config |
-| gold | `build_gold` | `gold --run-id R` | Gate: any failed check → exit 2, nothing published. Emits `cms_nh_gold` only when published. |
+| silver | `validate_silver` | `validate --layer silver --run-id R [--all-months]` | Schema and drift checks (`docs/VALIDATION.md`); `--all-months` in backfill. Exit 2 on a schema violation: gold does not run. |
+| gold | `build_gold` | `gold --run-id R` | Gate: any failed check → exit 2, nothing published. |
+| gold | `validate_gold` | `validate --layer gold --run-id R` | Every gold month. Emits `cms_nh_gold` only when gold was published and valid; it runs after the publish, so a failure holds back the asset but cannot unpublish. |
 | — | `mirror_metadata` | `precursor-pipeline mirror-metadata --run-id R` | **Not built yet.** Copies the `precursor_meta` tables to BigQuery `meta` with a load job (seconds; a few thousand rows). A teardown of `acquire_lock` placed before `release_lock` (not `trigger_rule=all_done`, §15.1), so a failed run is mirrored too; a failure here is retried but never blocks `release_lock`. |
 | — | `release_lock` | `precursor-ingest lock release --run-id R` | teardown of `acquire_lock` (not `trigger_rule=all_done`, §15.1), `retries=2` (30 s apart; the release is owner-checked and idempotent) |
 
@@ -1009,7 +1011,10 @@ def cms_nh_pipeline():
     silver = run("build_silver", "precursor-pipeline", "silver",
                  "{{ '--calibrate' if params.calibrate or params.mode == 'backfill' else '--no-calibrate' }}",
                  outlets=[SILVER])
-    gold = run("build_gold", "precursor-pipeline", "gold", outlets=[GOLD])
+    validate_silver = run("validate_silver", "precursor-pipeline", "validate", "--layer", "silver",
+                          "{{ '--all-months' if params.mode == 'backfill' else '' }}")
+    gold = run("build_gold", "precursor-pipeline", "gold")
+    validate_gold = run("validate_gold", "precursor-pipeline", "validate", "--layer", "gold", outlets=[GOLD])
     unlock = run("release_lock", "precursor-ingest", "lock", "release", retries=2,
                  retry_delay=timedelta(seconds=30))   # a teardown, wired below
 
@@ -1017,7 +1022,7 @@ def cms_nh_pipeline():
     g >> check
     g >> lock
     proceed(check.output) >> lock >> fetch >> pending
-    per_zip >> resolve >> bronze >> silver >> gold >> unlock.as_teardown(setups=lock)  # not all_done: §15.1
+    per_zip >> resolve >> bronze >> silver >> validate_silver >> gold >> validate_gold >> unlock.as_teardown(setups=lock)  # not all_done: §15.1
 
 cms_nh_pipeline()
 ```

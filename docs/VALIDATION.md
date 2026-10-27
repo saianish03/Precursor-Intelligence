@@ -102,16 +102,20 @@ pandas and no extra service is needed. The schema lives in a reviewable YAML fil
 run time. Great Expectations and TFDV would each add a heavy dependency and their own store for expectations and
 statistics. Here the statistics are plain JSON reports and `dq_results` rows next to the other nodes' outputs.
 
-## DAG wiring (not built yet)
+## In the DAG
 
-It comes after the `cms_nh_pipeline` DAG (#23). The plan is two tasks:
-- `validate_silver`: `precursor-pipeline validate --layer silver --run-id R`, after `build_silver` and before gold,
-  so bad silver never reaches gold;
-- `validate_gold`: `precursor-pipeline validate --layer gold --run-id R` (every month by default), with the
-  `cms_nh_gold` asset moved onto this task, so "published" means "validated".
+`cms_nh_pipeline` runs two validation tasks (`dags/cms_nh_pipeline.py`), both with the run's `--run-id`:
+- `silver.validate_silver`: `precursor-pipeline validate --layer silver`, after `build_silver` and before gold, so bad
+  silver never reaches gold. A monthly run checks the latest month; a backfill adds `--all-months`.
+- `gold.validate_gold`: `precursor-pipeline validate --layer gold` (every month by default), after `build_gold`. The
+  `cms_nh_gold` asset is emitted by this task, so the ML DAGs that wait on it start only when gold is published and valid.
 
-Exits 2 and 3 are not retried, as for the other nodes. An alerting task can read `anomalies.json` or `dq_results`,
-for both errors and warnings.
+Exits 2 and 3 are not retried, as for the other nodes. A schema violation fails the task and the run, and the run-failure
+email (docs/ALERTS_HANDOFF.md) names the task, `exit 2 (data or validation failure)` and the log link; the log lists the
+first 20 anomalies. Drift warnings do not fail anything and are not emailed: they are in `anomalies.json` and `dq_results`.
+
+Limit: `build_gold` publishes before `validate_gold` runs, so a gold that fails validation fails the run and holds back
+`cms_nh_gold`, but is already in `gold/`. Validating `gold/_staging/` before the publish is the first follow-up below.
 
 ## Follow-ups
 
