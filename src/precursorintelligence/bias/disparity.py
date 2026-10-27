@@ -227,7 +227,12 @@ def label_rates(
             .alias("ratio"),
             (pl.col("rate") - pl.col("complement_rate")).alias("diff"),
         ).with_columns(
-            ((pl.col("ratio") < thr.ratio_low) | (pl.col("ratio") > thr.ratio_high))
+            (
+                (pl.col("ratio") < thr.ratio_low)
+                | (pl.col("ratio") > thr.ratio_high)
+                # complement at 0 and the slice above it: the ratio is infinite, the largest gap there is
+                | ((pl.col("complement_rate") == 0) & (pl.col("rate") > 0))
+            )
             .fill_null(False)
             .alias("flag_ratio")
         )
@@ -269,6 +274,53 @@ def label_rates(
             )
         )
     return pl.concat(frames)
+
+
+def censoring_by_slice(
+    rates: pl.DataFrame, totals: dict[str, dict[str, int]], cfg: BiasConfig
+) -> pl.DataFrame:
+    """Per label and slice value, the share of matured rows (labeled + censored) that are censored (the home
+    closed before its window ended) against the label's overall share. Rates above describe surviving homes,
+    so a slice that loses many homes this way is flagged (gap >= ``censoring_gap``, not small)."""
+    thr = cfg.thresholds
+    overall = {
+        lb: (c["censored"] / (c["used"] + c["censored"])) if c["used"] + c["censored"] else None
+        for lb, c in totals.items()
+    }
+    return (
+        rates.with_columns((pl.col("n") + pl.col("n_censored")).alias("n_matured"))
+        .with_columns(
+            pl.when(pl.col("n_matured") > 0)
+            .then(pl.col("n_censored") / pl.col("n_matured"))
+            .otherwise(None)
+            .alias("censored_share"),
+            pl.col("label")
+            .replace_strict(overall, default=None, return_dtype=pl.Float64)
+            .alias("overall_share"),
+            (
+                (pl.col("n_homes") < thr.min_slice_facilities)
+                | (pl.col("n_matured") < thr.min_slice_rows)
+            ).alias("small_slice"),
+        )
+        .with_columns((pl.col("censored_share") - pl.col("overall_share")).alias("gap"))
+        .with_columns(
+            ((pl.col("gap") >= thr.censoring_gap) & ~pl.col("small_slice"))
+            .fill_null(False)
+            .alias("flag")
+        )
+        .select(
+            "label",
+            "slice",
+            "value",
+            "n_matured",
+            "n_censored",
+            "censored_share",
+            "overall_share",
+            "gap",
+            "small_slice",
+            "flag",
+        )
+    )
 
 
 def status_totals(

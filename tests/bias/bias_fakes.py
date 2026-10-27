@@ -42,6 +42,7 @@ def make_gold(
                     "n_complaint_surveys_cited_12m": i % 4,
                     "state_gplus_rate_12m": 0.1 + 0.05 * ((i // 3) % len(STATES)),
                     "days_since_last_std": float(30 + (i * 7 + j) % 400),
+                    "std_overdue": i % 6 == 0,
                     "hprd_total": float(3 + (i % 10) / 10),
                     "turnover_total_fn": "none",  # gold writes "none" when CMS gives no footnote
                     "y_g12": y,

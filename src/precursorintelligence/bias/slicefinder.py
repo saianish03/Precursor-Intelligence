@@ -6,6 +6,10 @@ The test is a z-test on the difference of rates with a cluster-robust (by home) 
 (on rows) replaces it when any observed cell of the 2x2 table has fewer than 5 rows. A slice that is small in
 this label's labeled rows (fewer than ``min_slice_facilities`` homes or ``min_slice_rows`` rows) is never
 problematic, however large its effect.
+
+A two-valued (boolean) slice is tested on its ``true`` side only: ``false`` against its complement is the same
+comparison mirrored. Risk tiers (``slices.risk_tiers``, built from past inspections) are tested and ranked
+like any slice but are never problematic: a higher rate there is expected, not bias.
 """
 
 from __future__ import annotations
@@ -18,8 +22,11 @@ from scipy.stats import fisher_exact, norm
 from statsmodels.stats.multitest import multipletests
 
 from .config import BiasConfig
+from .slices import NAME_SEP
 
-MIN_CELL = 5  # below this in any 2x2 cell, Fisher's exact test replaces the z-test
+MIN_CELL = 5  # below this in any observed 2x2 cell, Fisher's exact test replaces the z-test
+BOOLEAN_SLICES = ("in_hospital", "ccrc")
+MIRRORED = "false"  # the side of a boolean slice that is not tested
 
 
 def cohens_h(p1: float, p2: float) -> float:
@@ -65,9 +72,10 @@ def find_problematic(rates: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
         part = part.with_columns(
             (
                 (pl.col("n_homes") < thr.min_slice_facilities) | (pl.col("n") < thr.min_slice_rows)
-            ).alias("small_slice")
+            ).alias("small_slice"),
+            _is_risk_tier(cfg).alias("risk_tier"),
         )
-        testable = part.filter((pl.col("n") > 0) & (pl.col("complement_n") > 0))
+        testable = part.filter(_testable())
         rows = []
         for r in testable.iter_rows(named=True):
             x1, n1, x2, n2 = r["positives"], r["n"], r["complement_positives"], r["complement_n"]
@@ -86,6 +94,7 @@ def find_problematic(rates: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
                 a < thr.fdr_alpha
                 and abs(r["cohens_h"]) >= thr.effect_size_T
                 and not r["small_slice"]
+                and not r["risk_tier"]
             )
         tested = pl.DataFrame(rows)
         ranked = (
@@ -110,6 +119,7 @@ def find_problematic(rates: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
                 "adj_p",
                 "test_used",
                 "small_slice",
+                "risk_tier",
                 "problematic",
                 pl.col("rank").cast(pl.Int64),
             )
@@ -129,11 +139,24 @@ def find_problematic(rates: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
                 "adj_p": pl.Float64,
                 "test_used": pl.String,
                 "small_slice": pl.Boolean,
+                "risk_tier": pl.Boolean,
                 "problematic": pl.Boolean,
                 "rank": pl.Int64,
             }
         )
     return pl.concat(frames)
+
+
+def _is_risk_tier(cfg: BiasConfig) -> pl.Expr:
+    """True for a slice (single or crossing) that involves a risk tier."""
+    parts = pl.col("slice").str.split(NAME_SEP)
+    return parts.list.eval(pl.element().is_in(cfg.slices.risk_tiers)).list.any()
+
+
+def _testable() -> pl.Expr:
+    """Labeled rows on both sides, and not the mirrored side of a boolean slice."""
+    mirrored = pl.col("slice").is_in(BOOLEAN_SLICES) & (pl.col("value") == MIRRORED)
+    return (pl.col("n") > 0) & (pl.col("complement_n") > 0) & ~mirrored
 
 
 def top_k(problematic: pl.DataFrame, k: int) -> pl.DataFrame:
@@ -143,4 +166,4 @@ def top_k(problematic: pl.DataFrame, k: int) -> pl.DataFrame:
 
 def n_tests(rates: pl.DataFrame) -> int:
     """How many (label, slice value) pairs find_problematic tests."""
-    return rates.filter((pl.col("n") > 0) & (pl.col("complement_n") > 0)).height
+    return rates.filter(_testable()).height

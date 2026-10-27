@@ -38,6 +38,9 @@ class DatasetCfg(_Model):
 class SlicesCfg(_Model):
     single: list[str]
     crossings: list[tuple[str, str]] = []
+    # built from past inspections (SFF status, star rating), so a higher rate there is expected: reported in
+    # their own section and never counted as problematic
+    risk_tiers: list[str] = []
 
     @model_validator(mode="after")
     def _distinct_pairs(self) -> SlicesCfg:
@@ -57,6 +60,7 @@ class Thresholds(_Model):
     missingness_gap: float = Field(ge=0, le=1)
     skew_js: float = Field(ge=0, le=1)
     skew_linf: float = Field(ge=0, le=1)
+    censoring_gap: float = Field(ge=0, le=1)
     ci_level: float = Field(gt=0, lt=1)
 
 
@@ -66,6 +70,9 @@ class SkewCfg(_Model):
     split_label: str
     numeric_bins: int = Field(ge=2)
     max_features: int | None = Field(default=None, ge=1)
+    null_draws: int = Field(ge=1)
+    null_quantile: float = Field(gt=0, lt=1)
+    seed: int = 0
 
 
 class RaterBiasCfg(_Model):
@@ -73,6 +80,7 @@ class RaterBiasCfg(_Model):
     exposure_columns: list[str]
     rate_column: str
     quantile: float = Field(gt=0, lt=1)
+    min_state_facilities: int = Field(ge=1)
 
 
 class MitigationCfg(_Model):
@@ -110,7 +118,11 @@ class BiasConfig(_Model):
     @model_validator(mode="after")
     def _consistent(self) -> BiasConfig:
         unknown = sorted(
-            {*self.slices.single, *(s for pair in self.slices.crossings for s in pair)}
+            {
+                *self.slices.single,
+                *(s for pair in self.slices.crossings for s in pair),
+                *self.slices.risk_tiers,
+            }
             - set(SLICE_NAMES)
         )
         if unknown:

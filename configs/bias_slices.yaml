@@ -25,6 +25,7 @@ slices:
     - [ownership_group, chain_status]
     - [cms_region, ownership_group]
     - [bed_band, star_band]
+  risk_tiers: [sff_status, star_band]            # built from past inspections: own section, never "problematic"
 bed_band_edges: [0, 50, 100, 150, 200, 100000]   # left-closed: [0, 50) -> "<50"
 bed_band_labels: ["<50", "50-99", "100-149", "150-199", "200+"]
 cms_region_map: {CT: 1, ME: 1, MA: 1, NH: 1, RI: 1, VT: 1, NJ: 2, NY: 2, PR: 2, VI: 2, DE: 3, DC: 3, MD: 3, PA: 3, VA: 3, WV: 3,
@@ -42,6 +43,7 @@ thresholds:
   missingness_gap: 0.10           # slice null rate minus overall null rate
   skew_js: 0.10                   # Jensen-Shannon distance, numeric features
   skew_linf: 0.10                 # L-infinity distance, categorical features
+  censoring_gap: 0.02             # slice censored share minus the overall share (homes that closed)
   ci_level: 0.95
 skew:
   reference_scope: train          # split value of the reference rows (per label: split_<label>)
@@ -49,11 +51,16 @@ skew:
   split_label: y_g12              # whose split column defines train / test for skew
   numeric_bins: 20
   max_features: null              # null = all registry features
+  null_draws: 20                  # random same-size samples of the whole population per slice x feature
+  null_quantile: 0.95             # flag only above this quantile of those draws (time drift + sample noise)
+  seed: 0
 rater_bias:
   group_column: state
-  exposure_columns: [n_std_36m, n_complaint_surveys_cited_12m]
-  rate_column: state_gplus_rate_12m
+  # inspection frequency and backlog; complaint counts are not exposure (CMS lists only cited complaints)
+  exposure_columns: [n_std_36m, days_since_last_std, std_overdue]
+  rate_column: state_gplus_rate_12m             # the state's past G+ rate: persistence, not rater bias
   quantile: 0.9                   # flag states above this quantile on both label rate and exposure
+  min_state_facilities: 30        # smaller states (territories) are reported but not ranked or flagged
 mitigation:
   weights: inverse_frequency      # inverse_frequency | balance_label_rate | none
   weight_slice: ownership_group

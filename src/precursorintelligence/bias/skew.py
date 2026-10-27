@@ -5,6 +5,12 @@ Numeric features: Jensen-Shannon distance (base 2, in [0, 1]) on shared bins who
 reference, plus one overflow bin on each side for comparison values outside the reference range.
 Categorical and boolean features: L-infinity distance, the largest absolute difference in category share.
 Without split columns, the earliest third of months is the reference and the latest third the comparison.
+
+A slice is flagged only for drift of its own. Two things move every slice: the whole population's drift
+between the two periods, and sample noise (JS on a histogram is biased upward at small n). So each slice x
+feature is compared with ``null_draws`` random samples of the whole population of the same sizes (n_ref,
+n_cmp), which carry both, and is flagged when its distance is above the configured threshold **and** above the
+``null_quantile`` of those draws. ``population_distance`` (all rows) and ``null_q`` are reported alongside.
 """
 
 from __future__ import annotations
@@ -52,6 +58,24 @@ def linf_distance(ref: Sequence[Any], cmp: Sequence[Any]) -> float:
     return float(max(abs(a[k] / len(ref) - b[k] / len(cmp)) for k in set(a) | set(b)))
 
 
+def _codes(ref: Sequence[Any], cmp: Sequence[Any]) -> tuple[np.ndarray, np.ndarray, int]:
+    """Integer codes over the union of categories, so L-infinity on many samples is a bincount."""
+    cats = {v: i for i, v in enumerate(sorted(set(ref) | set(cmp), key=str))}
+    return (
+        np.fromiter((cats[v] for v in ref), dtype=np.int64, count=len(ref)),
+        np.fromiter((cats[v] for v in cmp), dtype=np.int64, count=len(cmp)),
+        len(cats),
+    )
+
+
+def _linf_codes(ref: np.ndarray, cmp: np.ndarray, k: int) -> float:
+    if ref.size == 0 or cmp.size == 0:
+        return float("nan")
+    a = np.bincount(ref, minlength=k) / ref.size
+    b = np.bincount(cmp, minlength=k) / cmp.size
+    return float(np.abs(a - b).max())
+
+
 def split_scopes(df: pl.DataFrame, cfg: BiasConfig) -> tuple[pl.DataFrame, pl.DataFrame, str]:
     """(reference rows, comparison rows, method): the configured splits, or time thirds without them."""
     split = cfg.split_column(cfg.skew.split_label)
@@ -81,34 +105,64 @@ def skew_by_slice(
 ) -> tuple[pl.DataFrame, str]:
     """slice, value, feature, type, distance, metric, flag, n_ref, n_cmp; and the scope method used.
 
-    Slice values that are small in either scope are skipped.
+    Slice values that are small in either scope are skipped. See the module docstring for the flag.
     """
     ref_all, cmp_all, method = split_scopes(df, cfg)
     feats = features[: cfg.skew.max_features] if cfg.skew.max_features else features
+    sk, thr = cfg.skew, cfg.thresholds
+    rng = np.random.default_rng(sk.seed)
+    # per feature: the reference and comparison values of every row (numeric floats or category codes)
+    values_of: dict[str, tuple[str, np.ndarray, np.ndarray, int]] = {}
+    for f in feats:
+        if _is_numeric(df.schema[f]):
+            values_of[f] = (
+                "numeric",
+                ref_all[f].cast(pl.Float64).to_numpy(),
+                cmp_all[f].cast(pl.Float64).to_numpy(),
+                0,
+            )
+        else:
+            r, c, k = _codes(
+                ref_all[f].cast(pl.String).fill_null(MISSING).to_list(),
+                cmp_all[f].cast(pl.String).fill_null(MISSING).to_list(),
+            )
+            values_of[f] = ("categorical", r, c, k)
+
+    def distance(kind: str, r: np.ndarray, c: np.ndarray, k: int) -> float:
+        if kind == "numeric":
+            return numeric_js(r, c, sk.numeric_bins)
+        return _linf_codes(r, c, k)
+
+    population = {f: distance(*values_of[f]) for f in feats}
     rows = []
     for name in names:
         col = slice_col(name)
+        in_ref, in_cmp = ref_all[col].to_numpy(), cmp_all[col].to_numpy()
         values = sorted(set(ref_all[col].unique().to_list()) & set(cmp_all[col].unique().to_list()))
         for v in values:
             ref, cmp = ref_all.filter(pl.col(col) == v), cmp_all.filter(pl.col(col) == v)
             if _small(ref, cfg) or _small(cmp, cfg):
                 continue
+            mr, mc = in_ref == v, in_cmp == v
             for f in feats:
-                dtype = df.schema[f]
-                if _is_numeric(dtype):
-                    d = numeric_js(
-                        ref[f].cast(pl.Float64).to_numpy(),
-                        cmp[f].cast(pl.Float64).to_numpy(),
-                        cfg.skew.numeric_bins,
+                kind, r_all, c_all, k = values_of[f]
+                d = distance(kind, r_all[mr], c_all[mc], k)
+                draws = [
+                    distance(
+                        kind,
+                        r_all[rng.choice(r_all.size, ref.height, replace=False)],
+                        c_all[rng.choice(c_all.size, cmp.height, replace=False)],
+                        k,
                     )
-                    kind, metric, limit = "numeric", "js", cfg.thresholds.skew_js
-                else:
-                    d = linf_distance(
-                        ref[f].cast(pl.String).fill_null(MISSING).to_list(),
-                        cmp[f].cast(pl.String).fill_null(MISSING).to_list(),
-                    )
-                    kind, metric, limit = "categorical", "linf", cfg.thresholds.skew_linf
+                    for _ in range(sk.null_draws)
+                ]
+                finite = [x for x in draws if not np.isnan(x)]
+                null_q = float(np.quantile(finite, sk.null_quantile)) if finite else None
+                metric, limit = (
+                    ("js", thr.skew_js) if kind == "numeric" else ("linf", thr.skew_linf)
+                )
                 dist = None if np.isnan(d) else d
+                pop = None if np.isnan(population[f]) else population[f]
                 rows.append(
                     {
                         "slice": name,
@@ -117,7 +171,11 @@ def skew_by_slice(
                         "type": kind,
                         "distance": dist,
                         "metric": metric,
-                        "flag": bool(dist is not None and dist > limit),
+                        "population_distance": pop,
+                        "null_q": null_q,
+                        "flag": bool(
+                            dist is not None and dist > limit and (null_q is None or dist > null_q)
+                        ),
                         "n_ref": ref.height,
                         "n_cmp": cmp.height,
                     }
@@ -129,6 +187,8 @@ def skew_by_slice(
         "type": pl.String,
         "distance": pl.Float64,
         "metric": pl.String,
+        "population_distance": pl.Float64,
+        "null_q": pl.Float64,
         "flag": pl.Boolean,
         "n_ref": pl.Int64,
         "n_cmp": pl.Int64,

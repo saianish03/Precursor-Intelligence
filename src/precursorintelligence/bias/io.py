@@ -1,7 +1,9 @@
 """Load gold/facility_month_dataset: from a local folder, or from the object store behind gold/_current.json.
 
 No new storage code: the store path reuses ``gold.build.read_current_gold`` (which checks every partition's
-sha256 against the pointer) and the same ``ObjectStore`` the pipeline uses (local disk or GCS).
+sha256 against the pointer) and the same ``ObjectStore`` the pipeline uses (local disk or GCS). A local
+``--gold`` folder that holds ``_current.json`` is read the same way, so it reads only the partitions the
+pointer lists and fails on a file that no longer matches; a folder without one is hashed as it is read.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from typing import Any
 
 import polars as pl
 
-from ..common.io.object_store import ObjectStore
+from ..common.io.object_store import LocalObjectStore, ObjectStore
 from ..gold.build import read_current_gold
 from . import BiasInputError
 from .config import BiasConfig
@@ -40,9 +42,17 @@ def _pointer(current: dict[str, Any], table: str) -> dict[str, Any]:
 
 
 def load_gold_path(path: Path, cfg: BiasConfig) -> GoldData:
-    """``path`` is a gold folder (holding ``<table>/``), the table folder itself, or one parquet file."""
+    """``path`` is a gold folder (holding ``<table>/``), the table folder itself, or one parquet file.
+
+    When the gold folder holds ``_current.json`` it is read through ``read_current_gold`` (see the module
+    docstring); otherwise the files read are hashed into the pointer's ``dataset_sha256``.
+    """
     path = Path(path)
     table_dir = path / cfg.dataset.table if (path / cfg.dataset.table).is_dir() else path
+    gold_dir = table_dir.parent
+    if table_dir.is_dir() and gold_dir.name == "gold" and (gold_dir / "_current.json").is_file():
+        data = load_gold_store(LocalObjectStore(gold_dir.parent, immutable=None), cfg)
+        return GoldData(df=data.df, source=path.as_posix(), pointer=data.pointer)
     if table_dir.is_file():
         files = [table_dir]
     else:
@@ -50,21 +60,26 @@ def load_gold_path(path: Path, cfg: BiasConfig) -> GoldData:
     if not files:
         raise BiasInputError(f"no {cfg.dataset.table} parquet files under {path}")
     df = pl.concat([_read_part(f) for f in files], how="diagonal_relaxed")
-    current_file = table_dir.parent / "_current.json"  # gold/_current.json next to the table folder
-    if current_file.is_file():
-        pointer = _pointer(json.loads(current_file.read_text(encoding="utf-8")), cfg.dataset.table)
-    else:
-        digest = hashlib.sha256()
-        for f in files:
-            digest.update(f.read_bytes())
-        pointer = {
-            "run_id": None,
-            "v": None,
-            "verified": None,
-            "dataset_sha256": digest.hexdigest(),
-            "partitions": len(files),
-        }
-    return GoldData(df=df, source=path.as_posix(), pointer=pointer)
+    digest = hashlib.sha256()
+    for f in files:
+        digest.update(f.read_bytes())
+    pointer = {
+        "run_id": None,
+        "v": None,
+        "verified": None,
+        "dataset_sha256": digest.hexdigest(),
+        "partitions": len(files),
+    }
+    return GoldData(df=_unique_keys(df, cfg), source=path.as_posix(), pointer=pointer)
+
+
+def _unique_keys(df: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
+    """Exit-2 check: one row per dataset key (ccn, t); a stray or repeated partition would break it."""
+    key = [k for k in cfg.dataset.key if k in df.columns]
+    if key and df.select(key).is_duplicated().any():
+        n = int(df.select(key).is_duplicated().sum())
+        raise BiasInputError(f"{n} rows share a {'/'.join(key)} key with another row")
+    return df
 
 
 def _read_part(f: Path) -> pl.DataFrame:
@@ -88,7 +103,7 @@ def load_gold_store(store: ObjectStore, cfg: BiasConfig) -> GoldData:
             part = part.with_columns(pl.lit(k.split("t=", 1)[1]).alias("t"))
         parts.append(part)
     return GoldData(
-        df=pl.concat(parts, how="diagonal_relaxed"),
+        df=_unique_keys(pl.concat(parts, how="diagonal_relaxed"), cfg),
         source="gold/_current.json",
         pointer=_pointer(current, cfg.dataset.table),
     )

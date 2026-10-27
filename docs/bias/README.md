@@ -23,7 +23,7 @@ uv run precursor-pipeline bias-report --out reports/bias --no-charts
 | Option | Default | Meaning |
 |---|---|---|
 | `--config` | `configs/bias_slices.yaml` | column mapping, slices, thresholds, mitigation |
-| `--gold` | gold/_current.json in the env's object store | local gold folder instead (sha256 pointer read if present) |
+| `--gold` | gold/_current.json in the env's object store | local gold folder instead; with a `gold/_current.json` it is read through `read_current_gold` (sha256-checked, listed partitions only), otherwise the files read are hashed; `(ccn, t)` must be unique |
 | `--labels` | the config's `labels` | comma-separated `y_<name>` columns |
 | `--scope` | `all_labeled` | `all_labeled` (every row; label checks keep labeled rows), `train` (`split_<label> == train`), `latest` (latest t) |
 | `--out` | the config's `output_dir` (`reports/bias`) | output folder |
@@ -45,10 +45,10 @@ in [`gold_schema_findings.md`](gold_schema_findings.md).
 | Slices | `bias/slices.py` | state, CMS region, ownership, bed band, chain status, in-hospital, CCRC, SFF status, star band (slicing only, never a feature), plus 4 two-way crossings; nulls → `missing`, and so is every month before the source column's first vintage (`chain_id` from 2023-06, feature registry); 0 beds and NaN ratings → `missing`; leakage guard rejects `y_`, `status_`, `split_`, `_fwd` columns |
 | Representation | `bias/representation.py` | rows, homes, shares, first/last month; **small** below 30 homes or 500 rows |
 | Label-rate disparity | `bias/disparity.py` | Fairlearn `MetricFrame` rates on labeled rows (immature/censored excluded, counted), complement ratio, four-fifths flag; **inference by home**: cluster-robust (by `ccn`) variances, Wilson CI sized on the effective n |
-| SliceFinder | `bias/slicefinder.py` | Cohen's h, z-test with the cluster-robust variance of the difference (Fisher's exact on rows below 5 observed per cell), Benjamini–Hochberg per label; problematic = adj p < 0.05, \|h\| ≥ 0.2, not small in that label's labeled rows |
-| Rater bias | `bias/rater_bias.py` | per state: label rate vs inspection exposure (`n_std_36m`, `n_complaint_surveys_cited_12m`) and `state_gplus_rate_12m`; Spearman ρ; flag above the 90th percentile on both |
-| Missingness | `bias/missingness.py` | null-rate gap per slice and registry **model** feature (`model_use: model`; `*_fn` footnotes as has-reason rates, gold's `"none"` = no reason); flag at 0.10 |
-| Skew | `bias/skew.py` | train vs test per slice: Jensen–Shannon distance (numeric, base 2) and L∞ (categorical); time-thirds fallback without splits |
+| SliceFinder | `bias/slicefinder.py` | Cohen's h, z-test with the cluster-robust variance of the difference (Fisher's exact on rows below 5 observed per cell), Benjamini–Hochberg per label; problematic = adj p < 0.05, \|h\| ≥ 0.2, not small in that label's labeled rows, not a risk tier (`sff_status`, `star_band`: own report section); boolean slices tested on `true` only |
+| Rater bias | `bias/rater_bias.py` | per state, on the label's labeled rows: label rate vs inspection frequency and backlog (`n_std_36m`, `days_since_last_std`, `std_overdue`); ρ vs `state_gplus_rate_12m` reported as persistence only; states under 30 homes not ranked; flag above the 90th percentile on both |
+| Missingness | `bias/missingness.py` | null-rate gap per slice and registry **model** feature (`model_use: model`; `*_fn` footnotes as has-reason rates, gold's `"none"` = no reason); flag at 0.10, small slices excepted |
+| Skew | `bias/skew.py` | train vs test per slice: Jensen–Shannon distance (numeric, base 2) and L∞ (categorical); flagged only above the 95th percentile of 20 random same-size samples of the whole population (its own drift + sample noise); time-thirds fallback without splits |
 | Mitigation | `bias/mitigation.py` | sample weights (`inverse_frequency`, Kamiran–Calders `balance_label_rate`, `none`), fit on and written for `split_<weight_label> == train` rows only (null elsewhere, so no held-out label is read), clipped and renormalised to mean 1; effective sample size. `weight_slice` may not be `star_band` or `chain_status` |
 
 ## Outputs (`reports/bias/`)
@@ -61,6 +61,7 @@ Sorted rows and a fixed float format, so two runs on the same gold give byte-ide
 | `slice_summary.csv` | slice, value, n_rows, n_facilities, shares, small_slice, first_t, last_t |
 | `slice_by_month.csv` | rows per single-slice value and month (stability) |
 | `label_rates.csv` | per label and slice value: n, n_homes, n_eff, positives, rate, Wilson CI, complement, ratio, diff, flag, var_diff, immature/censored counts |
+| `censoring_by_slice.csv` | per label and slice value: matured rows, censored share vs the label's overall share, gap, flag (≥ 2 points, not small) |
 | `problematic_slices.csv` | top-k per label: Cohen's h, p, BH-adjusted p, test used, problematic, rank |
 | `rater_bias_by_state.csv` | per label and state: label rate, exposure means/medians, state G+ rate, flag (ρ in `summary.json`) |
 | `missingness_by_slice.csv` | slice, value, feature, kind, null_rate, overall_null_rate, gap, flag |

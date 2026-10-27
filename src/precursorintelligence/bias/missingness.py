@@ -2,6 +2,8 @@
 rate. CMS footnote columns (``*_fn``) are read the other way round: the rate of rows that carry a reason code
 (gold writes ``"none"`` when there is no footnote). Only model features are scanned (``model_use: model``):
 ablation-only and product-only columns such as ``overall_rating`` and ``chain_id`` never reach the model.
+A small slice value (fewer than ``min_slice_facilities`` homes or ``min_slice_rows`` rows) is reported but
+never flagged: its rates are too noisy.
 """
 
 from __future__ import annotations
@@ -43,11 +45,23 @@ def missingness_by_slice(
     overall = df.select(e.mean().alias(f) for f, e in exprs.items()).row(0, named=True)
     parts = []
     for name in names:
-        g = df.group_by(slice_col(name)).agg(e.mean().alias(f) for f, e in exprs.items())
+        g = df.group_by(slice_col(name)).agg(
+            *(e.mean().alias(f) for f, e in exprs.items()),
+            pl.len().alias("_rows"),
+            pl.col("ccn").n_unique().alias("_homes"),
+        )
+        small = (pl.col("_homes") < cfg.thresholds.min_slice_facilities) | (
+            pl.col("_rows") < cfg.thresholds.min_slice_rows
+        )
         long = (
             with_slice_value(g, (name,))
-            .select("slice", "value", *features)
-            .unpivot(index=["slice", "value"], variable_name="feature", value_name="null_rate")
+            .with_columns(small.alias("small_slice"))
+            .select("slice", "value", "small_slice", *features)
+            .unpivot(
+                index=["slice", "value", "small_slice"],
+                variable_name="feature",
+                value_name="null_rate",
+            )
         )
         parts.append(long)
     out_schema = {
@@ -58,6 +72,7 @@ def missingness_by_slice(
         "null_rate": pl.Float64,
         "overall_null_rate": pl.Float64,
         "gap": pl.Float64,
+        "small_slice": pl.Boolean,
         "flag": pl.Boolean,
     }
     if not parts or not features:
@@ -75,7 +90,11 @@ def missingness_by_slice(
             .alias("kind"),
             (pl.col("null_rate") - pl.col("overall_null_rate")).alias("gap"),
         )
-        .with_columns((pl.col("gap") >= cfg.thresholds.missingness_gap).alias("flag"))
+        .with_columns(
+            ((pl.col("gap") >= cfg.thresholds.missingness_gap) & ~pl.col("small_slice")).alias(
+                "flag"
+            )
+        )
         .sort("slice", "value", "_f")
         .select(list(out_schema))
     )

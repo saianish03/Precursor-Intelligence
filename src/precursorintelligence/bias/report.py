@@ -21,7 +21,7 @@ from ..common.config import FeatureRegistry
 from ..gold.dataset import git_state
 from . import BiasInputError
 from .config import BiasConfig
-from .disparity import label_rates, status_totals
+from .disparity import censoring_by_slice, label_rates, status_totals
 from .io import GoldData, apply_scope, require_columns, scope_any
 from .missingness import missingness_by_slice, scan_features
 from .mitigation import ess_report, sample_weights
@@ -38,6 +38,7 @@ CSV_FILES = (
     "slice_summary.csv",
     "slice_by_month.csv",
     "label_rates.csv",
+    "censoring_by_slice.csv",
     "problematic_slices.csv",
     "rater_bias_by_state.csv",
     "missingness_by_slice.csv",
@@ -121,6 +122,7 @@ def run_bias_report(
     if no_labels:
         log.warning("bias: no labeled rows in scope %s: representation and missingness only", scope)
     rates = pl.concat([label_rates(scoped[lb], slices, cfg, [lb]) for lb in labels])
+    censoring = censoring_by_slice(rates, totals, cfg)
     ranked = find_problematic(rates, cfg)
     tested = n_tests(rates)
     log.info("bias: %d slices, %d (label, slice) tests", len(slices), tested)
@@ -141,6 +143,7 @@ def run_bias_report(
         "slice_summary.csv": summary_tbl,
         "slice_by_month.csv": by_month,
         "label_rates.csv": rates,
+        "censoring_by_slice.csv": censoring,
         "problematic_slices.csv": top_k(ranked, cfg.thresholds.top_k),
         "rater_bias_by_state.csv": rater,
         "missingness_by_slice.csv": missing,
@@ -180,6 +183,7 @@ def run_bias_report(
             "small_slices": int(summary_tbl["small_slice"].sum()),
             "label_rate_ratio": int(rates["flag_ratio"].sum()),
             "problematic": int(ranked["problematic"].sum()) if ranked.height else 0,
+            "censoring": int(censoring["flag"].sum()),
             "rater_states": int(rater["flag"].sum()),
             "missingness": int(missing["flag"].sum()),
             "skew": int(skew["flag"].sum()),
@@ -190,7 +194,9 @@ def run_bias_report(
     )
     if charts:
         write_charts(out_dir / "charts", rates, summary_tbl, rater, cfg, labels)
-    decisions = propose_decisions(summary_tbl, rates, ranked, rater_summary, missing, skew, cfg)
+    decisions = propose_decisions(
+        summary_tbl, rates, ranked, rater_summary, missing, skew, cfg, censoring
+    )
     _write_csv(decisions, out_dir / "mitigation_decisions.csv")
     (out_dir / "bias_report.md").write_text(
         render_markdown(summary, tables, ranked, decisions, cfg, charts), encoding="utf-8"
@@ -217,6 +223,7 @@ def propose_decisions(
     missing: pl.DataFrame,
     skew: pl.DataFrame,
     cfg: BiasConfig,
+    censoring: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
     """One proposed decision per finding. These are proposals: the team signs them off in the report."""
     rows: list[dict[str, str]] = []
@@ -277,6 +284,16 @@ def propose_decisions(
                 "reason": "CMS does not report it for these homes; the model sees nulls as missing",
             }
         )
+    if censoring is not None:
+        for r in censoring.filter(pl.col("flag")).iter_rows(named=True):
+            rows.append(
+                {
+                    "check": "censoring",
+                    "finding": f"{r['label']}: {r['slice']} = {r['value']} (censored {r['censored_share']:.1%} vs {r['overall_share']:.1%})",
+                    "decision": DECISIONS["no_action"],
+                    "reason": "rates describe surviving homes; check closures with the model's per-slice metrics",
+                }
+            )
     if skew.height:
         for r in skew.filter(pl.col("flag")).iter_rows(named=True):
             rows.append(
@@ -284,7 +301,7 @@ def propose_decisions(
                     "check": "skew",
                     "finding": f"{r['slice']} = {r['value']}: {r['feature']} ({r['metric']} {r['distance']:.2f})",
                     "decision": DECISIONS["more_history"],
-                    "reason": "the slice's feature moved between train and test; monitor drift",
+                    "reason": "the slice's feature moved beyond the population's own drift and noise; monitor drift",
                 }
             )
     return pl.DataFrame(
@@ -420,18 +437,34 @@ def render_markdown(
         )
         if charts:
             out += [f"![{label} by ownership](charts/rate_{label}_ownership_group.png)", ""]
+    cens = tables["censoring_by_slice.csv"]
+    out += [
+        "### Censoring by slice",
+        "",
+        "Censored rows (the home closed before its window ended) are excluded from the rates, so a slice that "
+        f"loses many homes this way is described by its survivors. Flagged when its censored share is at least "
+        f"{thr.censoring_gap:.0%} above the label's overall share (small slices excepted): {f['censoring']} flagged.",
+        "",
+        _table(
+            cens.filter(pl.col("flag")).sort("gap", descending=True),
+            ["label", "slice", "value", "n_matured", "censored_share", "overall_share", "gap"],
+            25,
+        ),
+    ]
 
     out += [
         SECTIONS[3],
         "",
         f"Cohen's h against the complement; z-test with a cluster-robust (by home) variance (Fisher's exact on rows when an observed cell has < 5); "
         f"Benjamini–Hochberg across all tests of a label. **Problematic** = adj p < {thr.fdr_alpha}, |h| ≥ {thr.effect_size_T}, "
-        f"and not small. {f['problematic']} problematic (label, slice) pairs. Top {thr.top_k} per label:",
+        f"not small in that label's labeled rows, and not a risk tier. Boolean slices are tested on their `true` side "
+        f"only (the `false` side is the same test mirrored). {f['problematic']} problematic (label, slice) pairs. "
+        f"Top {thr.top_k} per label:",
         "",
     ]
     out.append(
         _table(
-            top,
+            top.filter(~pl.col("risk_tier")),
             [
                 "label",
                 "rank",
@@ -447,19 +480,39 @@ def render_markdown(
             ],
         )
     )
+    tiers = ", ".join(f"`{t}`" for t in cfg.slices.risk_tiers) or "none"
+    out += [
+        "",
+        "### Risk tiers",
+        "",
+        f"Slices built from past inspections ({tiers}) are expected to differ in label rate: that is real risk, "
+        "not bias, so they are reported here and never counted as problematic.",
+        "",
+        _table(
+            ranked.filter(pl.col("risk_tier") & (pl.col("adj_p") < thr.fdr_alpha)).sort(
+                "label", "rank"
+            ),
+            ["label", "slice", "value", "n", "rate", "complement_rate", "cohens_h", "adj_p"],
+            25,
+        ),
+    ]
 
     out += [
         "",
         SECTIONS[4],
         "",
         "Labels come from state survey agencies. These numbers describe **inspection-intensity effects** "
-        "(measurement context), not the quality of the homes in a state.",
+        "(measurement context), not the quality of the homes in a state. Every state statistic uses the label's "
+        "labeled rows; exposure is inspection frequency and backlog. States with fewer than "
+        f"{cfg.rater_bias.min_state_facilities} homes are listed but not ranked or flagged.",
         "",
     ]
     for label, s in summary["rater_bias"].items():
         rho = ", ".join(f"{k}: ρ = {_fmt(v['rho'])}" for k, v in s["spearman"].items())
+        persist = ", ".join(f"{k}: ρ = {_fmt(v['rho'])}" for k, v in s["persistence"].items())
         out.append(
-            f"- **{label}**: Spearman across states, label rate vs {rho}. Flagged states "
+            f"- **{label}** ({s['states_ranked']} states ranked): Spearman across states, label rate vs {rho}. "
+            f"Against the state's past rate ({persist}) this is **persistence only**, not rater bias. Flagged states "
             f"(label rate and exposure above the {s['quantile']:.0%} quantile): {', '.join(s['flagged_states']) or 'none'}."
         )
     out += [""]
@@ -470,9 +523,11 @@ def render_markdown(
             [
                 "state",
                 "n",
+                "n_facilities",
                 "label_rate",
                 *[c for c in rater.columns if c.startswith("mean_")],
                 cfg.rater_bias.rate_column,
+                "eligible",
                 "flag",
             ],
             15,
@@ -485,7 +540,8 @@ def render_markdown(
         SECTIONS[5],
         "",
         f"Null rate in the slice minus the overall null rate (for `*_fn` footnotes: the rate of rows carrying a CMS "
-        f"reason code). Flagged at a gap of {thr.missingness_gap} or more: {f['missingness']} slice × feature pairs.",
+        f"reason code; gold's `none` is no reason). Model features only. Flagged at a gap of {thr.missingness_gap} or more, "
+        f"small slices excepted: {f['missingness']} slice × feature pairs.",
         "",
     ]
     out.append(
@@ -506,13 +562,26 @@ def render_markdown(
         SECTIONS[6],
         "",
         f"Reference vs comparison: `{summary['skew_method']}`{note}. Jensen–Shannon distance (numeric, flag > {thr.skew_js}); "
-        f"L∞ (categorical, flag > {thr.skew_linf}). Slices small in either scope are skipped. {f['skew']} flagged.",
+        f"L∞ (categorical, flag > {thr.skew_linf}). A slice is flagged only when its distance is also above the "
+        f"{cfg.skew.null_quantile:.0%} quantile of {cfg.skew.null_draws} random same-size samples of the whole population "
+        "(`null_q`), which carry the population's own drift (`population_distance`) and sample noise. "
+        f"Slices small in either scope are skipped. {f['skew']} flagged.",
         "",
     ]
     out.append(
         _table(
             skew.filter(pl.col("flag")).sort("distance", descending=True),
-            ["slice", "value", "feature", "metric", "distance", "n_ref", "n_cmp"],
+            [
+                "slice",
+                "value",
+                "feature",
+                "metric",
+                "distance",
+                "population_distance",
+                "null_q",
+                "n_ref",
+                "n_cmp",
+            ],
             25,
         )
     )
@@ -548,6 +617,10 @@ def render_markdown(
         "practice, not protected classes. Nothing here claims discrimination.",
         "- Small slices are noisy: their rates are shown but never called problematic.",
         "- Label measurement bias (how hard a state inspects) cannot be fully separated from real differences in risk.",
+        "- CMS changed the star-rating method in 2025-07, so `star_band` means a different thing before and after it; "
+        "labeled rows reach the new era only for the shorter windows (y_g6 from V = 2026-09). Read star-band rates by era.",
+        "- Fisher's exact test (small cells) is on rows, not homes, so its p-values are optimistic; those slices are "
+        "small and never problematic.",
         "- Data level only: no model has been trained. For an insurer, the harms to watch are opportunity denial "
         "(coverage refused for being small, government-run, or in a strict state) and disproportionate product "
         "failure (the score works worse for some kinds of homes).",
