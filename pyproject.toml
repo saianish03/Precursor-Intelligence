@@ -148,14 +148,17 @@ warn_unused_ignores = true
 module = [
   "catboost.*",
   "evidently.*",
+  "fairlearn.*",
   "fsspec.*",
   "gcsfs.*",
   "google.cloud.storage.*",
   "interpret.*",
   "pyarrow.*",
   "rank_bm25.*",
+  "scipy.*",
   "shap.*",
   "sklearn.*",
+  "statsmodels.*",
 ]
 ignore_missing_imports = true
 
