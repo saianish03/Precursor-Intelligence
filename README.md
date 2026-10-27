@@ -40,7 +40,7 @@ Each top-level folder has its own README describing what belongs there.
 
 ## Data versioning with DVC
 
-[DVC](https://dvc.org) versions data the way Git versions code: Git tracks small pointer files (`dvc.yaml`, `dvc.lock`, `metrics/`), and the data itself lives in a DVC cache plus a remote, `gs://precursor-intel-mlops-data/dvc` (a prefix in the pipeline's bucket, apart from `landing/`, `bronze/`, `silver/` and `gold/`).
+[DVC](https://dvc.org) versions data the way Git versions code: Git tracks small pointer files (`dvc.yaml`, `dvc.lock`, `metrics/`), and the data itself lives in a DVC cache plus a remote, `gs://precursor-intel-mlops-dvc`, a bucket of its own so nobody needs write access to the production data bucket to share DVC data (created in `infra/terraform/envs/prod`).
 
 What DVC tracks here is the **toy pipeline**: a small silver world (`tests/gold/make_toy_silver.py`) is turned into gold by the real `precursor-pipeline gold` node, then summarised into `metrics/toy_gold.json` (`scripts/dvc_gold_summary.py`). It needs no network or credentials, so anyone can rebuild it:
 
@@ -52,7 +52,7 @@ uv run dvc dag              # toy_gold -> toy_summary
 uv run dvc metrics show     # row and file counts per gold table
 ```
 
-Share or restore data (needs write or read access to the bucket: `gcloud auth application-default login`):
+Share or restore data (needs write or read access to the DVC bucket: `gcloud auth application-default login`):
 
 ```bash
 uv run dvc push             # upload the cached outputs to the remote

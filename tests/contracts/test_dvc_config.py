@@ -1,5 +1,5 @@
 """The DVC setup is consistent: dvc.yaml is well-formed, its inputs exist, its outputs stay under data/, the
-remote points at the bucket's dvc prefix, and Git can see the files DVC needs committed. Needs no dvc install."""
+remote is the dedicated DVC bucket, and Git can see the files DVC needs committed. Needs no dvc install."""
 
 import configparser
 import shutil
@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-REMOTE_URL = "gs://precursor-intel-mlops-data/dvc"
+REMOTE_URL = "gs://precursor-intel-mlops-dvc"
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +55,7 @@ def test_data_outputs_stay_under_data_and_metrics_are_committed_to_git(stages):
             )
 
 
-def test_the_default_remote_is_the_dvc_prefix_of_the_data_bucket():
+def test_the_default_remote_is_the_dedicated_dvc_bucket():
     config = configparser.ConfigParser()
     config.read(ROOT / ".dvc" / "config", encoding="utf-8")
     assert config["core"]["remote"] == "gcs"
