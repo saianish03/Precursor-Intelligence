@@ -214,5 +214,24 @@ silver_partitions = Table(
     Column("detail", Text),
     Column("built_at", String(32)),
 )
+# Data quality (spec §15.2): one row per named check result, e.g. each anomaly `validate` finds.
+# Append-only. severity is error (schema violation) or warning (drift against the previous month).
+dq_results = Table(
+    "dq_results",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("run_id", String(64)),
+    Column("node", String(32)),  # validation
+    Column("layer", String(16)),  # silver | gold
+    Column("table_name", String(64)),
+    Column("vintage_month", String(7)),
+    Column("check_name", String(64)),
+    Column("column_name", String(128)),
+    Column("severity", String(16)),  # error | warning
+    Column("observed", Text),
+    Column("expected", Text),
+    Column("detail", Text),
+    Column("checked_at", String(32)),
+)
 
 TABLES = {t.name: t for t in metadata.sorted_tables}

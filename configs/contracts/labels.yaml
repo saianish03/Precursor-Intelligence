@@ -1,0 +1,21 @@
+# Baseline schema for gold/labels (precursor-pipeline validate).
+# Inferred by `validate --write-schema`; tighten by hand (unique, allowed, min, max, str_length, pattern, nullable).
+table: labels
+layer: gold
+inferred_from: {first: 2023-01, last: 2026-08, months: 39}
+# Hand-tightened (marked `# hand`): the key, CCN and t patterns, label values, the split columns, and the rules
+# tying each label's y, status and split together.
+unique: [ccn, t]  # hand: one row per facility and month t
+rules: [y_null_iff_unlabelled, y_matches_status, score_iff_immature]  # hand: gold/labels.py, gold/splits.py
+columns:
+  ccn: {dtype: String, nullable: false, pattern: '^[0-9A-Z]{6}$'}  # hand: CCN is 6-character text (harmonize/normalize.py CCN_PATTERN)
+  t: {dtype: String, nullable: false, pattern: '^\d{4}-(0[1-9]|1[0-2])$'}  # hand: YYYY-MM
+  y_g12: {dtype: Int8, nullable: true, min: 0, max: 1}
+  status_g12: {dtype: String, nullable: false, allowed: [positive, negative, censored, immature]}  # hand: gold/labels.py
+  y_g6: {dtype: Int8, nullable: true, min: 0, max: 1}
+  status_g6: {dtype: String, nullable: false, allowed: [positive, negative, censored, immature]}  # hand: gold/labels.py
+  y_pen12: {dtype: Int8, nullable: true, min: 0, max: 1}
+  status_pen12: {dtype: String, nullable: false, allowed: [positive, negative, censored, immature]}  # hand: gold/labels.py
+  split_g12: {dtype: String, nullable: false, allowed: [train, calib, purge, test, score]}  # hand: gold/splits.py SPLITS
+  split_g6: {dtype: String, nullable: false, allowed: [train, calib, purge, test, score]}  # hand: gold/splits.py SPLITS
+  split_pen12: {dtype: String, nullable: false, allowed: [train, calib, purge, test, score]}  # hand: gold/splits.py SPLITS

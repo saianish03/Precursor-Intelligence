@@ -4,7 +4,8 @@ Two files make up the settings:
   * ``configs/ingestion/sources.yaml`` - what to download and the security rules (same in every environment)
   * ``configs/<env>.yaml``             - which storage / database backends to use (dev, prod)
 
-The gold node also reads ``configs/labels.yaml`` and ``configs/splits.yaml`` (their own loaders below).
+The gold node also reads ``configs/labels.yaml`` and ``configs/splits.yaml`` (their own loaders below), and the
+validate command ``configs/validation.yaml``.
 
 ``${VAR}`` and ``${VAR:-default}`` placeholders are expanded from the process environment, so secrets
 (database URLs, bucket names) never have to be written into a config file.
@@ -397,6 +398,54 @@ def load_feature_registry(path: str | Path | None = None) -> FeatureRegistry:
 def load_features_config(path: str | Path | None = None) -> FeaturesConfig:
     """Load and validate ``configs/features.yaml``."""
     return _load_model(FeaturesConfig, path or project_root() / "configs" / "features.yaml")
+
+
+class ValidationLayer(BaseModel):
+    """Where one layer's monthly tables are and how a month is found (``configs/validation.yaml``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # one file per month under <layer>/<table>/<partition_key>=YYYY-MM/, or one file split by month_column
+    partition_key: str | None = None
+    month_column: str | None = None
+    tables: list[str] = Field(min_length=1)
+    all_months: bool = False  # check every month by default, not only the latest
+
+    @model_validator(mode="after")
+    def _one_month_source(self) -> ValidationLayer:
+        if (self.partition_key is None) == (self.month_column is None):
+            raise ValueError("give exactly one of partition_key and month_column")
+        return self
+
+
+class DriftConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    row_count_change_pct: float = Field(gt=0)
+    null_rate_jump_pts: float = Field(gt=0)
+    mean_shift_std: float = Field(gt=0)
+    skip_columns: list[str] = []  # fnmatch patterns, e.g. "y_*"
+
+
+class ValidationConfig(BaseModel):
+    """``configs/validation.yaml``: the validate command's tables, schema folder and drift thresholds."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_dir: str
+    low_cardinality_max: int = Field(gt=0)
+    top_values: int = Field(gt=0)
+    layers: dict[Literal["silver", "gold"], ValidationLayer]
+    drift: DriftConfig
+
+    def schema_path(self, table: str) -> Path:
+        path = Path(self.schema_dir)
+        return (path if path.is_absolute() else project_root() / path) / f"{table}.yaml"
+
+
+def load_validation_config(path: str | Path | None = None) -> ValidationConfig:
+    """Load and validate ``configs/validation.yaml``."""
+    return _load_model(ValidationConfig, path or project_root() / "configs" / "validation.yaml")
 
 
 def load_labels_config(path: str | Path | None = None) -> LabelsConfig:
