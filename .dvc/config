@@ -1,0 +1,5 @@
+[core]
+    analytics = false
+    remote = gcs
+['remote "gcs"']
+    url = gs://precursor-intel-mlops-data/dvc
