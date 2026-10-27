@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11, <3.13"
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform == 'darwin'",
@@ -1211,6 +1211,25 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cc/28/c14e053b6762b1044f34a13aab6859bbf40456d37d23aa286ac24cfd9a5d/executing-2.2.1.tar.gz", hash = "sha256:3632cc370565f6648cc328b32435bd120a1e4ebb20c77e3fdde9a13cd1e533c4", size = 1129488, upload-time = "2025-09-01T09:48:10.866Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/ea/53f2148663b321f21b5a606bd5f191517cf40b7072c0497d3c92c4a13b1e/executing-2.2.1-py2.py3-none-any.whl", hash = "sha256:760643d3452b4d777d295bb167ccc74c64a81df23fb5e08eff250c425a4b2017", size = 28317, upload-time = "2025-09-01T09:48:08.5Z" },
+]
+
+[[package]]
+name = "fairlearn"
+version = "0.15.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "narwhals" },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform != 'linux' and sys_platform != 'win32'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.12' and platform_machine != 'x86_64') or (python_full_version < '3.12' and sys_platform == 'linux') or (python_full_version < '3.12' and sys_platform == 'win32')" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pandas" },
+    { name = "scikit-learn" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4e/f8/d1ef45777b36ff973bfc06bd33a30c568a6275466193f2a121919dd82106/fairlearn-0.15.0.tar.gz", hash = "sha256:dfdfbddc3b86d2a8e4e04e282bb29d7603f28559a28abeca97847bf5e0f79f80", size = 109889, upload-time = "2026-10-12T05:10:18.738Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/9d/e96346594f66e8933181b286cdf8b495bd71998ccbc7ae3ee5e33efa0cde/fairlearn-0.15.0-py3-none-any.whl", hash = "sha256:4f4656c25af384fc3369db719231680c4e83beb2e6e075e5dc3c2b27d06455c9", size = 141365, upload-time = "2026-10-12T05:10:17.692Z" },
 ]
 
 [[package]]
@@ -3506,6 +3525,13 @@ api = [
     { name = "google-cloud-secret-manager" },
     { name = "uvicorn", extra = ["standard"] },
 ]
+bias = [
+    { name = "fairlearn" },
+    { name = "matplotlib" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "statsmodels" },
+]
 dvc = [
     { name = "dvc", extra = ["gs"] },
 ]
@@ -3571,6 +3597,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'pipeline'", specifier = ">=1.5.6" },
     { name = "dvc", extras = ["gs"], marker = "extra == 'dvc'", specifier = ">=3.67.1" },
     { name = "evidently", marker = "extra == 'ml'", specifier = ">=0.7.23" },
+    { name = "fairlearn", marker = "extra == 'bias'", specifier = ">=0.15.0" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.143.0" },
     { name = "fsspec", marker = "extra == 'pipeline'", specifier = ">=2026.9.0" },
     { name = "gcsfs", marker = "extra == 'pipeline'", specifier = ">=2026.10.0" },
@@ -3584,6 +3611,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'ui'", specifier = ">=0.28.1" },
     { name = "interpret", marker = "extra == 'ml'", specifier = ">=0.7.8" },
     { name = "lightgbm", marker = "extra == 'ml'", specifier = ">=4.7.0" },
+    { name = "matplotlib", marker = "extra == 'bias'", specifier = ">=3.11.2" },
     { name = "mlflow", marker = "extra == 'ml'", specifier = ">=3.17.0" },
     { name = "mlflow", marker = "extra == 'mlflow-server'", specifier = ">=3.17.0" },
     { name = "optuna", marker = "extra == 'ml'", specifier = ">=5.0.0" },
@@ -3600,14 +3628,16 @@ requires-dist = [
     { name = "rank-bm25", marker = "extra == 'agents'", specifier = ">=0.2.2" },
     { name = "requests", marker = "extra == 'pipeline'", specifier = ">=2.34.2" },
     { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.9.1" },
+    { name = "scipy", marker = "extra == 'bias'", specifier = ">=1.17.1" },
     { name = "shap", marker = "extra == 'ml'", specifier = ">=0.51.0" },
     { name = "sqlalchemy", marker = "extra == 'pipeline'", specifier = ">=2.1.4" },
+    { name = "statsmodels", marker = "extra == 'bias'", specifier = ">=0.15.0" },
     { name = "streamlit", marker = "extra == 'ui'", specifier = ">=1.65.0" },
     { name = "tenacity", marker = "extra == 'pipeline'", specifier = ">=9.2.1" },
     { name = "typer", marker = "extra == 'pipeline'", specifier = ">=0.27.3" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.54.0" },
 ]
-provides-extras = ["pipeline", "ml", "agents", "api", "ui", "mlflow-server", "dvc"]
+provides-extras = ["pipeline", "ml", "agents", "api", "ui", "mlflow-server", "dvc", "bias"]
 
 [package.metadata.requires-dev]
 dev = [
