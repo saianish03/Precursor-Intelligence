@@ -213,8 +213,13 @@ def check_schema(df: pl.DataFrame, schema: TableSchema, *, month: str) -> list[A
             pl.len().alias("n"), pl.col("failure_case").unique(maintain_order=True).head(_EXAMPLES)
         )
     )
+    mistyped = {
+        c for c, k in groups.select("column", "check").iter_rows() if k.startswith("dtype(")
+    }
     for column, pandera_check, n, examples in groups.iter_rows():
         check = _check_name(pandera_check)
+        if column in mistyped and check != "wrong_dtype":
+            continue  # its other checks failed only because of the dtype
         rule = schema.columns.get(column)
         if check == "wrong_dtype":
             observed = examples[0]

@@ -152,3 +152,12 @@ def test_a_max_only_range_works():
         {"rows": 1, "examples": ["3"]},
         [None, 2],
     )
+
+
+def test_a_wrong_dtype_is_the_only_anomaly_for_its_column():
+    rules = SCHEMA.columns | {
+        "ccn": ColumnRule(dtype="String", nullable=False, str_length=6, pattern=r"^[0-9A-Z]{6}$")
+    }
+    df = citations(n=4).with_columns(pl.col("ccn").cast(pl.Int64))
+    a = only(check(df, SCHEMA.model_copy(update={"columns": rules})))
+    assert (a.check, a.column) == ("wrong_dtype", "ccn")
