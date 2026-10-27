@@ -18,6 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..common.config import ConfigError
 
 Scalar = bool | int | float | str
+# Table-level rules across columns, applied to every label (status_<n> with its y_<n> and split_<n>).
+Rule = Literal["y_null_iff_unlabelled", "y_matches_status", "score_iff_immature"]
 # Never given an inferred `allowed` list: every new month would be a value not seen before.
 MONTH_COLUMNS = frozenset({"vintage_month", "t"})
 
@@ -44,6 +46,7 @@ class TableSchema(BaseModel):
     layer: str
     inferred_from: dict[str, Any] = {}  # first and last month, number of months
     unique: list[str] | None = None  # the key: no two rows of a month share these columns
+    rules: list[Rule] | None = None  # table-level invariants, coded in validate.py
     columns: dict[str, ColumnRule]
 
 
@@ -104,6 +107,7 @@ def dump_schema(schema: TableSchema) -> str:
         "inferred_from: "
         + yaml.safe_dump(schema.inferred_from, default_flow_style=True, sort_keys=False).strip(),
         *([f"unique: [{', '.join(schema.unique)}]"] if schema.unique else []),
+        *([f"rules: [{', '.join(schema.rules)}]"] if schema.rules else []),
         "columns:",
     ]
     for name, rule in schema.columns.items():

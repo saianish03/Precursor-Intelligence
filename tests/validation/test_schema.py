@@ -89,3 +89,13 @@ def test_the_key_and_a_pattern_survive_write_and_load(tmp_path):
 def test_a_month_column_never_gets_an_allowed_list():
     schema = infer(citations(n=4), citations(n=4, vintage="2026-08"))  # 2 months, under the limit
     assert schema.columns["vintage_month"].allowed is None
+
+
+def test_rules_survive_write_and_load_and_an_unknown_rule_is_a_config_error(tmp_path):
+    schema = infer(citations(n=4)).model_copy(update={"rules": ["score_iff_immature"]})
+    path = tmp_path / "labels.yaml"
+    write_schema(schema, path)
+    assert load_schema(path) == schema
+    path.write_text(path.read_text().replace("score_iff_immature", "score_if_immature"))
+    with pytest.raises(ConfigError, match="score_if_immature"):
+        load_schema(path)

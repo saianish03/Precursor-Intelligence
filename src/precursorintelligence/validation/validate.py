@@ -133,10 +133,55 @@ def _duplicate_keys(df: pl.DataFrame, schema: TableSchema, month: str) -> list[A
     ]  # fmt: skip
 
 
+UNLABELLED = ["censored", "immature"]  # gold/labels.py: y is null for exactly these
+
+
+def _rule_violations(rule: str, n: str) -> tuple[pl.Expr, str]:
+    """(rows breaking ``rule`` for label ``n``, what should hold): gold/labels.py and gold/splits.py."""
+    y, status, split = pl.col(f"y_{n}"), pl.col(f"status_{n}"), pl.col(f"split_{n}")
+    if rule == "y_null_iff_unlabelled":
+        return y.is_null() != status.is_in(UNLABELLED), "y null exactly when censored or immature"
+    if rule == "y_matches_status":
+        bad = (status.eq_missing("positive") != y.eq_missing(1)) | (
+            status.eq_missing("negative") != y.eq_missing(0)
+        )
+        return bad, "y = 1 exactly when positive, y = 0 exactly when negative"
+    return split.eq_missing("score") != status.eq_missing("immature"), "score exactly when immature"
+
+
+def _rules(df: pl.DataFrame, schema: TableSchema, month: str) -> list[Anomaly]:
+    out: list[Anomaly] = []
+    labels = [c.removeprefix("status_") for c in df.columns if c.startswith("status_")]
+    for rule in schema.rules or []:
+        for n in labels:
+            needed = [f"y_{n}", f"status_{n}"]
+            needed += [f"split_{n}"] if rule == "score_iff_immature" else []
+            if not set(needed) <= set(df.columns):
+                continue  # reported as missing_column
+            bad_rows, should = _rule_violations(rule, n)
+            bad = df.filter(bad_rows).select(needed)
+            if not bad.height:
+                continue
+            shown = [
+                " ".join(f"{c}={v}" for c, v in zip(needed, row, strict=True))
+                for row in bad.unique(maintain_order=True).head(_EXAMPLES).rows()
+            ]
+            out.append(
+                Anomaly(schema.table, month, rule, ERROR, f"status_{n}",
+                        {"rows": bad.height, "examples": shown}, should,
+                        f"{bad.height} rows break {rule} ({should}), e.g. {shown[0]}")
+            )  # fmt: skip
+    return out
+
+
 def check_schema(df: pl.DataFrame, schema: TableSchema, *, month: str) -> list[Anomaly]:
     """Every schema violation in the month, one anomaly per (column, check). All are errors, except a value
     outside an `allowed` list marked ``allowed_severity: warning``."""
-    extra = _duplicate_keys(df, schema, month) + _new_values(df, schema, month)
+    extra = (
+        _duplicate_keys(df, schema, month)
+        + _rules(df, schema, month)
+        + _new_values(df, schema, month)
+    )
     try:
         pandera_schema(schema).validate(df, lazy=True)
     except pa.errors.SchemaErrors as exc:

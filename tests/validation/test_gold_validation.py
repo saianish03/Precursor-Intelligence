@@ -49,17 +49,73 @@ def gold_cfg(cfg, tmp_path):
         (tmp_path / "contracts" / f"{table}.yaml").write_bytes(CFG.schema_path(table).read_bytes())
     cfg.layers["gold"].tables = ["labels"]
     cfg.drift.skip_columns = CFG.drift.skip_columns
+    cfg.layers["gold"].all_months = CFG.layers["gold"].all_months
     return cfg
 
 
-def test_censored_labels_and_moving_splits_are_not_drift(put_gold, ctx, gold_cfg):
+def test_immature_labels_and_moving_splits_are_not_drift(put_gold, ctx, gold_cfg):
     before = labels_month("2025-01", y=0, status="negative", split="train")
-    after = labels_month("2025-02", status="censored", split="score").with_columns(
-        pl.lit(None, pl.Int8).alias(f"y_{n}") for n in LABELS
-    )
+    after = labels_month("2025-02", y=None, status="immature", split="score")
     put_gold("labels", pl.concat([before, after]))
     res = run_validation(ctx, gold_cfg, layer="gold")
     assert res.exit_code == EXIT_OK and res.anomalies == []
+    assert res.checked == {"labels": ["2025-01", "2025-02"]}  # gold checks every month by default
+
+
+def test_a_censored_row_in_the_score_split_is_an_error(put_gold, ctx, gold_cfg):
+    """Gold can never write it: score rows are exactly the immature ones (gold/splits.py)."""
+    put_gold("labels", labels_month("2025-01", y=None, status="censored", split="score"))
+    res = run_validation(ctx, gold_cfg, layer="gold")
+    assert res.exit_code == EXIT_VALIDATION
+    assert {(a.check, a.column) for a in res.anomalies} == {
+        ("score_iff_immature", f"status_{n}") for n in LABELS
+    }
+
+
+@pytest.mark.parametrize(
+    "y, status, split, rules",
+    [
+        (1, "negative", "train", {"y_matches_status"}),
+        (0, "positive", "test", {"y_matches_status"}),
+        (None, "negative", "train", {"y_null_iff_unlabelled", "y_matches_status"}),
+        (1, "censored", "train", {"y_null_iff_unlabelled", "y_matches_status"}),
+        (None, "immature", "train", {"score_iff_immature"}),
+    ],
+)
+def test_a_label_that_contradicts_its_status_or_split_is_an_error(
+    put_gold, ctx, gold_cfg, y, status, split, rules
+):
+    good = labels_month("2025-01", n=19)
+    bad = labels_month("2025-01", n=1, y=y, status=status, split=split).with_columns(
+        pl.lit("015099").alias("ccn")
+    )
+    put_gold("labels", pl.concat([good, bad]))
+    found = {
+        (a.check, a.column, a.observed["rows"])
+        for a in run_validation(ctx, gold_cfg, layer="gold").anomalies
+    }
+    assert found == {(r, f"status_{n}", 1) for r in rules for n in LABELS}
+
+
+@pytest.mark.parametrize(
+    "y, status, split",
+    [
+        (1, "positive", "train"),
+        (0, "negative", "calib"),
+        (None, "censored", "test"),
+        (None, "immature", "score"),
+    ],
+)
+def test_every_label_gold_can_write_passes(put_gold, ctx, gold_cfg, y, status, split):
+    put_gold("labels", labels_month("2025-01", y=y, status=status, split=split))
+    assert run_validation(ctx, gold_cfg, layer="gold").anomalies == []
+
+
+def test_one_month_can_still_be_chosen_in_gold(put_gold, ctx, gold_cfg):
+    put_gold("labels", pl.concat([labels_month("2025-01"), labels_month("2025-02")]))
+    assert run_validation(ctx, gold_cfg, layer="gold", month="2025-01").checked == {
+        "labels": ["2025-01"]
+    }
 
 
 def test_a_bad_split_value_is_an_error(put_gold, ctx, gold_cfg):
@@ -74,4 +130,4 @@ def test_a_bad_split_value_is_an_error(put_gold, ctx, gold_cfg):
 def test_a_bad_status_value_is_an_error(put_gold, ctx, gold_cfg):
     put_gold("labels", labels_month("2025-01", status="unknown"))
     found = {(a.column, a.check) for a in run_validation(ctx, gold_cfg, layer="gold").anomalies}
-    assert found == {(f"status_{n}", "allowed_values") for n in LABELS}
+    assert {(f"status_{n}", "allowed_values") for n in LABELS} <= found

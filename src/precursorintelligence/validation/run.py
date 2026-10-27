@@ -87,13 +87,11 @@ def write_schemas(
 
 
 def _to_check(months: list[str], month: str | None, all_months: bool, table: str) -> list[str]:
-    if all_months:
-        return months
-    if month is None:
-        return months[-1:]
-    if month not in months:
-        raise ConfigError(f"{table} has no month {month}; it has {months[0]}..{months[-1]}")
-    return [month]
+    if month is not None:
+        if month not in months:
+            raise ConfigError(f"{table} has no month {month}; it has {months[0]}..{months[-1]}")
+        return [month]
+    return months if all_months else months[-1:]
 
 
 def _check_table(
@@ -139,7 +137,8 @@ def run_validation(
     all_months: bool = False,
     strict: bool = False,
 ) -> ValidationResult:
-    """Check the latest month of each table (or ``month``, or every month) and record the results."""
+    """Check the latest month of each table (or ``month``, or every month: ``all_months`` or the layer's
+    ``all_months`` setting) and record the results."""
     names = _tables(cfg, layer, tables)
     # every schema file first: a missing or broken one is a config error (exit 3) before any work
     schemas = {t: load_schema(cfg.schema_path(t)) for t in names}
@@ -158,7 +157,8 @@ def run_validation(
             )  # fmt: skip
             result.checked[table] = []
             continue
-        checked = _to_check(months, month, all_months, table)
+        every = all_months or cfg.layers[layer].all_months  # type: ignore[index]
+        checked = _to_check(months, month, every, table)
         stats = _check_table(
             reader, schemas[table], cfg, months, checked, result.anomalies, first_month
         )

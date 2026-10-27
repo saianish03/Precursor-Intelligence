@@ -409,6 +409,7 @@ class ValidationLayer(BaseModel):
     partition_key: str | None = None
     month_column: str | None = None
     tables: list[str] = Field(min_length=1)
+    all_months: bool = False  # check every month by default, not only the latest
 
     @model_validator(mode="after")
     def _one_month_source(self) -> ValidationLayer:
