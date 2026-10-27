@@ -56,7 +56,10 @@ def build_family(
 
 
 def build_features(
-    family: str, silver: dict[str, pl.DataFrame], spine: pl.DataFrame
+    family: str,
+    silver: dict[str, pl.DataFrame],
+    spine: pl.DataFrame,
+    cfg: FeaturesConfig | None = None,
 ) -> pl.DataFrame:
     """``family`` from stacked in-memory silver tables (the toy world and tests)."""
-    return build_family(family, FeatureReader.from_frames(silver), spine)
+    return build_family(family, FeatureReader.from_frames(silver), spine, cfg)

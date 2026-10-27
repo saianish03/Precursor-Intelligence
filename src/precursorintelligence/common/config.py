@@ -325,6 +325,16 @@ class FeaturesConfig(BaseModel):
     footnote_reasons: dict[str, str]
     rating_method_change: str
     penalty_regime_change: str
+    # Not in features.yaml: gold sets it from the run's labels config, so features and labels use one G+ set.
+    # None (the toy world and feature tests) = configs/labels.yaml.
+    gplus_severities: list[str] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _gplus_comes_from_labels(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "gplus_severities" in data:
+            raise ValueError("gplus_severities belongs in labels.yaml, not features.yaml")
+        return data
 
     @model_validator(mode="after")
     def _check(self) -> FeaturesConfig:

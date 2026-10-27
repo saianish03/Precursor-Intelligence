@@ -120,33 +120,53 @@ def test_citations_after_the_cutoff_are_ignored(silver, spine):
     assert after == before
 
 
-@pytest.fixture
-def gplus_from_labels(monkeypatch):
-    """Point the features' G+ set at a stand-in labels.yaml (the helper caches the real one)."""
-    from precursorintelligence.common.config import load_labels_config
-    from precursorintelligence.gold.features import common
+def _gplus(letters):
+    """features.yaml with the G+ set gold passes in from the run's labels config."""
+    from precursorintelligence.common.config import load_features_config
 
-    def use(letters):
-        cfg = load_labels_config().model_copy(update={"gplus_severities": letters})
-        monkeypatch.setattr(common, "load_labels_config", lambda: cfg)
-        common.gplus_min_ordinal.cache_clear()
-
-    yield use
-    common.gplus_min_ordinal.cache_clear()
+    return load_features_config().model_copy(update={"gplus_severities": letters})
 
 
-def test_g_plus_comes_from_labels_yaml(silver, spine, gplus_from_labels):
-    gplus_from_labels(["H", "I", "J", "K", "L"])  # Sunny Acres' G no longer counts
-    row = _row(build_features("citations", silver, spine), "015001", "2023-08")
+def test_g_plus_comes_from_the_labels_config(silver, spine):
+    cfg = _gplus(["H", "I", "J", "K", "L"])  # Sunny Acres' G no longer counts
+    row = _row(build_features("citations", silver, spine, cfg), "015001", "2023-08")
     assert (row["max_sev_last_std"], row["gplus_last_std"]) == (7.0, False)
     assert row["n_gplus_surveys_36m"] == 0 and row["days_since_last_gplus"] is None
-    ctx = build_features("context", silver, spine)
+    ctx = build_features("context", silver, spine, cfg)
     assert set(ctx.filter(pl.col("t") == "2023-08")["state_gplus_rate_12m"]) == {0.0}
 
 
-def test_a_g_plus_set_with_a_gap_is_refused(silver, spine, gplus_from_labels):
+def test_without_a_g_plus_set_features_use_labels_yaml(silver, spine, cit):
+    assert _row(cit, "015001", "2023-08")["gplus_last_std"] is True  # labels.yaml: G-L
+
+
+def test_a_g_plus_set_with_a_gap_is_refused(silver, spine):
     from precursorintelligence.common.config import ConfigError
 
-    gplus_from_labels(["G", "J", "K", "L"])
     with pytest.raises(ConfigError, match="every letter above it"):
-        build_features("citations", silver, spine)
+        build_features("citations", silver, spine, _gplus(["G", "J", "K", "L"]))
+
+
+@pytest.mark.parametrize("letters", [[], ["Z"]])
+def test_an_empty_or_unknown_g_plus_set_is_a_config_error(silver, spine, letters):
+    from precursorintelligence.common.config import ConfigError
+
+    with pytest.raises(ConfigError, match="must be letters A-L"):
+        build_features("citations", silver, spine, _gplus(letters))
+
+
+def test_a_repeated_g_plus_letter_is_accepted(silver, spine, cit):
+    out = build_features("citations", silver, spine, _gplus(["G", "G", "H", "I", "J", "K", "L"]))
+    assert out.equals(cit)
+
+
+def test_features_yaml_cannot_set_the_g_plus_set(tmp_path):
+    import yaml
+
+    from precursorintelligence.common.config import ConfigError, load_features_config, project_root
+
+    raw = yaml.safe_load((project_root() / "configs" / "features.yaml").read_text())
+    path = tmp_path / "features.yaml"
+    path.write_text(yaml.safe_dump(raw | {"gplus_severities": ["H"]}))
+    with pytest.raises(ConfigError, match="belongs in labels.yaml"):
+        load_features_config(path)

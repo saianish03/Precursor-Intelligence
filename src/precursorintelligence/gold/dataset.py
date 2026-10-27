@@ -28,7 +28,7 @@ from .splits import SPLITS
 DATASET = "facility_month_dataset"
 MANIFEST_NAME = "dataset_manifest.json"
 KEYS = ["ccn", "t"]
-HASHED_CONFIGS = ("features.yaml", "feature_registry.yaml", "labels.yaml")
+HASHED_CONFIGS = ("features.yaml", "feature_registry.yaml")
 GIT_COMMIT_ENV = "PI_GIT_COMMIT"  # set in images, which carry no .git
 
 
@@ -60,7 +60,7 @@ def _sha256_file(name: str) -> str:
     return hashlib.sha256((project_root() / "configs" / name).read_bytes()).hexdigest()
 
 
-def _sha256_settings(cfg: SplitsConfig) -> str:
+def _sha256_settings(cfg: LabelsConfig | SplitsConfig) -> str:
     """The settings themselves, as canonical JSON: the same whichever file (or code) they came from."""
     return hashlib.sha256(
         json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()
@@ -143,7 +143,8 @@ def dataset_manifest(
     """``gold/dataset_manifest.json`` (spec §10.5). Only ``built_at`` changes between identical builds.
 
     ``verified`` is False until the spec §11 gate has passed on this dataset; nothing should train on it before.
-    ``splits.yaml`` is hashed from ``splits_cfg``, the settings actually used (``--splits-config`` or code).
+    ``labels.yaml`` and ``splits.yaml`` are hashed from ``labels_cfg`` and ``splits_cfg``, the settings actually
+    used (``--splits-config`` or code), as canonical JSON; the other configs are hashed from their files.
     """
     commit, dirty = git_state()
     version = hashlib.sha256(
@@ -162,7 +163,10 @@ def dataset_manifest(
         "sources": _sources(meta, v),
         "flags": _flags(meta, v),
         "config_sha256": {name: _sha256_file(name) for name in HASHED_CONFIGS}
-        | {"splits.yaml": _sha256_settings(splits_cfg)},
+        | {
+            "labels.yaml": _sha256_settings(labels_cfg),
+            "splits.yaml": _sha256_settings(splits_cfg),
+        },
         "git_commit": commit,
         "git_dirty": dirty,
         "rows": {"total": labels.height, "months": labels["t"].n_unique()},

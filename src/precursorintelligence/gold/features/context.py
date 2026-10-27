@@ -26,7 +26,7 @@ def build(reader: FeatureReader, rows: pl.DataFrame, t: str, cfg: FeaturesConfig
     assert raw is not None
     gplus_12m = (
         raw.filter(
-            pl.col("scope_severity").is_in(gplus_severities()),
+            pl.col("scope_severity").is_in(gplus_severities(cfg)),
             within("survey_date", 12),
             pl.col("survey_date") <= pl.col("cutoff_date"),
         )
