@@ -1,5 +1,5 @@
 # precursor-pipeline: the image every data-pipeline DAG task runs, one CLI command per container
-# (`precursor-ingest …`, `precursor-pipeline bronze|silver …`). Same image locally and on the VM.
+# (`precursor-ingest …`, `precursor-pipeline bronze|silver|gold …`). Same image locally and on the VM.
 #
 #   docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse --short HEAD) \
 #     -t precursor-pipeline:<tag> .
@@ -16,7 +16,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Dependencies first, so a code change does not reinstall them. Only the `pipeline` extra (ingestion → silver).
+# Dependencies first, so a code change does not reinstall them. Only the `pipeline` extra (ingestion → gold).
 COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --extra pipeline --no-install-project
@@ -35,6 +35,8 @@ RUN useradd --create-home --uid 10001 pipeline \
 USER pipeline
 
 ARG PI_GIT_SHA=unknown
-ENV PI_GIT_SHA=${PI_GIT_SHA}
+# PI_GIT_COMMIT: the commit in gold's dataset manifest (the image carries no .git)
+ENV PI_GIT_SHA=${PI_GIT_SHA} \
+    PI_GIT_COMMIT=${PI_GIT_SHA}
 
 CMD ["precursor-ingest", "--help"]
