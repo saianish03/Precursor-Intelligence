@@ -84,15 +84,16 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
 - **Docs and evidence:** how to set the webhook and what an alert looks like, plus one screenshot of a real alert.
 
 ## 6. Status on `feat/pipeline-alerts`
-- **Built** (`dags/utils/alerts.py`; setup and examples in `runbooks/airflow-local.md` §3.1):
+- **Built** (`src/precursorintelligence/alerts.py`, the Airflow callbacks in `dags/utils/alerts.py`; setup and examples in `runbooks/airflow-local.md` §3.1):
   - **Failed run:** DAG `on_failure_callback`, one email with the failed tasks, exit codes (XCom `pipeline_exit_code`, pushed by `PipelineDockerOperator`) and log links.
   - **Failed `release_lock`:** task-level `on_failure_callback`.
   - **New error anomalies:** `precursor-ingest anomalies --run-id R --severity error --new-only` (`ingestion/anomalies.py`) runs as `ingestion.check_anomalies` after `resolve_report`; `ingestion.alert_anomalies` posts it. "New" = an (entry_id, kind) the previous run with a successful resolve did not have, because resolve re-records an unfixed problem on every run.
   - **Exit 137:** no-retry, named in the alert. **Hang:** `build_gold` `execution_timeout` 2 h (`PI_GOLD_TIMEOUT_MINUTES`).
   - **Destination:** email over SMTP with the standard library's `smtplib` (no provider; TLS always), settings `PI_ALERT_EMAIL_TO` / `PI_ALERT_SMTP_*` in `.env`, e.g. Gmail with an app password. Empty `PI_ALERT_EMAIL_TO` = nothing sent. Slack was set aside for now; `send()` is the one place to add it.
-- **Tests:** `tests/dags/test_alerts.py` (fake SMTP delivery), `tests/dags/test_dag_integrity.py` (wiring), `tests/dags/test_pipeline_operator.py` (137, XCom), `tests/ingestion/test_anomalies.py`.
+- **Tests:** `tests/alerts/test_alerts.py` (messages and sending, fake SMTP delivery, offline in CI), `tests/dags/test_alerts.py` (the callbacks), `tests/dags/test_dag_integrity.py` (wiring), `tests/dags/test_pipeline_operator.py` (137, XCom), `tests/ingestion/test_anomalies.py`.
 - **Verified in the local stack** (`runbooks/airflow-local.md` §8.3): run G → 1 failure email; a forced `no_vintage` → 1 anomaly email, and 0 on the repeat; `stop_after` and clean runs → 0.
   - Screenshots of the two real emails: `runbooks/img/alert-email-run-failed.png`, `runbooks/img/alert-email-new-anomaly.png` (shown in `runbooks/airflow-local.md` §3.1).
 - **Left to do:**
   - `check_release` / "partial release stuck for N days": blocked (§2).
   - A timeout is retried like exit 1, so a hang alerts after about 6 h (§9.4 of `AIRFLOW_PIPELINE.md`).
+  - A lost anomaly alert (failed send, or no recipient set) is not re-sent on later runs (`runbooks/airflow-local.md` §3.1).

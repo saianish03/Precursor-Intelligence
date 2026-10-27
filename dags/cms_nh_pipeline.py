@@ -5,9 +5,10 @@ run passes the same `--run-id {{ run_id }}`. The `data_pipeline` run lock is tak
 and released by the last task of the DAG (a teardown, so it always runs once the lock was taken but never
 hides a failed run), so all nodes run under one lock. No business logic here.
 
-Alerts (utils/alerts.py, email; nothing is sent when PI_ALERT_EMAIL_TO is unset): one per failed run
-(the DAG's on_failure_callback), one when release_lock fails (that leaves the run green), and one per run
-with new error anomalies (`check_anomalies` → `alert_anomalies`, after resolve_report).
+Alerts (precursorintelligence.alerts; the callbacks in utils/alerts.py; email; nothing is sent when
+PI_ALERT_EMAIL_TO is unset): one per failed run (the DAG's on_failure_callback), one when release_lock fails
+(that leaves the run green), and one per run with new error anomalies (`check_anomalies` → `alert_anomalies`,
+after resolve_report).
 
 Implemented nodes: ingestion → bronze → silver → gold. Not built yet, slots marked TODO: `check_release`
 (spec §2.0, gates the DAG) and `mirror_metadata` (spec §15.3).
@@ -26,13 +27,15 @@ import re
 from datetime import datetime, timedelta
 
 from airflow.sdk import Asset, Param, dag, get_current_context, task, task_group
-from utils.alerts import anomalies_alert, on_dag_failure, on_release_failure, send
+from utils.alerts import on_dag_failure, on_release_failure
 from utils.pipeline_operator import (
     PipelineDockerOperator,
     docker_kwargs,
     last_json_list,
     pipeline_env,
 )
+
+from precursorintelligence.alerts import anomalies_alert, send
 
 LANDING, BRONZE, SILVER, GOLD = (
     Asset(name) for name in ("cms_nh_landing", "cms_nh_bronze", "cms_nh_silver", "cms_nh_gold")

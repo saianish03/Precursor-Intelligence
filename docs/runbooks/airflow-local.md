@@ -64,7 +64,7 @@ Alerts are emails over SMTP (TLS always: STARTTLS on 587, TLS on 465). With Gmai
 
 Empty `PI_ALERT_EMAIL_TO` = nothing is sent; each alert is then only logged (`alert not sent (PI_ALERT_EMAIL_TO unset)`). A failed delivery is logged too (never the password) and never fails a task.
 
-**What alerts, once each** (`dags/utils/alerts.py`):
+**What alerts, once each** (`src/precursorintelligence/alerts.py`; the Airflow callbacks in `dags/utils/alerts.py`):
 
 | When | From | Message |
 |---|---|---|
@@ -73,6 +73,8 @@ Empty `PI_ALERT_EMAIL_TO` = nothing is sent; each alert is then only logged (`al
 | Error anomalies the previous successful resolve did not have (e.g. `no_vintage`) | `ingestion.check_anomalies` (`precursor-ingest anomalies --severity error --new-only`) → `ingestion.alert_anomalies` | one line per anomaly (up to 20) |
 
 A `stop_after` run and a clean run send nothing. An unfixed anomaly alerts once, not on every daily run.
+
+**Lost anomaly alerts are not re-sent.** "New" means new since the previous successful resolve, so if that one email fails to send, or `PI_ALERT_EMAIL_TO` is unset at the time, later runs do not alert on the same anomaly again. Look for `alert not sent` in the `ingestion.alert_anomalies` log, or query the anomalies table (`precursor-ingest anomalies --severity error`, without `--new-only`).
 
 **Examples:**
 ```
@@ -125,6 +127,7 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
 - **Credentials:** the VM runs as `sa-pipeline` (`storage.objectAdmin` on the data bucket only). Task containers reach the GCE metadata server, so gcsfs gets its tokens and no key file is needed.
 - **Images:** push to Artifact Registry, then pre-pull on deploy (`gcloud auth configure-docker …`, `docker pull`). The Docker proxy sends no registry credentials, and `force_pull` is off.
 - **Access:** no firewall rule for 8080. Reach the UI with `gcloud compute ssh <vm> --tunnel-through-iap -- -L 8080:127.0.0.1:8080`.
+- **Alert log links:** they use Airflow's `[api] base_url`, `http://localhost:8080` when unset. That works only through the tunnel above on local port 8080; for any other address, set `AIRFLOW__API__BASE_URL` for the Airflow containers.
 - **Disk:**
   - a 30 GB boot disk;
   - container logs are capped (10 MB × 3);
@@ -133,9 +136,9 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
 
 ## 6. Tests
 ```bash
-uv run pytest      # repo tests; tests/dags is skipped (Airflow is not a repo dependency)
+uv run pytest      # repo tests, incl. tests/alerts; tests/dags is skipped (Airflow is not a repo dependency)
 docker compose run --rm --no-deps --entrypoint "" airflow-scheduler \
-  python -m pytest -p no:cacheprovider /opt/airflow/tests/dags     # DAG integrity + exit-code tests
+  python -m pytest -p no:cacheprovider /opt/airflow/tests/dags     # DAG integrity, exit codes, alert callbacks
 ```
 
 ## 7. Stop and clean up

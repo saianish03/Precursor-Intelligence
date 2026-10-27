@@ -146,7 +146,7 @@ Every CLI command uses the same codes. `dags/utils/pipeline_operator.py` (`Pipel
 | 3 | config or wiring (bad env, a stale task list, the lock not held) | **failed at once, no retry** |
 | 137 | killed (SIGKILL), usually out of memory (`PI_TASK_MEM_LIMIT`) | **failed at once, no retry**: a retry rarely helps |
 
-A task that fails makes the downstream tasks `upstream_failed`. The lock is still released, and the run shows `failed`. A failed container's exit code is kept as the XCom `pipeline_exit_code`, so the failure alert can name it (`dags/utils/alerts.py`; runbook `airflow-local.md` §3.1).
+A task that fails makes the downstream tasks `upstream_failed`. The lock is still released, and the run shows `failed`. A failed container's exit code is kept as the XCom `pipeline_exit_code`, so the failure alert can name it (`dags/utils/alerts.py`, `src/precursorintelligence/alerts.py`; runbook `airflow-local.md` §3.1).
 
 ## 5. The metadata database `precursor_meta`
 

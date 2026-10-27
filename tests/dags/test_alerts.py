@@ -1,23 +1,21 @@
-"""Alerts (utils/alerts.py) with a fake SMTP delivery: one per failed run, one for a failed release_lock, one
-for new error anomalies; nothing when no recipient is set, and a failing delivery never raises."""
+"""The alert callbacks (utils/alerts.py) with a fake SMTP delivery: one email per failed run, naming each failed
+task with its exit code and log link, and one for a failed release_lock. The messages and sending themselves
+are tested offline in tests/alerts."""
 
 from types import SimpleNamespace
 
 import pytest
 from utils import alerts
 
+from precursorintelligence import alerts as messages
+
 RUN = "manual__2026-10-27T10:00:00+00:00"
-PASSWORD = "app-password-1234"
 
 
 @pytest.fixture
 def smtp_env(monkeypatch):
-    monkeypatch.setenv(alerts.TO_ENV, "oncall@example.com, data@example.com")
+    monkeypatch.setenv(messages.TO_ENV, "oncall@example.com")
     monkeypatch.setenv("PI_ALERT_SMTP_HOST", "smtp.example.com")
-    monkeypatch.delenv("PI_ALERT_SMTP_PORT", raising=False)
-    monkeypatch.setenv("PI_ALERT_SMTP_USER", "alerts@example.com")
-    monkeypatch.setenv("PI_ALERT_SMTP_PASSWORD", PASSWORD)
-    monkeypatch.delenv("PI_ALERT_EMAIL_FROM", raising=False)
 
 
 @pytest.fixture
@@ -25,7 +23,7 @@ def sent(monkeypatch, smtp_env):
     """Every message that would have been delivered (no network)."""
     msgs = []
     monkeypatch.setattr(
-        alerts, "_deliver", lambda msg, host, port, user, password: msgs.append((msg, host, port))
+        messages, "_deliver", lambda msg, host, port, user, password: msgs.append((msg, host, port))
     )
     return msgs
 
@@ -50,34 +48,6 @@ def _dag_context(states, exit_codes):
 
 def _body(msg):
     return msg.get_content()
-
-
-def test_no_recipient_sends_nothing(monkeypatch):
-    monkeypatch.delenv(alerts.TO_ENV, raising=False)
-    monkeypatch.setattr(alerts, "_deliver", lambda *a: pytest.fail("sent without a recipient"))
-    assert alerts.send("subject", "body") is False
-
-
-def test_no_smtp_host_sends_nothing(sent, monkeypatch):
-    monkeypatch.delenv("PI_ALERT_SMTP_HOST")
-    assert alerts.send("subject", "body") is False and sent == []
-
-
-def test_the_message_goes_to_every_recipient_from_the_smtp_user(sent):
-    assert alerts.send("subject", "body") is True
-    ((msg, host, port),) = sent
-    assert (host, port) == ("smtp.example.com", 587)
-    assert msg["To"] == "oncall@example.com, data@example.com"
-    assert msg["From"] == "alerts@example.com" and msg["Subject"] == "subject"
-
-
-def test_a_failing_delivery_never_raises_or_logs_the_password(smtp_env, monkeypatch, caplog):
-    def boom(msg, host, port, user, password):
-        raise OSError(f"auth failed for {user}:{password}")
-
-    monkeypatch.setattr(alerts, "_deliver", boom)
-    assert alerts.send("subject", "body") is False
-    assert PASSWORD not in caplog.text
 
 
 def test_a_failed_run_sends_one_alert_with_tasks_exit_codes_and_logs(sent):
@@ -130,16 +100,3 @@ def test_a_failed_release_alerts_although_the_run_is_green(sent):
     assert "release_lock failed (the run may still show success)" in msg["Subject"]
     body = _body(msg)
     assert "db unreachable" in body and f"lock release --run-id '{RUN}'" in body
-
-
-def test_anomalies_alert_only_when_there_are_new_ones():
-    assert alerts.anomalies_alert("cms_nh_pipeline", RUN, []) is None
-    subject, body = alerts.anomalies_alert(
-        "cms_nh_pipeline", RUN, ["no_vintage (theme:2026-09-28:nh.zip): NH_X.csv: vintage unknown"]
-    )
-    assert subject == "[cms_nh_pipeline] 1 new error anomaly"
-    assert "- no_vintage (theme:2026-09-28:nh.zip)" in body
-    subject, body = alerts.anomalies_alert(
-        "cms_nh_pipeline", RUN, [f"no_vintage (e{i}): x" for i in range(25)]
-    )
-    assert "25 new error anomalies" in subject and "... and 5 more" in body

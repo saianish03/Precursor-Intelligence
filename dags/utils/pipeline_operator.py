@@ -20,13 +20,9 @@ from airflow.providers.docker.exceptions import DockerContainerFailedException
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
+from precursorintelligence.alerts import EXIT_KINDS
+
 NO_RETRY_EXIT_CODES = (2, 3, 137)
-EXIT_KINDS = {
-    1: "error",
-    2: "data or validation failure",
-    3: "config or usage error",
-    137: "killed, usually out of memory",
-}
 EXIT_CODE_XCOM = "pipeline_exit_code"
 # apache-airflow-providers-docker 4.6.1 raises DockerContainerFailedException(f"Docker container failed:
 # {result!r}") with result = docker's wait() dict, e.g. {'Error': None, 'StatusCode': 2}. Checked against that
