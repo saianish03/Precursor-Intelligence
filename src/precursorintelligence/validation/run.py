@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ..common.config import ConfigError, ValidationConfig, load_splits_config
+from ..gold.dataset import MANIFEST_NAME
 from ..ingestion.context import Context
 from ..ingestion.pipeline import EXIT_OK, EXIT_VALIDATION
 from .schema import TableSchema, infer_schema, load_schema, write_schema
@@ -86,6 +87,16 @@ def write_schemas(
     return written
 
 
+def _spine_start(ctx: Context) -> str:
+    """The spine_start gold was built with (``gold --splits-config`` may differ from configs/splits.yaml): from
+    ``gold/dataset_manifest.json``, else configs/splits.yaml when there is no manifest."""
+    key = f"gold/{MANIFEST_NAME}"
+    if ctx.object_store.exists(key):
+        with ctx.object_store.open_read(key) as f:
+            return str(json.load(f)["spine_start"])
+    return load_splits_config().spine_start
+
+
 def _to_check(months: list[str], month: str | None, all_months: bool, table: str) -> list[str]:
     if month is not None:
         if month not in months:
@@ -144,8 +155,8 @@ def run_validation(
     names = _tables(cfg, layer, tables)
     # every schema file first: a missing or broken one is a config error (exit 3) before any work
     schemas = {t: load_schema(cfg.schema_path(t)) for t in names}
-    # gold has no rows before spine_start (configs/splits.yaml); silver keeps its 2021-2022 history
-    first_month = load_splits_config().spine_start if layer == "gold" else None
+    # gold has no rows before the spine_start it was built with; silver keeps its 2021-2022 history
+    first_month = _spine_start(ctx) if layer == "gold" else None
     result = ValidationResult(run_id=ctx.run_id, layer=layer, strict=strict)
     result.report_prefix = f"reports/validation/run={ctx.run_id}"
     stats_docs: dict[str, dict[str, Any]] = {}

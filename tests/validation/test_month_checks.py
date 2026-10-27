@@ -1,5 +1,6 @@
 """Rows belong to the month they are stored under: vintage_month, cutoff_date and gold's first month."""
 
+import json
 from datetime import date
 
 import polars as pl
@@ -99,3 +100,23 @@ def test_a_malformed_gold_month_fails_the_run_with_exit_2(put_gold, ctx, cfg):
     res = run_validation(ctx, cfg, layer="gold", all_months=True)
     assert res.exit_code == EXIT_VALIDATION
     assert ("2026-13", "bad_month") in {(a.month, a.check) for a in res.anomalies}
+
+
+def test_gold_is_checked_against_the_spine_start_it_was_built_with(put_gold, ctx, cfg, store):
+    """`gold --splits-config` can move spine_start: the gold manifest records the one used."""
+    earlier = f"{int(SPINE_START[:4]) - 1}-07"
+    put_gold("spine", spine(earlier, SPINE_START))
+    write_schemas(ctx, cfg, layer="gold")
+    assert {a.check for a in run_validation(ctx, cfg, layer="gold", all_months=True).anomalies} == {
+        "before_first_month"
+    }  # no manifest: configs/splits.yaml
+    manifest = {"spine_start": earlier, "v": "2026-08"}
+    store.put_bytes("gold/dataset_manifest.json", json.dumps(manifest).encode(), overwrite=True)
+    assert run_validation(ctx, cfg, layer="gold", all_months=True).anomalies == []
+
+
+def test_silver_history_before_the_spine_start_is_not_an_error(put_silver, ctx, cfg):
+    for v in ("2021-01", "2022-12"):
+        put_silver("citations_by_vintage", v, citations(n=8, vintage=v))
+    write_schemas(ctx, cfg, layer="silver")
+    assert run_validation(ctx, cfg, layer="silver", all_months=True).anomalies == []
