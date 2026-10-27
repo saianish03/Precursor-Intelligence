@@ -144,8 +144,9 @@ Every CLI command uses the same codes. `dags/utils/pipeline_operator.py` (`Pipel
 | 1 | error (network, storage, bug) | retried, 2 × 5 min |
 | 2 | data or validation failure (quarantined zip, unmapped header, reconciliation) | **failed at once, no retry**; the data or config must be fixed first |
 | 3 | config or wiring (bad env, a stale task list, the lock not held) | **failed at once, no retry** |
+| 137 | killed (SIGKILL), usually out of memory (`PI_TASK_MEM_LIMIT`) | **failed at once, no retry**: a retry rarely helps |
 
-A task that fails makes the downstream tasks `upstream_failed`. The lock is still released, and the run shows `failed`.
+A task that fails makes the downstream tasks `upstream_failed`. The lock is still released, and the run shows `failed`. A failed container's exit code is kept as the XCom `pipeline_exit_code`, so the failure alert can name it (`dags/utils/alerts.py`, `src/precursorintelligence/alerts.py`; runbook `airflow-local.md` §3.1).
 
 ## 5. The metadata database `precursor_meta`
 
@@ -320,13 +321,9 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
 - **Owner:** pipeline image + gold.
 
 ### 9.4 Operator and scheduling notes
-- **Out of memory is retried.**
-  - **What:** a container killed for running out of memory exits 137, which the operator treats like exit 1. So it is retried twice, 5 minutes apart.
-  - **Why it matters:** a retry rarely helps, and the run stays busy for about 15 more minutes.
-  - **Fix:** treat 137 as no-retry, or at least alert on it (ticket 2).
-- **No timeout on `build_gold`.**
-  - **Why it matters:** a hanging or swapping gold run holds the lock, and with `max_active_runs=1` the next daily runs queue behind it.
-  - **Fix:** about 2 h, once a full-archive gold duration has been measured.
+- **Out of memory is retried.** **Fixed (ticket 2):** exit 137 is no-retry, and the failure alert names it.
+- **No timeout on `build_gold`.** **Fixed (ticket 2):** `execution_timeout` of 2 h (`PI_GOLD_TIMEOUT_MINUTES`); the failure alert fires when it hits.
+  - **Still open:** check the 2 h against a measured full-archive gold duration. A timeout is retried like exit 1 (2 × 5 min), so a hang can hold the lock for about 6 h before the alert.
 - **`cms_nh_gold` means published, not verified.**
   - **What:** the asset is emitted on every successful gold run, even when nothing changed. Gold stays `verified: false` until the spec §11 verification gate exists.
   - **Fix:** any DAG triggered by this asset (training) must check `gold/_current.json` (`verified`, `dataset_version`) first.

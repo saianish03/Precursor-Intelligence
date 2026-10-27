@@ -12,5 +12,6 @@ One installable package; each stage is a subpackage. Stages talk to storage only
 | `training/` | model training, calibration, tuning |
 | `evaluation/` | metrics, promotion gates, slice checks |
 | `serving/` | batch scoring and prediction helpers used by the backend |
+| `alerts.py` | pipeline alert emails (failed run, failed `release_lock`, new error anomalies); stdlib only, imported by the Airflow DAGs |
 | `monitoring/` | drift, delayed-outcome evaluation, alerts |
 | `agents/` | Pydantic AI agents, tools, retrieval (BM25), output validation; used by `backend/` and LLM evals |
