@@ -1,4 +1,5 @@
-"""The gold node's run: silver -> gold/spine and gold/labels (spec §7, §9, §11; SILVER_CONTRACT §8, §11).
+"""The gold node's run: silver -> gold/spine, gold/labels, the feature tables and the dataset (spec §7-§11;
+SILVER_CONTRACT §8, §11).
 
 1. Published vintages = the silver provider partitions (as silver itself counts them). V = the latest, or a
    validated ``--v``. Silver must be current first: every bronze partition has a silver partition built from
@@ -20,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -27,25 +29,53 @@ from typing import Any
 
 import polars as pl
 
-from ..common.config import ConfigError, LabelsConfig, SplitsConfig
+from ..common.config import (
+    ConfigError,
+    FeaturesConfig,
+    LabelsConfig,
+    SplitsConfig,
+    load_features_config,
+)
 from ..common.io.object_store import ObjectStore
 from ..common.io.run_lock import RunLock
 from ..common.io.table_sink import ParquetTableSink
 from ..common.obs.logging import log_context
-from ..harmonize.columns import load_silver_config
+from ..harmonize.columns import SilverConfig, load_silver_config
 from ..harmonize.silver import latest_bronze
 from ..harmonize.silver_pipeline import CHECK_NAME, partitions_without_current_silver
 from ..ingestion.context import Context
-from ..ingestion.pipeline import EXIT_OK, EXIT_VALIDATION, LOCK_NAME, task_scope
+from ..ingestion.pipeline import (
+    EXIT_CONFIG,
+    EXIT_ERROR,
+    EXIT_OK,
+    EXIT_VALIDATION,
+    LOCK_NAME,
+    task_scope,
+)
 from . import GoldCheckError
+from .dataset import DATASET, MANIFEST_NAME, assemble, by_t, dataset_manifest
+from .features import FAMILIES, FAMILY_ORDER, build_family
+from .features.common import gplus_min_ordinal
+from .features.reader import FeatureReader
 from .labels import build_labels
 from .spine import build_spine
+from .splits import (
+    add_splits,
+    check_required_labels,
+    label_windows,
+    training_gate_failures,
+)
+
+log = logging.getLogger(__name__)
 
 SILVER_INPUTS = ("facility_universe", "facility_presence", "ledger_citations", "ledger_penalties")
 # spec §0.5: vintages from 2021-01; project scope is 2021-2026
 VINTAGE_RANGE = ("2021-01", "2026-12")
 STALE_REFRESH = "stale_refresh"
 CURRENT_KEY = "gold/_current.json"  # which run's spine and labels gold/ holds, written last
+# Spec §11: gold/ holds only validated data. The verification gate is not built yet, so every run marks its
+# outputs unverified; the gate sets this to True only when all its checks pass. ML must refuse verified=false.
+VERIFIED = False
 _YYYY_MM = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 
 
@@ -58,6 +88,9 @@ class GoldResult:
     outputs: dict[str, str] = field(default_factory=dict)  # name -> sha256 of the promoted file
     failures: list[str] = field(default_factory=list)
     promoted: bool = False
+    split_windows: dict[str, Any] = field(
+        default_factory=dict
+    )  # label -> its split months (spec §9.5)
     manifest_key: str = ""
 
     @property
@@ -79,6 +112,12 @@ def resolve_v(published: list[str], requested: str | None, spine_start: str) -> 
         raise GoldCheckError(f"silver has vintages outside {VINTAGE_RANGE}: {outside}")
     if requested is None:
         return published[-1]
+    check_v(published, requested, spine_start)
+    return requested
+
+
+def check_v(published: list[str], requested: str, spine_start: str) -> None:
+    """A ConfigError (exit 3) unless ``requested`` is a published vintage from spine_start on."""
     if not _YYYY_MM.fullmatch(requested):
         raise ConfigError(f"--v {requested!r} is not a YYYY-MM month")
     if requested > published[-1]:
@@ -87,10 +126,9 @@ def resolve_v(published: list[str], requested: str | None, spine_start: str) -> 
         raise ConfigError(f"--v {requested} was never published (no silver partition)")
     if requested < spine_start:
         raise ConfigError(f"--v {requested} is before spine_start {spine_start}")
-    return requested
 
 
-def stale_silver(ctx: Context, sink: ParquetTableSink) -> list[str]:
+def stale_silver(ctx: Context, sink: ParquetTableSink, silver_cfg: SilverConfig) -> list[str]:
     """Silver partitions not built from the current bronze and configs (SILVER_CONTRACT §3); [] = current.
 
     Stops (exit 2) when the metadata store has no bronze records, since then nothing can be checked.
@@ -100,7 +138,7 @@ def stale_silver(ctx: Context, sink: ParquetTableSink) -> list[str]:
             "the metadata database has no bronze_files rows, so gold cannot check that silver is current; "
             "point --env or --env-file at the metadata database that came with this silver"
         )
-    return partitions_without_current_silver(ctx, sink, load_silver_config())
+    return partitions_without_current_silver(ctx, sink, silver_cfg)
 
 
 def label_vintage(
@@ -140,10 +178,37 @@ def run_gold(
 ) -> GoldResult:
     """``own_lock=True``: take the run lock for this call (RunLockHeldError if another run holds it).
     ``own_lock=False`` (DAG task): the run must already hold it (RunLockNotHeldError otherwise).
-    Data and gate problems are returned (exit 2); a bad ``v`` raises ConfigError (exit 3)."""
+    Data and gate problems are returned (exit 2). A bad ``v``, required label, G+ set, ``features.yaml`` or
+    silver config raises ConfigError (exit 3) before the lock is taken, with a run manifest that records exit 3
+    (no run_log row, as in silver: the step never started)."""
     now = now or datetime.now(UTC)
     lock = RunLock(ctx.metadata, LOCK_NAME)
     with log_context(run_id=ctx.run_id, env=ctx.settings.env.env):
+        try:
+            check_required_labels(labels_cfg, splits_cfg)
+            # features use the run's G+ set, so features and labels never disagree on it
+            features_cfg = load_features_config().model_copy(
+                update={"gplus_severities": list(labels_cfg.gplus_severities)}
+            )
+            gplus_min_ordinal(features_cfg)  # refuses a G+ set features cannot test
+            silver_cfg = load_silver_config()
+            published = published_vintages(ParquetTableSink(ctx.object_store, prefix="silver"))
+            if v is not None and published:  # no silver at all is a data failure, inside the run
+                check_v(published, v, splits_cfg.spine_start)
+        except ConfigError as exc:
+            _write_manifest(
+                ctx, GoldResult(run_id=ctx.run_id), [], [], None, labels_cfg, splits_cfg, now,
+                error=f"{type(exc).__name__}: {exc}", exit_code=EXIT_CONFIG,
+            )  # fmt: skip
+            raise
+        except (
+            Exception
+        ) as exc:  # e.g. a silver config the loader does not wrap: exit 1, still recorded
+            _write_manifest(
+                ctx, GoldResult(run_id=ctx.run_id), [], [], None, labels_cfg, splits_cfg, now,
+                error=f"{type(exc).__name__}: {exc}", exit_code=EXIT_ERROR,
+            )  # fmt: skip
+            raise
         if own_lock:
             acquired = lock.acquire(ctx.run_id, stale_after=ctx.settings.env.run_lock.stale_after)
         else:
@@ -151,8 +216,8 @@ def run_gold(
             acquired = False
         try:
             with task_scope(ctx, "gold") as detail:
-                result = _run(ctx, labels_cfg, splits_cfg, v, now)
-                # run_log marks the step failed when it reports failures (task_scope on dev)
+                result = _run(ctx, labels_cfg, splits_cfg, features_cfg, silver_cfg, v, now)
+                # run_log marks the step failed when n_failures is non-zero
                 detail.update(rows=result.rows, n_failures=len(result.failures))
                 return result
         finally:
@@ -174,7 +239,13 @@ def _read(ctx: Context, key: str) -> pl.DataFrame:
 
 
 def _run(
-    ctx: Context, labels_cfg: LabelsConfig, splits_cfg: SplitsConfig, v: str | None, now: datetime
+    ctx: Context,
+    labels_cfg: LabelsConfig,
+    splits_cfg: SplitsConfig,
+    features_cfg: FeaturesConfig,
+    silver_cfg: SilverConfig,
+    v: str | None,
+    now: datetime,
 ) -> GoldResult:
     result = GoldResult(run_id=ctx.run_id)
     published: list[str] = []
@@ -184,7 +255,7 @@ def _run(
         sink = ParquetTableSink(ctx.object_store, prefix="silver")
         published = published_vintages(sink)
         result.v = resolve_v(published, v, splits_cfg.spine_start)
-        not_current = stale_silver(ctx, sink)
+        not_current = stale_silver(ctx, sink, silver_cfg)
         if not_current:
             raise GoldCheckError(
                 f"silver is not current for {len(not_current)} partitions (rerun silver): "
@@ -208,17 +279,53 @@ def _run(
             cfg=labels_cfg,
             v=result.v_labels,
         )
-        staged = _stage(ctx, {"spine": spine, "labels": labels})
+        # Splits are measured from the label vintage, like maturity, so score rows are the immature ones.
+        labels = add_splits(labels, result.v_labels, labels_cfg, splits_cfg)
+        result.split_windows = label_windows(result.v_labels, labels_cfg, splits_cfg)
+        if not splits_cfg.required_labels:  # never silent: also in the run manifest (split_gate)
+            log.warning("split gate disabled: no required labels")
+        problems = training_gate_failures(
+            labels, splits_cfg.required_labels, result.split_windows, splits_cfg.spine_start
+        )
+        if problems:  # spec §9.5: gold refuses to publish
+            raise GoldCheckError("; ".join(problems) + " (spec §9.5, §14 #10)")
+        # Features read silver only through the reader, which refuses anything after V (spec §8, §11.3).
+        reader = FeatureReader.from_store(ctx.object_store, published=published, limit=result.v)
+        features = {
+            f: build_family(f, reader, spine, features_cfg) for f in FAMILY_ORDER if f in FAMILIES
+        }
+        dataset = assemble(spine, features, labels)
+        tables = {"spine": spine, "labels": labels}
+        for family, df in features.items():
+            tables |= {f"features_{family}/t={t}": p for t, p in by_t(df).items()}
+        tables |= {f"{DATASET}/t={t}": p for t, p in by_t(dataset).items()}
+        staged = _stage(ctx, tables)
         result.rows = {"spine": spine.height, "labels": labels.height}
+        result.rows |= {f"features_{f}": df.height for f, df in features.items()}
+        result.rows[DATASET] = dataset.height
         result.outputs = {n: hashlib.sha256(b).hexdigest() for n, b in staged.items()}
-        _promote(ctx, staged, result)
+        manifest = dataset_manifest(
+            meta=ctx.metadata,
+            v=result.v,
+            v_labels=result.v_labels,
+            partition_sha256={n: s for n, s in result.outputs.items() if n.startswith(DATASET)},
+            families=list(features),
+            labels=labels,
+            labels_cfg=labels_cfg,
+            splits_cfg=splits_cfg,
+            built_at=now,
+            verified=VERIFIED,
+        )
+        _put_json(ctx, f"gold/_staging/run={ctx.run_id}/{MANIFEST_NAME}", manifest)
+        _promote(ctx, staged, result, {f"gold/{MANIFEST_NAME}": manifest})
         result.promoted = True
     except GoldCheckError as exc:
         result.failures.append(str(exc))
-    except Exception as exc:  # an error (exit 1): record the run, then let it fail
+    except Exception as exc:  # record the run with the CLI's exit code (3 or 1), then let it fail
         result.manifest_key = _write_manifest(
             ctx, result, published, stale, not_current, labels_cfg, splits_cfg, now,
             error=f"{type(exc).__name__}: {exc}",
+            exit_code=EXIT_CONFIG if isinstance(exc, ConfigError) else EXIT_ERROR,
         )  # fmt: skip
         raise
     result.manifest_key = _write_manifest(
@@ -239,6 +346,22 @@ def _stage(ctx: Context, tables: dict[str, pl.DataFrame]) -> dict[str, bytes]:
         raise GoldCheckError("staged spine: (ccn, t) is not unique")
     if not labels.select("ccn", "t").equals(spine.select("ccn", "t")):
         raise GoldCheckError("staged labels: not exactly the spine's rows, in the spine's order")
+    null_splits = [c for c in labels.columns if c.startswith("split_") and labels[c].null_count()]
+    if null_splits:  # every row has a split (spec §9.5); rows_per_split would drop a null
+        raise GoldCheckError(f"staged labels: null values in {null_splits}")
+    # Partitioned outputs (<table>/t=YYYY-MM): each holds exactly the spine's rows of its month.
+    spine_by_t = {t: p.select("ccn", "t") for t, p in by_t(spine).items()}
+    for name, df in back.items():
+        if "/t=" not in name:
+            continue
+        t = name.rsplit("/t=", 1)[1]
+        if t not in spine_by_t or not df.select("ccn", "t").equals(spine_by_t[t]):
+            raise GoldCheckError(f"staged {name}: not exactly the spine's rows of {t}")
+    partitioned = {n.rsplit("/t=", 1)[0] for n in back if "/t=" in n}
+    for table in partitioned:
+        months = {n.rsplit("/t=", 1)[1] for n in back if n.startswith(f"{table}/t=")}
+        if months != set(spine_by_t):
+            raise GoldCheckError(f"staged {table}: months differ from the spine's")
     return staged
 
 
@@ -252,15 +375,26 @@ def _put_json(ctx: Context, key: str, doc: dict[str, Any]) -> None:
     )
 
 
-def _promote(ctx: Context, staged: dict[str, bytes], result: GoldResult) -> None:
-    """Copy the checked files to gold/ as one unit for readers: see read_current_gold."""
+def _promote(
+    ctx: Context,
+    staged: dict[str, bytes],
+    result: GoldResult,
+    documents: dict[str, dict[str, Any]] | None = None,
+) -> None:
+    """Copy the checked files (and JSON documents) to gold/ as one unit for readers: see read_current_gold.
+
+    A partition of an earlier run that this run did not build (e.g. a month after an earlier ``--v``) stays on
+    disk; readers take the partitions that ``gold/_current.json`` lists."""
     _put_json(ctx, CURRENT_KEY, {"state": "promoting", "run_id": ctx.run_id})
     for name, data in staged.items():
         ctx.object_store.put_bytes(f"gold/{name}/part-0.parquet", data, overwrite=True)
+    for key, doc in (documents or {}).items():
+        _put_json(ctx, key, doc)
     _put_json(
         ctx,
         CURRENT_KEY,
         {"state": "current", "run_id": ctx.run_id, "v": result.v, "v_labels": result.v_labels,
+         "verified": VERIFIED,
          "sha256": result.outputs},
     )  # fmt: skip
 
@@ -294,16 +428,23 @@ def _write_manifest(
     splits_cfg: SplitsConfig,
     now: datetime,
     error: str | None = None,
+    exit_code: int | None = None,
 ) -> str:
-    """One JSON per run under metadata/gold/. The timestamp in the name means a retry never overwrites it."""
+    """One JSON per run under metadata/gold/. The timestamp in the name means a retry never overwrites it.
+    ``exit_code``: the CLI's when the run raises (default: the result's)."""
     manifest = {
         "run_id": ctx.run_id,
         "started_at": ctx.started_at,
         "finished_at": now.isoformat(timespec="seconds"),
-        "exit_code": result.exit_code,
+        "exit_code": result.exit_code if exit_code is None else exit_code,
         "v": result.v,
         "v_labels": result.v_labels,
         "stale_refresh_skipped": stale,
+        "split_windows": result.split_windows,
+        "split_gate": {
+            "required_labels": splits_cfg.required_labels,
+            "enabled": bool(splits_cfg.required_labels),
+        },
         CHECK_NAME: {  # null when the run stopped before the check
             "passed": None if not_current is None else not not_current,
             "missing": not_current or [],
@@ -320,6 +461,7 @@ def _write_manifest(
         "rows": result.rows,
         "outputs_sha256": result.outputs,
         "promoted": result.promoted,
+        "verified": VERIFIED,
         "error": error,
         "failures": result.failures,
     }

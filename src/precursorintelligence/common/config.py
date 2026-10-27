@@ -285,7 +285,18 @@ class LabelsConfig(BaseModel):
 class SplitsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    spine_start: str
+    spine_start: str  # first spine month t, and where training starts (spec §9.5)
+    test_months: int = Field(ge=1)
+    calib_months: int = Field(ge=0)
+    # [] turns the training-month gate off (gold then logs a warning and records it in the run manifest)
+    required_labels: list[str]
+
+    @field_validator("required_labels")
+    @classmethod
+    def _no_repeats(cls, v: list[str]) -> list[str]:
+        if len(set(v)) != len(v):
+            raise ValueError(f"required_labels repeats a label: {v}")
+        return v
 
     @field_validator("spine_start")
     @classmethod
@@ -293,6 +304,99 @@ class SplitsConfig(BaseModel):
         if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", v):
             raise ValueError("spine_start must be YYYY-MM")
         return v
+
+
+_SEVERITIES = "ABCDEFGHIJKL"
+_YYYY_MM_RE = r"\d{4}-(0[1-9]|1[0-2])"
+
+
+class FeaturesConfig(BaseModel):
+    """``configs/features.yaml``: the values gold's feature formulas use (spec §8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    severity_points: dict[str, Annotated[float, Field(ge=0)]]
+    severity_bands: dict[str, list[str]]
+    std_survey_due_days: Annotated[int, Field(gt=0)]
+    occupancy_cap: Annotated[float, Field(gt=0)]
+    citation_categories: dict[str, str]
+    infection_control_category: str
+    footnote_reasons: dict[str, str]
+    rating_method_change: str
+    penalty_regime_change: str
+    # Not in features.yaml: gold sets it from the run's labels config, so features and labels use one G+ set.
+    # None (the toy world and feature tests) = configs/labels.yaml.
+    gplus_severities: list[str] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _gplus_comes_from_labels(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "gplus_severities" in data:
+            raise ValueError("gplus_severities belongs in labels.yaml, not features.yaml")
+        return data
+
+    @model_validator(mode="after")
+    def _check(self) -> FeaturesConfig:
+        if sorted(self.severity_points) != list(_SEVERITIES):
+            raise ValueError("severity_points must give points for exactly A-L")
+        banded = sorted(s for band in self.severity_bands.values() for s in band)
+        if banded != list(_SEVERITIES):
+            raise ValueError("severity_bands must cover A-L once each")
+        for name in ("rating_method_change", "penalty_regime_change"):
+            if not re.fullmatch(_YYYY_MM_RE, getattr(self, name)):
+                raise ValueError(f"{name} must be YYYY-MM")
+        return self
+
+
+class FeatureSpec(BaseModel):
+    """One ``configs/feature_registry.yaml`` entry (spec §8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    family: str
+    source_table: str
+    formula: str
+    first_available_vintage: str
+    dtype: Literal["f64", "i64", "bool", "str"]
+    model_use: Literal["model", "ablation_only", "product_only"]
+
+    @field_validator("first_available_vintage")
+    @classmethod
+    def _yyyy_mm(cls, v: str) -> str:
+        if not re.fullmatch(_YYYY_MM_RE, v):
+            raise ValueError("first_available_vintage must be YYYY-MM")
+        return v
+
+
+class FeatureRegistry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    meta: dict[str, Any] = Field(alias="_meta")
+    features: list[FeatureSpec]
+
+    @model_validator(mode="after")
+    def _unique_names(self) -> FeatureRegistry:
+        names = [f.name for f in self.features]
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        if dupes:
+            raise ValueError(f"feature_registry: duplicate names {dupes}")
+        return self
+
+    def family(self, family: str) -> list[FeatureSpec]:
+        return [f for f in self.features if f.family == family]
+
+
+def load_feature_registry(path: str | Path | None = None) -> FeatureRegistry:
+    """Load and validate ``configs/feature_registry.yaml``."""
+    return _load_model(
+        FeatureRegistry, path or project_root() / "configs" / "feature_registry.yaml"
+    )
+
+
+def load_features_config(path: str | Path | None = None) -> FeaturesConfig:
+    """Load and validate ``configs/features.yaml``."""
+    return _load_model(FeaturesConfig, path or project_root() / "configs" / "features.yaml")
 
 
 def load_labels_config(path: str | Path | None = None) -> LabelsConfig:

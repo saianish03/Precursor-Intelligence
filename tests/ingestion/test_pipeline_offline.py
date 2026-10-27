@@ -245,6 +245,8 @@ def test_zip_with_no_recognised_table_exits_2(fake_cms, make_ctx):
         if a["kind"] == "no_tables_recognised"
     ]
     assert a["severity"] == "error" and "2 CSV files" in a["detail"]
+    (step,) = [r for r in ctx.metadata.read("run_log") if r["task"] == "resolve"]
+    assert step["status"] == "failed" and json.loads(step["detail"])["n_failures"] == 1
 
 
 def test_zip_with_only_known_out_of_scope_files_is_not_an_error(fake_cms, make_ctx):

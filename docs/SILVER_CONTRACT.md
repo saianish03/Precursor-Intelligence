@@ -121,7 +121,7 @@ list and per-table join rules in §13.
 | **6 Spine** (§7) | `gold/spine` | one row per `(ccn, t)` for every published t in **2023-01 → V** and every ccn in `facility_universe` at t. Assert unique; all published t present. Every later table: `spine LEFT JOIN … USING (ccn, t)`, row count unchanged after each join. |
 | **7 Features** (§8) | `gold/features_<family>/t=YYYY-MM/` for 6 families | survey_timing, citations, enforcement, facility_staffing, quality, context. Windows look back from `cutoff_date` (`cutoff − 12m < date <= cutoff`). Severity points §8.1. Zero = none found; nulls stay null with `_fn` reasons; Δ is null if t−6/t−12 is unpublished or the facility absent. Register every feature in `configs/feature_registry.yaml` (`model` / `ablation_only` / `product_only`). |
 | **8 Labels** (§9) | `gold/labels` | see §8 below |
-| **8 Splits** (§9.5) | `split_g12`, `split_g6`, `split_pen12` in `gold/labels`; `configs/splits.yaml` | calendar months ending at `last_labeled_t`; test = last `test_months`; purge = H months before test; calib = 3 months before purge; train from spine start; after `last_labeled_t` = `score`. Gate: exit 2 if a `required_labels` label has no training month. |
+| **8 Splits** (§9.5) | `split_g12`, `split_g6`, `split_pen12` in `gold/labels`; `configs/splits.yaml` | calendar months ending at `last_labeled_t`; test = last `test_months`; purge = H months before test; calib = 3 months before purge; train from spine start; after `last_labeled_t` = `score`. Gate: exit 2 unless every `required_labels` label has a positive and a negative training row. |
 | **9 Assemble** (§10) | `gold/facility_month_dataset/t=YYYY-MM/`, `gold/dataset_manifest.json` | join order spine → 6 feature tables → labels; manifest lists every (table, vintage) source zip + sha256 (from `bronze_files` / `inventory`), `stale_refresh` / revised flags, config and registry hashes, git commit, rows per split per label. |
 | **10 Verify + publish** (§11) | `gold/_staging/run=<id>/` → `gold/`; `reports/step10/10_verification.md` | structural, label-logic, leakage (time travel, single-feature scan, shuffled labels) and coverage checks; any failure → exit 2, `gold/` untouched. Then load to the warehouse (Postgres `gold.facility_month_dataset` locally, BigQuery in GCP), record in `gold_builds`, emit `cms_nh_gold`. **Checkpoint 5**. |
 
@@ -150,7 +150,8 @@ months; spec §9.5 recommends training rows from 2022-01 (decision §14 #10).
 | `configs/labels.yaml` (horizons, `B_cit = 8`, `B_pen = 12`, G+ set, due interval 456 days, `censor_requires_buffer: true`) | proposal in `04_lag_analysis.md`, awaiting approval | silver owner commits after Checkpoint 3 |
 | `configs/qm_measures.yaml` (14 stable, bridges 453→479 and 419→481, **405→480 doubtful**, 5 dropped) | proposal in `05_qm_measures.proposed.csv`, awaiting approval | silver owner commits after Checkpoint 4 |
 | `value_maps.yaml: not_corrected_values` (for `n_uncorrected`) | default = the two "Deficient, Provider has (no) plan of correction" values; §14 #4 open | team |
-| `configs/splits.yaml`, `checks.yaml`, `feature_registry.yaml` | not started | gold |
+| `configs/splits.yaml` (`spine_start`, `test_months`, `calib_months`, `required_labels`) | done (gold splits); training start 2023-01 vs 2022-01 and `test_months` 3 vs 6 open, §14 #10–12 | gold |
+| `checks.yaml`, `feature_registry.yaml` | not started | gold |
 
 ## 10. Pitfalls (each one has bitten the sample run or the analysis)
 
@@ -160,9 +161,8 @@ months; spec §9.5 recommends training rows from 2022-01 (decision §14 #10).
 - **Citation survey type** comes from the three `is_*` flags, not a column. Complaint surveys in
   `surveys_by_vintage` exist only if they produced a citation: name such features `*_cited`.
 - **Star ratings** (`overall_rating`, `health_inspection_rating`) are `ablation_only`; `chain_id` is `product_only`.
-- **`high_performing_icon`** (2026-09+) is a status flag CMS assigns, like the star ratings: it is
-  `ablation_only` in the contract CSV (guarded by `tests/contracts/test_feature_contract.py`), never `model`.
-  It is null before 2026-09.
+- **`high_performing_icon`** (2026-09+) is a status flag CMS assigns: never a feature. It is not in the
+  column contract or the feature registry, and gold code may not name it. It is null before 2026-09.
 - **QM bridges:** `measure_code` changes (405→480, 453→479 in 2025-02; 419→481 in 2026-02). A Δ across a code
   change, or across an unchanged `measure_period_end`, must be null (§8.6).
 - **Unpublished months** have no partitions: t−6 / t−12 lookups must handle absence (Δ = null).
@@ -194,9 +194,8 @@ uv run pytest tests/harmonize -q               # silver + bronze tests
 `DATA_PIPELINE_SPEC.md` §7–§10 is the authority. The reference Colab dataset `training_dataset_v1`
 (`notebooks/DATA_preprocessing_notebooks/`) built the same features the same way, so it is used only as a
 cross-check of silver (13.3). The full column list, with dtype, `model_use`, operation, window, fill value and
-silver source, is **`configs/contracts/facility_month_dataset_spec_columns.csv`** (159 columns: the reference's 153
-under spec names, plus the 5 spec-only columns marked `spec-only addition` and `high_performing_icon`, a
-silver addition from 2026-09). A column or two more or less is fine;
+silver source, is **`configs/contracts/facility_month_dataset_spec_columns.csv`** (158 columns: the reference's 153
+under spec names, plus the 5 spec-only columns marked `spec-only addition`). A column or two more or less is fine;
 the features and the merge rules below are what must hold.
 
 | Family (gold table) | Cols | Silver input (vintage t only, except Δ) |
