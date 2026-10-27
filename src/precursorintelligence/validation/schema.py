@@ -18,6 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..common.config import ConfigError
 
 Scalar = bool | int | float | str
+# Never given an inferred `allowed` list: every new month would be a value not seen before.
+MONTH_COLUMNS = frozenset({"vintage_month", "t"})
 
 
 class ColumnRule(BaseModel):
@@ -80,7 +82,7 @@ def infer_schema(
     rules: dict[str, ColumnRule] = {}
     for name, col in cols.items():
         rule = ColumnRule(dtype=col.dtype, nullable=col.nullable, min=col.min, max=col.max)
-        if col.dtype == "String" and col.values:
+        if col.dtype == "String" and col.values and name not in MONTH_COLUMNS:
             rule.allowed = sorted(col.values)
         rules[name] = rule
     first, last = (min(seen), max(seen)) if seen else (None, None)

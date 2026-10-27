@@ -84,3 +84,8 @@ def test_the_key_and_a_pattern_survive_write_and_load(tmp_path):
     write_schema(schema, path)
     assert load_schema(path) == schema
     assert "unique: [ccn, survey_date]" in path.read_text()
+
+
+def test_a_month_column_never_gets_an_allowed_list():
+    schema = infer(citations(n=4), citations(n=4, vintage="2026-08"))  # 2 months, under the limit
+    assert schema.columns["vintage_month"].allowed is None
