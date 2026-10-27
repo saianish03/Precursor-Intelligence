@@ -125,6 +125,7 @@ rm -rf "$PI_HOST_DATA_DIR"     # the local bucket (landing files are chmod 444: 
 Disk: about 4.4 GB of data (4.2 GB extracted CSVs), plus images (pipeline about 0.9 GB, airflow about 2.2 GB).
 
 ### 8.2 Download → gold (2026-10-27, real CMS downloads, 23 zips, 20 vintages)
+To reproduce these runs step by step: [`airflow-e2e-simulation.md`](airflow-e2e-simulation.md).
 - **Setup:** clean slate (new `.env` from `.env.example`, empty data folder, fresh databases); images built from the branch (`bd1e68b`); production configs (`configs/splits.yaml`, `required_labels: [g12, g6]`).
 - **Sample:** the 8.1 sample plus 2023-01 (`spine_start`, the first training month), 2023-09 and 2024-09 (calibration months). At V = 2026-09, every split of every label is non-empty.
 - **Checks after each run:** Airflow task states and tries, `precursor_meta`, the asset events, and every gold file against silver:
