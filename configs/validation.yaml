@@ -1,0 +1,21 @@
+# Schema and statistical data validation: `precursor-pipeline validate --layer silver|gold`.
+# Schema baselines live in <schema_dir>/<table>.yaml (made by `validate --write-schema`, then tightened by hand).
+# Schema violations are errors (exit 2); drift against the previous month is a warning (exit 2 only with --strict).
+
+schema_dir: configs/contracts
+low_cardinality_max: 25   # a text column with at most this many distinct values gets an `allowed` list
+top_values: 5             # most frequent values kept per column in the stats
+
+layers:
+  silver:
+    partition_key: vintage   # silver/<table>/vintage=YYYY-MM/part-0.parquet, one file per month
+    tables: [citations_by_vintage, provider_by_vintage, penalties_by_vintage, surveys_by_vintage]
+  gold:
+    month_column: t          # gold/<table>/part-0.parquet holds every month; split by this column
+    tables: [spine, labels]
+
+drift:                       # this month's stats against the previous month's
+  row_count_change_pct: 10   # |rows - prev rows| / prev rows, in %
+  null_rate_jump_pts: 5      # null % - prev null %, in percentage points
+  mean_shift_std: 0.5        # |mean - prev mean| / prev std
+  skip_columns: ["y_*", "status_*", "split_*"]   # labels and splits move by design (censoring, rolling windows)
