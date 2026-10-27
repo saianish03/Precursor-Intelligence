@@ -15,6 +15,7 @@ CONTAINER_TASKS = {
     "ingestion.resolve_report",
     "bronze.load_bronze",
     "silver.build_silver",
+    "gold.build_gold",
     "release_lock",
 }
 
@@ -62,7 +63,8 @@ def test_node_order_and_lock(dag):
     assert upstream("ingestion.discover_download") == {"ingestion.acquire_lock"}
     assert upstream("bronze.load_bronze") == {"continue_after_ingestion"}
     assert upstream("silver.build_silver") == {"continue_after_bronze"}
-    assert upstream("release_lock") == {"silver.build_silver", "ingestion.acquire_lock"}
+    assert upstream("gold.build_gold") == {"continue_after_silver"}
+    assert upstream("release_lock") == {"gold.build_gold", "ingestion.acquire_lock"}
     release = tasks["release_lock"]
     assert release.is_teardown and release.trigger_rule == TriggerRule.ALL_DONE_SETUP_SUCCESS
     assert "ingestion.acquire_lock" in release.upstream_task_ids  # its setup

@@ -5,8 +5,8 @@ run passes the same `--run-id {{ run_id }}`. The `data_pipeline` run lock is tak
 and released by the last task of the DAG (a teardown, so it always runs once the lock was taken but never
 hides a failed run), so all nodes run under one lock. No business logic here.
 
-Implemented nodes: ingestion → bronze → silver. Not built yet, slots marked TODO: `check_release` (spec §2.0,
-gates the DAG) and `gold` (spec §7-§11).
+Implemented nodes: ingestion → bronze → silver → gold. Not built yet, slots marked TODO: `check_release`
+(spec §2.0, gates the DAG) and `mirror_metadata` (spec §15.3).
 
 Params:
   mode        monthly | backfill (backfill implies the silver calibration tasks)
@@ -29,8 +29,8 @@ from utils.pipeline_operator import (
     pipeline_env,
 )
 
-LANDING, BRONZE, SILVER = (
-    Asset(name) for name in ("cms_nh_landing", "cms_nh_bronze", "cms_nh_silver")
+LANDING, BRONZE, SILVER, GOLD = (
+    Asset(name) for name in ("cms_nh_landing", "cms_nh_bronze", "cms_nh_silver", "cms_nh_gold")
 )
 INGEST, PIPELINE = "precursor-ingest", "precursor-pipeline"
 NODES = ("ingestion", "bronze", "silver")
@@ -134,8 +134,12 @@ def cms_nh_pipeline():
             outlets=[SILVER],
         )
 
-    # TODO(gold): spec §7-§11: gold TaskGroup (`precursor-pipeline gold`, gate, publish; emits cms_nh_gold)
-    # between silver and release_lock; later `mirror_metadata` (spec §15.3).
+    @task_group(group_id="gold")
+    def gold():
+        # exit 2 (a failed gate or check: nothing published) fails the task, so cms_nh_gold means published
+        return run("build_gold", f"{PIPELINE} gold", outlets=[GOLD])
+
+    # TODO(mirror_metadata): spec §15.3, a teardown of acquire_lock before release_lock.
 
     # A teardown of acquire_lock: it runs whenever the lock was taken (also after a failure or a stop_after
     # skip) but does not decide the DAG run's state. A plain all_done leaf would make every failed run show
@@ -148,14 +152,15 @@ def cms_nh_pipeline():
     )
 
     acquire, landed = ingestion()
-    bronze_done, silver_done = bronze(), silver()
+    bronze_done, silver_done, gold_done = bronze(), silver(), gold()
     (
         landed
         >> continue_after.override(task_id="continue_after_ingestion")("ingestion")
         >> bronze_done
     )
     bronze_done >> continue_after.override(task_id="continue_after_bronze")("bronze") >> silver_done
-    silver_done >> release.as_teardown(setups=acquire)
+    silver_done >> continue_after.override(task_id="continue_after_silver")("silver") >> gold_done
+    gold_done >> release.as_teardown(setups=acquire)
 
 
 cms_nh_pipeline()
