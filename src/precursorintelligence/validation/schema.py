@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 import polars as pl
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..common.config import ConfigError
 
@@ -49,6 +49,12 @@ class ColumnRule(BaseModel):
                 raise ValueError(f"pattern {v!r} is not a regex Polars can run: {exc}") from exc
         return v
 
+    @model_validator(mode="after")
+    def _severity_needs_a_list(self) -> ColumnRule:
+        if self.allowed_severity is not None and self.allowed is None:
+            raise ValueError("allowed_severity without an allowed list does nothing")
+        return self
+
 
 class TableSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -59,6 +65,23 @@ class TableSchema(BaseModel):
     unique: list[str] | None = None  # the key: no two rows of a month share these columns
     rules: list[Rule] | None = None  # table-level invariants, coded in validate.py
     columns: dict[str, ColumnRule]
+
+    @model_validator(mode="after")
+    def _checks_name_real_columns(self) -> TableSchema:
+        """A typo in ``unique`` or ``rules`` would otherwise switch the check off without a word."""
+        unknown = [c for c in self.unique or [] if c not in self.columns]
+        if unknown:
+            raise ValueError(f"unique names columns not in columns: {unknown}")
+        if self.rules:
+            labels = [c.removeprefix("status_") for c in self.columns if c.startswith("status_")]
+            if not labels:
+                raise ValueError("rules need at least one status_<n> column")
+            needed = [f"y_{n}" for n in labels]
+            needed += [f"split_{n}" for n in labels] if "score_iff_immature" in self.rules else []
+            missing = [c for c in needed if c not in self.columns]
+            if missing:
+                raise ValueError(f"rules need columns not in columns: {missing}")
+        return self
 
 
 class _Column:

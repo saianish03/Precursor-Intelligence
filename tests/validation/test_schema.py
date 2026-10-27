@@ -1,5 +1,6 @@
 """Inferring a baseline schema and keeping it as hand-editable YAML."""
 
+import polars as pl
 import pytest
 from validation_fakes import citations
 
@@ -91,8 +92,12 @@ def test_a_month_column_never_gets_an_allowed_list():
     assert schema.columns["vintage_month"].allowed is None
 
 
+LABELS = pl.DataFrame({"ccn": ["015001"], "t": ["2025-01"], "y_g12": [0], "status_g12": ["negative"],
+                       "split_g12": ["train"]})  # fmt: skip
+
+
 def test_rules_survive_write_and_load_and_an_unknown_rule_is_a_config_error(tmp_path):
-    schema = infer(citations(n=4)).model_copy(update={"rules": ["score_iff_immature"]})
+    schema = infer(LABELS).model_copy(update={"rules": ["score_iff_immature"]})
     path = tmp_path / "labels.yaml"
     write_schema(schema, path)
     assert load_schema(path) == schema
@@ -125,4 +130,48 @@ def test_a_pattern_polars_cannot_run_is_a_config_error(tmp_path, pattern):
     )
     path.write_text(text)
     with pytest.raises(ConfigError, match="not a regex Polars can run"):
+        load_schema(path)
+
+
+def contract(tmp_path, schema, extra):
+    path = tmp_path / "t.yaml"
+    write_schema(schema, path)
+    path.write_text(path.read_text().replace("columns:\n", f"{extra}\ncolumns:\n", 1))
+    return path
+
+
+def test_a_unique_column_not_in_the_contract_is_a_config_error(tmp_path):
+    with pytest.raises(ConfigError, match=r"unique names columns not in columns: \['month'\]"):
+        load_schema(contract(tmp_path, infer(citations(n=4)), "unique: [ccn, month]"))
+
+
+@pytest.mark.parametrize(
+    "drop, match",
+    [
+        (["y_g12", "status_g12", "split_g12"], "at least one status_<n>"),
+        (["y_g12"], r"\['y_g12'\]"),
+        (["split_g12"], r"\['split_g12'\]"),  # needed by score_iff_immature
+    ],
+)
+def test_rules_on_a_table_without_their_label_columns_are_a_config_error(tmp_path, drop, match):
+    schema = infer(LABELS.drop(drop))
+    with pytest.raises(ConfigError, match=match):
+        load_schema(
+            contract(tmp_path, schema, "rules: [y_null_iff_unlabelled, score_iff_immature]")
+        )
+
+
+def test_rules_without_score_iff_immature_need_no_split_column(tmp_path):
+    path = contract(tmp_path, infer(LABELS.drop("split_g12")), "rules: [y_matches_status]")
+    assert load_schema(path).rules == ["y_matches_status"]
+
+
+def test_allowed_severity_without_an_allowed_list_is_a_config_error(tmp_path):
+    path = tmp_path / "t.yaml"
+    write_schema(infer(citations(n=4)), path)
+    text = path.read_text().replace(
+        "  is_complaint: {", "  is_complaint: {allowed_severity: warning, "
+    )
+    path.write_text(text)
+    with pytest.raises(ConfigError, match="allowed_severity without an allowed list"):
         load_schema(path)
