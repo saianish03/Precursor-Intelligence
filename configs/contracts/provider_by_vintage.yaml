@@ -1,0 +1,61 @@
+# Baseline schema for silver/provider_by_vintage (precursor-pipeline validate).
+# Inferred by `validate --write-schema`; tighten by hand (unique, allowed, min, max, str_length, pattern, nullable).
+table: provider_by_vintage
+layer: silver
+inferred_from: {first: 2021-01, last: 2026-08, months: 61}
+# Hand-tightened (marked `# hand`): the key, CCN and month patterns, severity A-L, allowed values from the silver
+# configs, domain bounds instead of the largest value seen.
+unique: [ccn]  # hand: the key in configs/keep_columns.yaml
+columns:
+  ccn: {dtype: String, nullable: false, pattern: '^[0-9A-Z]{6}$'}  # hand: CCN is 6-character text (harmonize/normalize.py CCN_PATTERN)
+  state: {dtype: String, nullable: false, pattern: '^[A-Z]{2}$'}  # hand: two-letter state code
+  county_name: {dtype: String, nullable: false}
+  ownership_type: {dtype: String, nullable: true, allowed: [For profit - Corporation, For profit - Individual, For profit - Limited Liability company, For profit - Partnership, Government - City, Government - City/county, Government - County, Government - Federal, Government - Hospital district, Government - State, Non profit - Church related, Non profit - Corporation, Non profit - Other], allowed_severity: warning}  # hand: CMS adds types; a new one is a warning
+  ownership_group: {dtype: String, nullable: true, allowed: [for_profit, government, non_profit]}
+  certified_beds: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  avg_residents_per_day: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  avg_residents_per_day_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons
+  provider_type: {dtype: String, nullable: false, allowed: [Medicaid, Medicare, Medicare and Medicaid]}
+  provider_in_hospital: {dtype: Boolean, nullable: false}
+  date_first_approved: {dtype: Date, nullable: false}
+  ccrc: {dtype: Boolean, nullable: false}
+  special_focus_status: {dtype: String, nullable: false, allowed: [NONE, SFF, SFF_CANDIDATE]}  # hand: configs/value_maps.yaml enums
+  abuse_icon: {dtype: Boolean, nullable: false}
+  high_performing_icon: {dtype: Boolean, nullable: true}  # hand: in keep_columns.yaml; CMS sends it from 2026-09
+  most_recent_inspection_over_2y: {dtype: Boolean, nullable: false}
+  changed_ownership_12m: {dtype: Boolean, nullable: false}
+  resident_family_council: {dtype: String, nullable: false, allowed: [BOTH, FAMILY, NONE, RESIDENT]}  # hand: configs/value_maps.yaml enums
+  sprinkler_status: {dtype: String, nullable: true, allowed: ['NO', PARTIAL, 'YES']}  # hand: configs/value_maps.yaml enums
+  sprinkler_status_not_available: {dtype: Boolean, nullable: false}
+  overall_rating: {dtype: Float64, nullable: true, min: 1.0, max: 5.0}
+  overall_rating_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons
+  health_inspection_rating: {dtype: Float64, nullable: true, min: 1.0, max: 5.0}
+  health_inspection_rating_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons
+  qm_rating: {dtype: Float64, nullable: true, min: 1.0, max: 5.0}
+  qm_rating_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons
+  staffing_rating: {dtype: Float64, nullable: true, min: 1.0, max: 5.0}
+  staffing_rating_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons
+  reported_staffing_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons
+  pt_staffing_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons
+  hprd_aide: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_lpn: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_rn: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_licensed: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_total: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_weekend_total: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_weekend_rn: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_pt: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  adj_hprd_aide: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  adj_hprd_lpn: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  adj_hprd_rn: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  adj_hprd_total: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  turnover_total: {dtype: Float64, nullable: true, min: 0.0, max: 100.0}
+  turnover_total_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons
+  turnover_rn: {dtype: Float64, nullable: true, min: 0.0, max: 100.0}
+  turnover_rn_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons
+  admin_departures: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  admin_departures_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons
+  chain_id: {dtype: String, nullable: true}
+  chain_name: {dtype: String, nullable: true}
+  vintage_month: {dtype: String, nullable: false, pattern: '^\d{4}-(0[1-9]|1[0-2])$'}  # hand: YYYY-MM
+  cutoff_date: {dtype: Date, nullable: false}

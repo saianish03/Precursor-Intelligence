@@ -1,0 +1,16 @@
+# Baseline schema for silver/surveys_by_vintage (precursor-pipeline validate).
+# Inferred by `validate --write-schema`; tighten by hand (unique, allowed, min, max, str_length, pattern, nullable).
+table: surveys_by_vintage
+layer: silver
+inferred_from: {first: 2021-01, last: 2026-08, months: 61}
+# Hand-tightened (marked `# hand`): the key, CCN and month patterns, severity A-L, allowed values from the silver
+# configs, domain bounds instead of the largest value seen.
+unique: [ccn, survey_date, survey_type]  # hand: the key in configs/keep_columns.yaml
+columns:
+  ccn: {dtype: String, nullable: false, pattern: '^[0-9A-Z]{6}$'}  # hand: CCN is 6-character text (harmonize/normalize.py CCN_PATTERN)
+  survey_date: {dtype: Date, nullable: false}
+  survey_type: {dtype: String, nullable: false, allowed: [FIRE_COMPLAINT, FIRE_STANDARD, HEALTH_COMPLAINT, HEALTH_STANDARD, INFECTION_CONTROL], allowed_severity: warning}  # hand: configs/value_maps.yaml survey_type; OTHER (an unknown type) is a warning
+  survey_cycle: {dtype: Int64, nullable: false, min: 1, max: 3}
+  survey_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons; CMS sends it from 2026-09
+  vintage_month: {dtype: String, nullable: false, pattern: '^\d{4}-(0[1-9]|1[0-2])$'}  # hand: YYYY-MM
+  cutoff_date: {dtype: Date, nullable: false}

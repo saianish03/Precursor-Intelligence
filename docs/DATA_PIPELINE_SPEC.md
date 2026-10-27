@@ -914,7 +914,7 @@ check_release ──(short-circuit unless proceed)──▶ ┌ ingestion ──
 | `silver` | §3.2–3.5 Steps 2b–2e; §4 Step 3 ledgers; §6.1–6.2 universe and `dim_facility_latest`; QM inventory; **calibration** (backfill or on demand): §5 Step 4 lag, §6.3 QM proposal | `silver_partitions` | `silver/…`, `gold/dim_facility_latest`, Checkpoint 2–4 reports, silver manifest |
 | `gold` | §7–§10 Steps 6–9; §11 Step 10 gate; §11.5 publish | `gold_builds` | `gold/…`, Checkpoint 5 report, warehouse table, gold manifest |
 
-`dq_results` holds every named check of every node.
+`dq_results` holds every named check of every node. So far only `precursor-pipeline validate` writes it, one row per anomaly (`docs/VALIDATION.md`).
 
 ### 15.3 Tasks
 | Node | Task | Command (`precursor-pipeline …` in the repo; `./pi.sh …` in the sample) | Notes |

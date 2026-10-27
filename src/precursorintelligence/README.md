@@ -6,7 +6,7 @@ One installable package; each stage is a subpackage. Stages talk to storage only
 |---|---|
 | `common/` | config loader, logging, GCS / BigQuery / Postgres clients, CCN utils, release-month utils |
 | `ingestion/` | discover, download, profile, manifest, drift, load, `cli.py` (Step 1: landing → bronze) |
-| `validation/` | data-quality checks on raw → staged (Pandera) |
+| `validation/` | `precursor-pipeline validate`: schema (Pandera) and month-over-month drift checks of silver and gold (docs/VALIDATION.md) |
 | `gold/` | gold node, run as `precursor-pipeline gold`: spine and labels (Steps 6 and 8), the feature families in `gold/features/` behind a leakage-safe reader (Step 7; `quality` waits for `configs/qm_measures.yaml`) and the assembled dataset with its manifest (Step 9); splits, verification and publish to follow |
 | `features/` | preprocessing and feature engineering (silver → gold) |
 | `training/` | model training, calibration, tuning |

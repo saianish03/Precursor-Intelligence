@@ -3,6 +3,7 @@
 One command per DAG task (docs/DATA_PIPELINE_SPEC.md §15.3), all sharing the DAG run's --run-id:
   precursor-pipeline bronze --run-id R
   precursor-pipeline silver --run-id R
+  precursor-pipeline validate --layer silver --run-id R   (read-only data checks; validation/cli.py)
 
 Exit codes follow the pipeline contract: 0 ok, 1 error (retried), 2 data or validation failure,
 3 config or usage error. The DAG fails 2 and 3 without retry.
@@ -22,6 +23,7 @@ from ..gold.cli import gold
 from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init, _ship_log
 from ..ingestion.context import build_context
 from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR, EXIT_OK, EXIT_VALIDATION
+from ..validation.cli import validate
 from .columns import load_silver_config
 from .pipeline import run_bronze
 from .silver_pipeline import CHECK_NAME, run_silver
@@ -32,6 +34,9 @@ app = typer.Typer(
     help="Precursor Intelligence pipeline nodes after ingestion (bronze, then silver and gold)",
 )
 app.command()(gold)  # the gold node; its code lives in src/precursorintelligence/gold/
+app.command()(
+    validate
+)  # schema and drift checks of silver or gold; src/precursorintelligence/validation/
 
 
 @app.callback()
