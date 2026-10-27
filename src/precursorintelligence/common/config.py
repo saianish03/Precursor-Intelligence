@@ -202,6 +202,17 @@ class ObjectStoreCfg(BaseModel):
     immutable: str | None = None
     storage_options: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def _root_matches_kind(self) -> ObjectStoreCfg:
+        # an empty or scheme-less root (e.g. PI_BUCKET_URI set but empty) would make fsspec silently fall
+        # back to the local disk, so every layer would land inside the container instead of the bucket
+        scheme = {"gcs": "gs://", "memory": "memory://"}.get(self.kind)
+        if scheme and not self.root.startswith(scheme):
+            raise ValueError(
+                f"object_store.root for kind {self.kind!r} must start with {scheme}, got {self.root!r}"
+            )
+        return self
+
 
 class MetadataStoreCfg(BaseModel):
     url: str

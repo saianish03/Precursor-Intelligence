@@ -1,5 +1,6 @@
 """Port conformance: the same assertions run against every adapter, proving they are interchangeable."""
 
+import io
 import uuid
 
 import polars as pl
@@ -68,6 +69,55 @@ def test_failed_stream_leaves_nothing(store):
     with pytest.raises(RuntimeError):
         store.put_stream("landing/partial.zip", gen())
     assert not store.exists("landing/partial.zip")
+
+
+class _PublishOnCloseFS:
+    """Like gcsfs: an upload becomes visible only when the file is closed, and discard() cancels it."""
+
+    def __init__(self):
+        self.objects: dict[str, bytes] = {}
+
+    def exists(self, p):
+        return p in self.objects
+
+    isfile = exists
+
+    def makedirs(self, p, exist_ok=False):
+        pass
+
+    def rm(self, p):
+        del self.objects[p]
+
+    def open(self, p, mode):
+        objects = self.objects
+
+        class Upload(io.BytesIO):
+            def close(self):
+                objects[p] = self.getvalue()
+                super().close()
+
+            def discard(self):
+                super().close()
+
+        return Upload()
+
+
+def test_a_failed_write_on_gcs_publishes_nothing_and_keeps_the_current_object():
+    store = FsspecObjectStore(f"memory://gcs-like-{uuid.uuid4().hex}")
+    store.fs, store.base = _PublishOnCloseFS(), "bucket"
+    key = "silver/t/vintage=2026-09/part-0.parquet"
+    store.put_bytes(key, b"good")
+
+    def gen():
+        yield b"half"
+        raise RuntimeError("network died")
+
+    with pytest.raises(RuntimeError):
+        store.put_stream(key, gen(), overwrite=True)
+    assert store.fs.objects == {f"bucket/{key}": b"good"}
+    with pytest.raises(RuntimeError):
+        store.put_stream("silver/t/vintage=2026-10/part-0.parquet", gen())
+    assert store.fs.objects == {f"bucket/{key}": b"good"}
 
 
 def test_copy_between_backends(tmp_path):

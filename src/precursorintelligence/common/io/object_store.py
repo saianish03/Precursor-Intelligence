@@ -276,16 +276,20 @@ class FsspecObjectStore:
         if parent:
             self.fs.makedirs(parent, exist_ok=True)
         h, size = hashlib.sha256(), 0
+        # Not `with`: its exit closes the file, which publishes a half-written upload, so a failed overwrite
+        # would replace the current object. On failure discard() cancels the upload (gcsfs) instead.
+        f = self.fs.open(p, "wb")
         try:
-            with self.fs.open(p, "wb") as f:
-                for chunk in chunks:
-                    f.write(chunk)
-                    h.update(chunk)
-                    size += len(chunk)
+            for chunk in chunks:
+                f.write(chunk)
+                h.update(chunk)
+                size += len(chunk)
         except BaseException:
-            if self.fs.exists(p):
+            f.discard()
+            if not overwrite and self.fs.exists(p):  # a backend that publishes on open (memory)
                 self.fs.rm(p)
             raise
+        f.close()
         return PutResult(key, size, h.hexdigest(), self.uri_for(key))
 
     def put_bytes(self, key: str, data: bytes, *, overwrite: bool = False) -> PutResult:
