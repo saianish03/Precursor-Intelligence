@@ -61,7 +61,7 @@ git checkout <rev> -- dvc.lock && uv run dvc checkout   # restore the data of an
 uv run dvc metrics diff <rev>                           # compare the counts with that commit
 ```
 
-The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the toy pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change the pipeline code or `configs/`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json`.
+The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the toy pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result.
 
 DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). Only the toy outputs are in DVC; `dvc.yaml` declares nothing outside `data/`.
 
@@ -96,6 +96,7 @@ uv run pytest                             # offline tests must pass (live CMS te
 ```
 - **macOS only:** LightGBM needs OpenMP: `brew install libomp` once per laptop.
 - **Bring in the latest `dev`** (`git pull origin dev`, or rebase) and resolve conflicts locally before opening the PR.
+- **Changed anything listed under `deps:` in `dvc.yaml`** (the gold, harmonize, common and ingestion code, the configs it loads, or `uv.lock`)? Run `uv run dvc repro` and commit `dvc.lock` and `metrics/toy_gold.json` in the same PR.
 
 ### 3. Code and tests
 - **New or changed code comes with tests** in `tests/<stage>/`, mirroring `src/precursorintelligence/<stage>/`.
