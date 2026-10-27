@@ -1,5 +1,5 @@
-"""The gold column contract (configs/contracts/facility_month_dataset_spec_columns.csv): CMS-assigned
-ratings and badges never reach the model (spec §14; SILVER_CONTRACT.md)."""
+"""The gold column contract (configs/contracts/facility_month_dataset_spec_columns.csv): CMS star
+ratings never reach the model (spec §14; SILVER_CONTRACT.md)."""
 
 import csv
 from pathlib import Path
@@ -12,7 +12,6 @@ NEVER_MODEL = {
     "overall_rating_fn",
     "health_inspection_rating",
     "health_inspection_rating_fn",
-    "high_performing_icon",
 }
 
 
@@ -26,7 +25,7 @@ def test_column_names_are_unique():
     assert len(names) == len(set(names))
 
 
-def test_cms_ratings_and_badges_are_never_model_features():
+def test_cms_ratings_are_never_model_features():
     use = {r["column"]: r["model_use"] for r in _rows()}
     assert set(use) >= NEVER_MODEL, NEVER_MODEL - set(use)
     assert {c: use[c] for c in NEVER_MODEL} == dict.fromkeys(NEVER_MODEL, "ablation_only")
