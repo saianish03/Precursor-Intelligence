@@ -10,6 +10,9 @@ PI_ALERT_EMAIL_TO is unset): one per failed run (the DAG's on_failure_callback),
 (that leaves the run green), and one per run with new error anomalies (`check_anomalies` → `alert_anomalies`,
 after resolve_report).
 
+Validation (`precursor-pipeline validate`, docs/VALIDATION.md) runs as `validate_silver` before gold and
+`validate_gold` after it. A schema violation exits 2, fails the run and alerts like any failed task.
+
 Implemented nodes: ingestion → bronze → silver → gold. Not built yet, slots marked TODO: `check_release`
 (spec §2.0, gates the DAG) and `mirror_metadata` (spec §15.3).
 
@@ -156,18 +159,30 @@ def cms_nh_pipeline():
 
     @task_group(group_id="silver")
     def silver():
-        return run(
+        build = run(
             "build_silver",
             f"{PIPELINE} silver"
             " {{ '--calibrate' if params.calibrate or params.mode == 'backfill' else '--no-calibrate' }}",
             outlets=[SILVER],
         )
+        # Schema, null and range checks plus drift against the previous month (docs/VALIDATION.md). A schema
+        # violation is exit 2: the task fails without a retry, and bad silver never reaches gold.
+        validate = run(
+            "validate_silver",
+            f"{PIPELINE} validate --layer silver"
+            " {{ '--all-months' if params.mode == 'backfill' else '' }}",
+        )
+        build >> validate
 
     @task_group(group_id="gold")
     def gold():
-        # exit 2 (a failed gate or check: nothing published) fails the task, so cms_nh_gold means published
+        # exit 2 (a failed gate or check: nothing published) fails the task.
         # execution_timeout: a hung gold run would hold the lock and queue the next daily runs
-        return run("build_gold", f"{PIPELINE} gold", outlets=[GOLD], execution_timeout=GOLD_TIMEOUT)
+        build = run("build_gold", f"{PIPELINE} gold", execution_timeout=GOLD_TIMEOUT)
+        # Every gold month against its schema. It runs after the publish, so a failure fails the run and holds
+        # back cms_nh_gold (which starts the ML DAGs) but cannot unpublish: cms_nh_gold means published and valid.
+        validate = run("validate_gold", f"{PIPELINE} validate --layer gold", outlets=[GOLD])
+        build >> validate
 
     # TODO(mirror_metadata): spec §15.3, a teardown of acquire_lock before release_lock.
 
