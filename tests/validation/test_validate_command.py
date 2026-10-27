@@ -82,6 +82,7 @@ def test_all_months_and_one_month_run(cli, capsys):
         ["--layer", "bronze"],
         ["--layer", "silver", "--table", "ledger_citations"],
         ["--layer", "silver", "--month", "2020-01"],
+        ["--layer", "silver", "--month", "2026-07", "--all-months"],
         ["--layer", "gold"],  # no gold schema file yet
         [],  # --layer is required
     ],

@@ -139,6 +139,8 @@ def run_validation(
 ) -> ValidationResult:
     """Check the latest month of each table (or ``month``, or every month: ``all_months`` or the layer's
     ``all_months`` setting) and record the results."""
+    if month is not None and all_months:
+        raise ConfigError("give --month or --all-months, not both")
     names = _tables(cfg, layer, tables)
     # every schema file first: a missing or broken one is a config error (exit 3) before any work
     schemas = {t: load_schema(cfg.schema_path(t)) for t in names}
