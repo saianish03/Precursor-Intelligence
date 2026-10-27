@@ -161,3 +161,22 @@ def test_a_wrong_dtype_is_the_only_anomaly_for_its_column():
     df = citations(n=4).with_columns(pl.col("ccn").cast(pl.Int64))
     a = only(check(df, SCHEMA.model_copy(update={"columns": rules})))
     assert (a.check, a.column) == ("wrong_dtype", "ccn")
+
+
+def test_a_mistyped_column_next_to_a_real_failure_reports_both():
+    df = citations(n=4, scope_severity=["D", "E", "Z", "D"]).with_columns(
+        pl.col("inspection_cycle").cast(pl.Float64)
+    )
+    assert sorted((a.check, a.column) for a in check(df)) == [
+        ("allowed_values", "scope_severity"),
+        ("wrong_dtype", "inspection_cycle"),
+    ]
+
+
+def test_a_mistyped_warning_only_column_is_only_a_wrong_dtype_error():
+    rules = SCHEMA.columns | {
+        "scope_severity": ColumnRule(dtype="String", allowed=["D", "E"], allowed_severity="warning")
+    }
+    df = citations(n=4, scope_severity=[1, 2, 3, 1])
+    a = only(check(df, SCHEMA.model_copy(update={"columns": rules})))
+    assert (a.check, a.column) == ("wrong_dtype", "scope_severity")

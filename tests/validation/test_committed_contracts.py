@@ -2,13 +2,14 @@
 
 import re
 
+import polars as pl
 import pytest
 
 from precursorintelligence.common.config import load_features_config, load_validation_config
 from precursorintelligence.harmonize.columns import load_silver_config
 from precursorintelligence.harmonize.normalize import CCN_PATTERN, POLARS_TYPES
-from precursorintelligence.validation.schema import load_schema
-from precursorintelligence.validation.validate import pandera_schema
+from precursorintelligence.validation.schema import TableSchema, load_schema
+from precursorintelligence.validation.validate import check_schema, pandera_schema
 
 CFG = load_validation_config()
 SILVER = CFG.layers["silver"].tables
@@ -146,3 +147,14 @@ def test_free_cms_text_only_warns_on_a_new_value(table, column):
 def test_committed_patterns_accept_the_format_and_reject_a_near_miss(table, column, good, bad):
     pattern = load_schema(CFG.schema_path(table)).columns[column].pattern
     assert pattern and re.fullmatch(pattern, good) and not re.fullmatch(pattern, bad)
+
+
+@pytest.mark.parametrize("table", ALL)
+def test_a_ccn_with_a_valid_prefix_and_extra_characters_fails_the_committed_pattern(table):
+    """Pandera runs the pattern from the start only: without the end anchor, 0150011 would pass."""
+    ccn = load_schema(CFG.schema_path(table)).columns["ccn"]
+    schema = TableSchema(table=table, layer="x", columns={"ccn": ccn})
+    found = check_schema(pl.DataFrame({"ccn": ["015001", "0150011"]}), schema, month="2026-07")
+    assert [(a.check, a.observed) for a in found] == [
+        ("pattern", {"rows": 1, "examples": ["0150011"]})
+    ]

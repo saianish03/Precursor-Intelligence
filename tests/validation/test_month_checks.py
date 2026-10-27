@@ -120,3 +120,10 @@ def test_silver_history_before_the_spine_start_is_not_an_error(put_silver, ctx, 
         put_silver("citations_by_vintage", v, citations(n=8, vintage=v))
     write_schemas(ctx, cfg, layer="silver")
     assert run_validation(ctx, cfg, layer="silver", all_months=True).anomalies == []
+
+
+def test_a_mistyped_vintage_month_or_cutoff_date_is_left_to_the_schema_check():
+    df = citations(n=2, vintage_month=[202607, 202607]).with_columns(
+        cutoff_date=pl.lit("2026-06-01")
+    )
+    assert found(df) == []  # wrong_dtype comes from check_schema; no crash, no mismatch here
