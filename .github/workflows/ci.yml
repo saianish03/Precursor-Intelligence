@@ -53,6 +53,16 @@ jobs:
           fi
           exit $code
 
+      # The toy pipeline is network-free, so CI can rebuild it from scratch (no GCS credentials: nothing is
+      # pushed or pulled). The step fails only if the pipeline cannot run. A stale dvc.lock is a warning, not a
+      # failure: it depends on all of src/ and configs/, so most PRs would otherwise have to regenerate it.
+      - name: DVC pipeline reproduces (toy world)
+        run: |
+          uv run dvc repro
+          if ! git diff --exit-code --quiet dvc.lock metrics; then
+            echo "::warning::dvc.lock or metrics/ changed after dvc repro; run 'uv run dvc repro' and commit them."
+          fi
+
   # Single stable check name to require in the branch rulesets (independent of the Python matrix).
   ci-ok:
     name: ci-ok

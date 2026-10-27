@@ -1,0 +1,55 @@
+# The network-free toy pipeline: a toy silver world -> the real gold node -> a metrics summary.
+# `uv run dvc repro` rebuilds whatever is out of date; `uv run dvc push` / `pull` share the data
+# through gs://precursor-intel-mlops-data/dvc. Run order and outputs are documented in the README.
+stages:
+  # One stage, not silver and gold apart: gold writes run records into the same metadata database the
+  # toy script creates, so a separate silver stage would show as modified after every gold run.
+  # Only the byte-stable outputs are tracked; the manifest (built_at), _current.json and _staging
+  # (run ids) change on every run, so they stay out of the declared outputs.
+  toy_gold:
+    cmd: >-
+      rm -rf data/toy &&
+      python tests/gold/make_toy_silver.py data/toy &&
+      precursor-pipeline gold --env-file data/toy/env.yaml --splits-config data/toy/splits.yaml
+    deps:
+      - tests/gold/make_toy_silver.py
+      - tests/gold/silver_fakes.py
+      # Parquet outputs record the writer's library version, so a polars/pyarrow bump changes every hash.
+      - uv.lock
+      # What the toy gold run imports and loads, not all of src/ and configs/: a change elsewhere (validation,
+      # agents, serving, other configs) must not make dvc.lock stale. gold imports ingestion (task_scope, Context).
+      - src/precursorintelligence/common
+      - src/precursorintelligence/gold
+      - src/precursorintelligence/harmonize
+      - src/precursorintelligence/ingestion
+      - configs/ingestion/sources.yaml
+      - configs/calibration.yaml
+      - configs/column_map.yaml
+      - configs/feature_registry.yaml
+      - configs/features.yaml
+      - configs/keep_columns.yaml
+      - configs/labels.yaml
+      - configs/logging.yaml
+      - configs/splits.yaml
+      - configs/value_maps.yaml
+    outs:
+      - data/toy/silver
+      - data/toy/gold/dim_facility_latest
+      - data/toy/gold/spine
+      - data/toy/gold/labels
+      - data/toy/gold/features_citations
+      - data/toy/gold/features_context
+      - data/toy/gold/features_enforcement
+      - data/toy/gold/features_facility_staffing
+      - data/toy/gold/features_survey_timing
+      - data/toy/gold/facility_month_dataset
+  toy_summary:
+    cmd: python scripts/dvc_gold_summary.py data/toy/gold metrics/toy_gold.json
+    deps:
+      - scripts/dvc_gold_summary.py
+      - data/toy/gold/spine
+      - data/toy/gold/labels
+      - data/toy/gold/facility_month_dataset
+    metrics:
+      - metrics/toy_gold.json:
+          cache: false

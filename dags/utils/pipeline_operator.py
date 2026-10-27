@@ -2,7 +2,8 @@
 
 `PipelineDockerOperator` adds the pipeline's exit-code contract to the DockerOperator: exit 1 is an error that
 a retry may fix; exit 2 (bad or changed data) and exit 3 (config or wiring) fail at once, without retries
-(decision §14 #21). `docker_kwargs()` reads the deployment from the environment, so the same DAG runs on a laptop
+(decision §14 #21), and so does 137 (killed, usually out of memory: a retry rarely helps). A failed container's
+exit code is kept as an XCom for the failure alert (utils/alerts.py). `docker_kwargs()` reads the deployment from the environment, so the same DAG runs on a laptop
 (local disk bind-mounted as the bucket) and on the GCP VM (GCS, no mount). Kept free of heavy imports: the DAG
 processor imports this on every parse.
 """
@@ -19,7 +20,10 @@ from airflow.providers.docker.exceptions import DockerContainerFailedException
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
 
-NO_RETRY_EXIT_CODES = (2, 3)
+from precursorintelligence.alerts import EXIT_KINDS
+
+NO_RETRY_EXIT_CODES = (2, 3, 137)
+EXIT_CODE_XCOM = "pipeline_exit_code"
 # apache-airflow-providers-docker 4.6.1 raises DockerContainerFailedException(f"Docker container failed:
 # {result!r}") with result = docker's wait() dict, e.g. {'Error': None, 'StatusCode': 2}. Checked against that
 # release's source; tests/dags/test_pipeline_operator.py fails if a provider upgrade changes it.
@@ -32,17 +36,18 @@ def exit_code_of(exc: DockerContainerFailedException) -> int | None:
 
 
 class PipelineDockerOperator(DockerOperator):
-    """A DockerOperator whose exit 2 and 3 are not retried."""
+    """A DockerOperator whose exit 2, 3 and 137 are not retried."""
 
     def execute(self, context: Any) -> Any:
         try:
             return super().execute(context)
         except DockerContainerFailedException as exc:
             code = exit_code_of(exc)
+            if code is not None and (ti := context.get("ti")) is not None:
+                ti.xcom_push(key=EXIT_CODE_XCOM, value=code)
             if code in NO_RETRY_EXIT_CODES:
-                kind = "data or validation failure" if code == 2 else "config or usage error"
                 raise AirflowFailException(
-                    f"pipeline exit {code} ({kind}), not retried: {exc}"
+                    f"pipeline exit {code} ({EXIT_KINDS[code]}), not retried: {exc}"
                 ) from exc
             raise
 

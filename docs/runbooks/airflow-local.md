@@ -48,12 +48,57 @@ docker compose exec airflow-scheduler airflow dags trigger cms_nh_pipeline --run
 | `stop_after` | `null` | `ingestion`, `bronze` or `silver`: skip the later nodes (first backfill, node by node) |
 | `entry_ids` | `""` | **development only:** ingest just these catalog entries. Empty = every in-scope zip. List them with `precursor-ingest catalog`. Ids are `theme:<zip date>:<zip name>` or `current:<date>:theme_nursing-homes_current.zip` |
 
-- **Exit codes:** 1 is retried (2 × 5 min); 2 (data or validation) and 3 (config or wiring) fail at once (`PipelineDockerOperator`).
+- **Exit codes:** 1 is retried (2 × 5 min); 2 (data or validation), 3 (config or wiring) and 137 (killed, usually out of memory) fail at once (`PipelineDockerOperator`).
 - **Lock:** `release_lock` is a **teardown** of `acquire_lock`. It runs whenever the lock was taken, also after a failure or a `stop_after` skip, and retries twice (release is owner-checked and idempotent). A failed run still shows as failed. Two things would break that, both verified:
   - the spec sketch's `trigger_rule=all_done` leaf;
   - `on_failure_fail_dagrun=True` on the teardown.
 
   Either one lets the release's success decide the run state.
+
+### 3.1 Alerts
+**Set up:**
+Alerts are emails over SMTP (TLS always: STARTTLS on 587, TLS on 465). With Gmail:
+1. Turn on 2-Step Verification for the Google account, then create an app password (Google account → Security → App passwords).
+2. In `.env`: `PI_ALERT_SMTP_HOST=smtp.gmail.com`, `PI_ALERT_SMTP_PORT=587`, `PI_ALERT_SMTP_USER=<the Gmail address>`, `PI_ALERT_SMTP_PASSWORD=<the app password>`, `PI_ALERT_EMAIL_TO=<recipients, comma-separated>`. `PI_ALERT_EMAIL_FROM` defaults to the user. The password is a secret: never commit it. On the VM, render it from Secret Manager with the rest of `.env`.
+3. `docker compose up -d` again, so the Airflow containers pick it up. Task containers never get these variables.
+
+Empty `PI_ALERT_EMAIL_TO` = nothing is sent; each alert is then only logged (`alert not sent (PI_ALERT_EMAIL_TO unset)`). A failed delivery is logged too (never the password) and never fails a task.
+
+**What alerts, once each** (`src/precursorintelligence/alerts.py`; the Airflow callbacks in `dags/utils/alerts.py`):
+
+| When | From | Message |
+|---|---|---|
+| A run fails | the DAG's `on_failure_callback` (after the last retry) | failed tasks, each with its exit code and a log link |
+| `release_lock` fails (the run may still be green) | `release_lock`'s `on_failure_callback` | the error and the command that frees the lock |
+| Error anomalies the previous successful resolve did not have (e.g. `no_vintage`) | `ingestion.check_anomalies` (`precursor-ingest anomalies --severity error --new-only`) → `ingestion.alert_anomalies` | one line per anomaly (up to 20) |
+
+A `stop_after` run and a clean run send nothing. An unfixed anomaly alerts once, not on every daily run.
+
+**Lost anomaly alerts are not re-sent.** "New" means new since the previous successful resolve, so if that one email fails to send, or `PI_ALERT_EMAIL_TO` is unset at the time, later runs do not alert on the same anomaly again. Look for `alert not sent` in the `ingestion.alert_anomalies` log, or query the anomalies table (`precursor-ingest anomalies --severity error`, without `--new-only`).
+
+**Examples:**
+```
+Subject: [cms_nh_pipeline] run failed: ingestion.discover_download
+
+DAG cms_nh_pipeline: run manual__2026-10-27T10:00:00+00:00 failed.
+Reason: task_failure
+
+- ingestion.discover_download: exit 3 (config or usage error)
+  log: http://localhost:8080/dags/cms_nh_pipeline/runs/manual__2026-10-27T10%3A00%3A00%2B00%3A00/tasks/ingestion.discover_download
+```
+```
+Subject: [cms_nh_pipeline] 1 new error anomaly
+
+DAG cms_nh_pipeline: run scheduled__2026-10-28T15:00:00+00:00 recorded 1 new error anomaly. They do not fail the run; it continues.
+
+- no_vintage (theme:2026-10-28:nursing_homes_including_rehab_services_10_2026.zip): NH_X.csv: vintage unknown
+```
+Real alerts from the 8.3 runs (G and H):
+
+![Failure alert of run G](img/alert-email-run-failed.png)
+![Anomaly alert of run H](img/alert-email-new-anomaly.png)
+
+Log links use Airflow's `[api] base_url` (default `http://localhost:8080`, which also works through the VM's tunnel).
 
 ## 4. Inspect
 ```bash
@@ -82,6 +127,7 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
 - **Credentials:** the VM runs as `sa-pipeline` (`storage.objectAdmin` on the data bucket only). Task containers reach the GCE metadata server, so gcsfs gets its tokens and no key file is needed.
 - **Images:** push to Artifact Registry, then pre-pull on deploy (`gcloud auth configure-docker …`, `docker pull`). The Docker proxy sends no registry credentials, and `force_pull` is off.
 - **Access:** no firewall rule for 8080. Reach the UI with `gcloud compute ssh <vm> --tunnel-through-iap -- -L 8080:127.0.0.1:8080`.
+- **Alert log links:** they use Airflow's `[api] base_url`, `http://localhost:8080` when unset. That works only through the tunnel above on local port 8080; for any other address, set `AIRFLOW__API__BASE_URL` for the Airflow containers.
 - **Disk:**
   - a 30 GB boot disk;
   - container logs are capped (10 MB × 3);
@@ -90,9 +136,9 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
 
 ## 6. Tests
 ```bash
-uv run pytest      # repo tests; tests/dags is skipped (Airflow is not a repo dependency)
+uv run pytest      # repo tests, incl. tests/alerts; tests/dags is skipped (Airflow is not a repo dependency)
 docker compose run --rm --no-deps --entrypoint "" airflow-scheduler \
-  python -m pytest -p no:cacheprovider /opt/airflow/tests/dags     # DAG integrity + exit-code tests
+  python -m pytest -p no:cacheprovider /opt/airflow/tests/dags     # DAG integrity, exit codes, alert callbacks
 ```
 
 ## 7. Stop and clean up
@@ -153,3 +199,17 @@ To reproduce these runs step by step: [`airflow-e2e-simulation.md`](airflow-e2e-
 Gold's peak scales with rows; on the full archive, see `../AIRFLOW_PIPELINE.md` §9.1.
 
 **Disk:** about 7.3 GB of data, of which 287 MB is gold.
+
+### 8.3 Alerts (2026-10-27, `feat/pipeline-alerts`, real CMS downloads, the 19 zips of 8.2's run B)
+- **Setup:** clean slate; images built from `ae66fd3` plus the uncommitted alert changes; email to one Gmail recipient over `smtp.gmail.com:587`; Docker Desktop at 5.8 GB (the Mac has 8 GB).
+- **Count:** `alert sent` lines in the task logs and the dag-processor logs; the emails arrived in the inbox.
+
+| Run | Input | Result | Alerts |
+|---|---|---|---|
+| G negative | a bogus entry id | 21 s, run **failed**: `discover_download` exit 3, every later task `upstream_failed`, lock released. The DAG callback ran once | **1**: `[cms_nh_pipeline] run failed: ingestion.discover_download` |
+| F `stop_after=silver` | 19 zips, backfill | ≈ 6 min, success: 19 downloaded, gold skipped. Only `info` anomalies; `anomalies: 0 at error or above (new)` | **0** |
+| H forced anomaly | same, `stop_after=silver`; before it, one `duplicate_vintage` inventory row (`NH_CitationDescriptions_Oct2021.csv`, 2021-10-27 zip) got `vintage_month = null` | 40 s, success; resolve recorded `no_vintage` (error), the row became `unresolved`; `anomalies: 1 at error or above (new)` | **1**: `[cms_nh_pipeline] 1 new error anomaly` |
+| I repeat | same as H, row still broken | success; `no_vintage` recorded again; `anomalies: 0 at error or above (new)` | **0** (not new) |
+| B clean | the row restored; 19 zips, full run | 60 s, success: gold published, 207,368 rows (as in 8.2's B); the row back to `duplicate_vintage` | **0** |
+
+Not forced in the stack: a failed `release_lock` (hard to make fail through the DAG; covered by `tests/dags/test_alerts.py`), exit 137 and the gold timeout (covered by `tests/dags`).
