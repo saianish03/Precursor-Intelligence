@@ -2,7 +2,7 @@
 
 import pytest
 
-from precursorintelligence.common.config import load_validation_config
+from precursorintelligence.common.config import load_features_config, load_validation_config
 from precursorintelligence.harmonize.columns import load_silver_config
 from precursorintelligence.harmonize.normalize import POLARS_TYPES
 from precursorintelligence.validation.schema import load_schema
@@ -58,3 +58,54 @@ def test_silver_contract_columns_and_dtypes_match_the_silver_configs(table):
     for name, rule in contract.items():
         expected = str(POLARS_TYPES[source[name].dtype]) if name in source else DERIVED[name]
         assert rule.dtype == expected, name
+
+
+def _contract_rules():
+    silver = load_silver_config()
+    for table in SILVER:
+        source = silver.sources[silver.tables[table].source].columns
+        for name, rule in load_schema(CFG.schema_path(table)).columns.items():
+            yield table, name, rule, source[name].dtype if name in source else None
+
+
+def test_every_footnote_column_allows_exactly_the_codes_gold_maps():
+    codes = sorted(load_features_config().footnote_reasons)
+    fn = [(t, n, r) for t, n, r, dtype in _contract_rules() if dtype == "footnote"]
+    assert {n for _, n, _ in fn} >= {"overall_rating_fn", "survey_fn"}
+    for table, name, rule in fn:
+        assert (rule.allowed, rule.allowed_severity) == (codes, None), (table, name)
+
+
+def test_mapped_columns_allow_exactly_what_silver_maps_to():
+    value_maps = load_silver_config().value_maps
+    for _table, name, rule, dtype in _contract_rules():
+        if dtype == "enum":
+            enum = value_maps["enums"][name]
+            expected = set(enum["map"].values()) | ({enum["blank"]} if "blank" in enum else set())
+            assert (set(rule.allowed or []), rule.allowed_severity) == (expected, None), name
+        elif dtype == "survey_type_enum":
+            # silver writes OTHER for an unknown type on purpose: listed nowhere, so it is a warning
+            assert set(rule.allowed or []) == set(value_maps["survey_type"]["map"].values())
+            assert rule.allowed_severity == "warning"
+
+
+@pytest.mark.parametrize(
+    "table, column",
+    [
+        ("citations_by_vintage", "deficiency_category"),
+        ("citations_by_vintage", "scope_severity"),
+        ("penalties_by_vintage", "penalty_type"),
+        ("provider_by_vintage", "provider_type"),
+    ],
+)
+def test_values_gold_logic_depends_on_stay_hard_errors(table, column):
+    rule = load_schema(CFG.schema_path(table)).columns[column]
+    assert rule.allowed and rule.allowed_severity is None
+
+
+@pytest.mark.parametrize(
+    "table, column",
+    [("provider_by_vintage", "ownership_type"), ("citations_by_vintage", "deficiency_corrected")],
+)
+def test_free_cms_text_only_warns_on_a_new_value(table, column):
+    assert load_schema(CFG.schema_path(table)).columns[column].allowed_severity == "warning"

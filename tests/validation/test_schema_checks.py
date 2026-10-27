@@ -6,7 +6,7 @@ from validation_fakes import citations
 
 from precursorintelligence.common.config import ConfigError
 from precursorintelligence.validation.schema import ColumnRule, TableSchema
-from precursorintelligence.validation.validate import ERROR, check_schema
+from precursorintelligence.validation.validate import ERROR, WARNING, check_schema
 
 SCHEMA = TableSchema(
     table="citations_by_vintage",
@@ -97,3 +97,14 @@ def test_an_unknown_dtype_in_the_yaml_is_a_config_error():
     schema.columns["ccn"] = ColumnRule(dtype="Strng")
     with pytest.raises(ConfigError, match="Strng"):
         check(citations(), schema)
+
+
+def test_a_value_outside_a_warning_only_list_is_a_warning_not_an_error():
+    rules = SCHEMA.columns | {
+        "scope_severity": ColumnRule(dtype="String", allowed=["D", "E"], allowed_severity="warning")
+    }
+    found = check(citations(n=4), SCHEMA.model_copy(update={"columns": rules}))  # D, E, G, D
+    assert [(a.check, a.severity, a.column) for a in found] == [
+        ("allowed_values", WARNING, "scope_severity")
+    ]
+    assert found[0].observed == {"rows": 1, "examples": ["G"]}

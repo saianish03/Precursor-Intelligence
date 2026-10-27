@@ -47,7 +47,7 @@ def _checks(rule: ColumnRule) -> list[pa.Check]:
         checks.append(pa.Check.ge(rule.min))
     elif rule.max is not None:
         checks.append(pa.Check.le(rule.max))
-    if rule.allowed is not None:
+    if rule.allowed is not None and rule.allowed_severity is None:
         checks.append(pa.Check.isin(rule.allowed))
     if rule.str_length is not None:
         checks.append(pa.Check.str_length(rule.str_length, rule.str_length))
@@ -91,14 +91,35 @@ def _expected(check: str, rule: ColumnRule | None) -> Any:
     }.get(check)
 
 
+def _new_values(df: pl.DataFrame, schema: TableSchema, month: str) -> list[Anomaly]:
+    """Values outside a warning-only `allowed` list (e.g. a new CMS ownership type): one warning per column."""
+    out = []
+    for name, rule in schema.columns.items():
+        if rule.allowed_severity != WARNING or rule.allowed is None or name not in df.columns:
+            continue
+        if str(df[name].dtype) != rule.dtype:
+            continue  # reported as wrong_dtype
+        bad = df[name].drop_nulls().filter(~df[name].drop_nulls().is_in(rule.allowed))
+        if bad.len():
+            shown = [str(v) for v in bad.unique(maintain_order=True).head(_EXAMPLES)]
+            out.append(
+                Anomaly(schema.table, month, "allowed_values", WARNING, name,
+                        {"rows": bad.len(), "examples": shown}, rule.allowed,
+                        f"{bad.len()} rows have a value not listed, e.g. {', '.join(shown)}")
+            )  # fmt: skip
+    return out
+
+
 def check_schema(df: pl.DataFrame, schema: TableSchema, *, month: str) -> list[Anomaly]:
-    """Every schema violation in the month, one anomaly per (column, check). All are errors."""
+    """Every schema violation in the month, one anomaly per (column, check). All are errors, except a value
+    outside an `allowed` list marked ``allowed_severity: warning``."""
+    warnings = _new_values(df, schema, month)
     try:
         pandera_schema(schema).validate(df, lazy=True)
     except pa.errors.SchemaErrors as exc:
         cases = exc.failure_cases.with_columns(pl.col("failure_case").cast(pl.String))
     else:
-        return []
+        return warnings
     out: list[Anomaly] = []
     observed: Any
     table_level = pl.col("schema_context") == "DataFrameSchema"
@@ -136,7 +157,7 @@ def check_schema(df: pl.DataFrame, schema: TableSchema, *, month: str) -> list[A
                 schema.table, month, check, ERROR, column, observed, _expected(check, rule), detail
             )
         )
-    return out
+    return out + warnings
 
 
 def check_drift(

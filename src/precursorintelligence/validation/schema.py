@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import polars as pl
 import yaml
@@ -28,6 +28,7 @@ class ColumnRule(BaseModel):
     min: int | float | None = None
     max: int | float | None = None
     allowed: list[Scalar] | None = None
+    allowed_severity: Literal["warning"] | None = None  # outside `allowed`: a warning, not an error
     str_length: int | None = Field(default=None, gt=0)  # exact length of every non-null value
 
 
