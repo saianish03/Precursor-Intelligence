@@ -1,0 +1,38 @@
+{
+  "dim_facility_latest": {
+    "files": 1,
+    "rows": 5
+  },
+  "facility_month_dataset": {
+    "files": 26,
+    "rows": 109
+  },
+  "features_citations": {
+    "files": 26,
+    "rows": 109
+  },
+  "features_context": {
+    "files": 26,
+    "rows": 109
+  },
+  "features_enforcement": {
+    "files": 26,
+    "rows": 109
+  },
+  "features_facility_staffing": {
+    "files": 26,
+    "rows": 109
+  },
+  "features_survey_timing": {
+    "files": 26,
+    "rows": 109
+  },
+  "labels": {
+    "files": 1,
+    "rows": 109
+  },
+  "spine": {
+    "files": 1,
+    "rows": 109
+  }
+}

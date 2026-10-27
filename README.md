@@ -38,6 +38,33 @@ Precursor-Intelligence/
 
 Each top-level folder has its own README describing what belongs there.
 
+## Data versioning with DVC
+
+[DVC](https://dvc.org) versions data the way Git versions code: Git tracks small pointer files (`dvc.yaml`, `dvc.lock`, `metrics/`), and the data itself lives in a DVC cache plus a remote, `gs://precursor-intel-mlops-dvc`, a bucket of its own so nobody needs write access to the production data bucket to share DVC data (created in `infra/terraform/envs/prod`).
+
+What DVC tracks here is the **toy pipeline**: a small silver world (`tests/gold/make_toy_silver.py`) is turned into gold by the real `precursor-pipeline gold` node, then summarised into `metrics/toy_gold.json` (`scripts/dvc_gold_summary.py`). It needs no network or credentials, so anyone can rebuild it:
+
+```bash
+uv sync --all-extras        # includes dvc[gs]
+uv run dvc repro            # runs only the stages whose code, configs or inputs changed
+uv run dvc status           # "Data and pipelines are up to date" when nothing is stale
+uv run dvc dag              # toy_gold -> toy_summary
+uv run dvc metrics show     # row and file counts per gold table
+```
+
+Share or restore data (needs write or read access to the DVC bucket: `gcloud auth application-default login`):
+
+```bash
+uv run dvc push             # upload the cached outputs to the remote
+uv run dvc pull             # download the outputs that dvc.lock points to
+git checkout <rev> -- dvc.lock && uv run dvc checkout   # restore the data of an older commit
+uv run dvc metrics diff <rev>                           # compare the counts with that commit
+```
+
+The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the toy pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result.
+
+DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). Only the toy outputs are in DVC; `dvc.yaml` declares nothing outside `data/`.
+
 ## Branching
 
 | Branch | Purpose | Who pushes |
@@ -69,13 +96,14 @@ uv run pytest                             # offline tests must pass (live CMS te
 ```
 - **macOS only:** LightGBM needs OpenMP: `brew install libomp` once per laptop.
 - **Bring in the latest `dev`** (`git pull origin dev`, or rebase) and resolve conflicts locally before opening the PR.
+- **Changed anything listed under `deps:` in `dvc.yaml`** (the gold, harmonize, common and ingestion code, the configs it loads, or `uv.lock`)? Run `uv run dvc repro` and commit `dvc.lock` and `metrics/toy_gold.json` in the same PR.
 
 ### 3. Code and tests
 - **New or changed code comes with tests** in `tests/<stage>/`, mirroring `src/precursorintelligence/<stage>/`.
 - **Unit tests must not call the network or cloud services.** Mark live tests with `@pytest.mark.network`.
 - **Add only required code for the feature, or only tiny fixes** (a few rows). Never put real downloaded data in the repo.
 - **No hard-coded paths, buckets or credentials.** Read them from `configs/` and environment variables.
-- **New dependencies go into the right extra with `uv add --optional <extra> <package>`** (`pipeline`, `ml`, `agents`, `api`, `ui`, `mlflow-server`; tools: `uv add --group dev <package>`). Never type versions by hand; commit the updated `uv.lock`. Say why in the PR.
+- **New dependencies go into the right extra with `uv add --optional <extra> <package>`** (`pipeline`, `ml`, `agents`, `api`, `ui`, `mlflow-server`, `dvc`; tools: `uv add --group dev <package>`). Never type versions by hand; commit the updated `uv.lock`. Say why in the PR.
 
 ### 4. Never commit
 - data files (`data/`, CSV / Parquet / zip downloads), logs, model artefacts;

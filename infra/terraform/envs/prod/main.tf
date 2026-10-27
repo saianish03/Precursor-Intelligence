@@ -12,6 +12,14 @@ module "data_bucket" {
   quarantine_ttl_days = 30
 }
 
+# DVC's remote (README, "Data versioning with DVC"): the toy pipeline's data versions. A bucket of its own, so
+# whoever runs `dvc push` never needs write access to the production data above.
+module "dvc_bucket" {
+  source   = "../../modules/gcs"
+  name     = "${var.project_id}-dvc"
+  location = var.region
+}
+
 module "state_bucket" {
   source   = "../../modules/gcs"
   name     = "${var.project_id}-tfstate"

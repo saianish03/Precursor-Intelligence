@@ -2,6 +2,10 @@ output "data_bucket" {
   value = module.data_bucket.name
 }
 
+output "dvc_bucket" {
+  value = module.dvc_bucket.name
+}
+
 output "pipeline_service_account" {
   value = google_service_account.pipeline.email
 }
