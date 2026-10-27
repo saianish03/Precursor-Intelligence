@@ -17,13 +17,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..common.config import ConfigError, ValidationConfig
+from ..common.config import ConfigError, ValidationConfig, load_splits_config
 from ..ingestion.context import Context
 from ..ingestion.pipeline import EXIT_OK, EXIT_VALIDATION
 from .schema import TableSchema, infer_schema, load_schema, write_schema
 from .stats import table_stats
 from .tables import TableReader
-from .validate import ERROR, WARNING, Anomaly, check_drift, check_schema
+from .validate import ERROR, WARNING, Anomaly, check_drift, check_month, check_schema
 
 log = logging.getLogger(__name__)
 
@@ -103,6 +103,7 @@ def _check_table(
     months: list[str],
     checked: list[str],
     anomalies: list[Anomaly],
+    first_month: str | None,
 ) -> dict[str, dict[str, Any]]:
     """Schema-check each month in ``checked`` and compare its stats with the month before's.
     Returns the stats computed, each month's once."""
@@ -116,7 +117,9 @@ def _check_table(
         return stats[m]
 
     for m in checked:
-        anomalies += check_schema(reader.month(m), schema, month=m)
+        df = reader.month(m)
+        anomalies += check_schema(df, schema, month=m)
+        anomalies += check_month(df, table=reader.table, month=m, first_month=first_month)
         i = months.index(m)
         current = stats_of(m)
         if i > 0:
@@ -140,6 +143,8 @@ def run_validation(
     names = _tables(cfg, layer, tables)
     # every schema file first: a missing or broken one is a config error (exit 3) before any work
     schemas = {t: load_schema(cfg.schema_path(t)) for t in names}
+    # gold has no rows before spine_start (configs/splits.yaml); silver keeps its 2021-2022 history
+    first_month = load_splits_config().spine_start if layer == "gold" else None
     result = ValidationResult(run_id=ctx.run_id, layer=layer, strict=strict)
     result.report_prefix = f"reports/validation/run={ctx.run_id}"
     stats_docs: dict[str, dict[str, Any]] = {}
@@ -154,7 +159,9 @@ def run_validation(
             result.checked[table] = []
             continue
         checked = _to_check(months, month, all_months, table)
-        stats = _check_table(reader, schemas[table], cfg, months, checked, result.anomalies)
+        stats = _check_table(
+            reader, schemas[table], cfg, months, checked, result.anomalies, first_month
+        )
         result.checked[table] = checked
         stats_docs[table] = {
             "layer": layer,

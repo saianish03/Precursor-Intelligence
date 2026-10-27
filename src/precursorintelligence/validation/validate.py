@@ -4,6 +4,7 @@ statistics (warnings)."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import date
 from fnmatch import fnmatch
 from typing import Any
 
@@ -180,6 +181,35 @@ def check_schema(df: pl.DataFrame, schema: TableSchema, *, month: str) -> list[A
             )
         )
     return out + extra
+
+
+def check_month(
+    df: pl.DataFrame, *, table: str, month: str, first_month: str | None = None
+) -> list[Anomaly]:
+    """The rows belong to the month they are stored under: ``vintage_month`` equals it, ``cutoff_date`` is its
+    first day, and the month is not before ``first_month`` (gold: spine_start). All are errors."""
+    out = []
+    if first_month is not None and month < first_month:
+        out.append(
+            Anomaly(table, month, "before_first_month", ERROR, None, month, first_month,
+                    f"month {month} is before {first_month}")
+        )  # fmt: skip
+    first_day = date(int(month[:4]), int(month[5:7]), 1)
+    for name, expected, dtype in (
+        ("vintage_month", month, pl.String),
+        ("cutoff_date", first_day, pl.Date),
+    ):
+        if name not in df.columns or df[name].dtype != dtype:
+            continue  # missing or mistyped: reported by check_schema
+        bad = df[name].drop_nulls().filter(df[name].drop_nulls() != expected)
+        if bad.len():
+            shown = [str(v) for v in bad.unique(maintain_order=True).head(_EXAMPLES)]
+            out.append(
+                Anomaly(table, month, "month_mismatch", ERROR, name,
+                        {"rows": bad.len(), "examples": shown}, str(expected),
+                        f"{bad.len()} rows of {month} have {name} {', '.join(shown)}, expected {expected}")
+            )  # fmt: skip
+    return out
 
 
 def check_drift(
