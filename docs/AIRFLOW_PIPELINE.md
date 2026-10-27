@@ -311,14 +311,12 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
 - **Owner:** gold + Terraform.
 
 ### 9.3 Commit recorded in the gold manifest
-- **What:** the image passes the commit to gold through `PI_GIT_COMMIT` (fixed in this branch; before, every container-built manifest had `git_commit: null`).
-- **Remaining:**
-  - **The default.** The Dockerfile's default is `PI_GIT_SHA=unknown`, so an image built without the build arg records `"unknown"` as the commit.
-  - **SHA format.** Build with the **full** SHA (`--build-arg PI_GIT_SHA=$(git rev-parse HEAD)`), so container and laptop runs record the same 40-character format. MLflow logs the full commit too.
-  - **Dirty state.** An image built from a working tree with uncommitted changes still records `git_dirty: null`.
-- **Fix:**
-  - default the build arg to empty, and treat an empty value as unknown (`os.environ.get(...) or None` in `gold/dataset.py` and `ingestion/report.py`);
-  - optionally pass a `PI_GIT_DIRTY` build arg.
+- **Fixed in this branch:**
+  - **The commit reaches gold:** the image passes it through `PI_GIT_COMMIT`. Before, every container-built manifest had `git_commit: null`.
+  - **No silent default:** `PI_GIT_SHA` has no default, and the build **fails** without it (`RUN test -n "$PI_GIT_SHA"`), so no manifest can record `"unknown"`.
+  - **Full SHA everywhere:** every documented build passes the **full** SHA (`--build-arg PI_GIT_SHA=$(git rev-parse HEAD)`), so container and laptop runs record the same 40-character format. MLflow logs the full commit too.
+- **Remaining:** an image built from a working tree with uncommitted changes still records `git_dirty: null`.
+- **Fix:** optionally pass a `PI_GIT_DIRTY` build arg that `git_state` reads.
 - **Owner:** pipeline image + gold.
 
 ### 9.4 Operator and scheduling notes

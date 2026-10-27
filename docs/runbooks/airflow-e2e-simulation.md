@@ -276,7 +276,8 @@ uv run python $SIM/verify_gold.py <PI_HOST_DATA_DIR>                     # after
 | Symptom | Cause / fix |
 |---|---|
 | `required variable X is missing a value` | `.env` incomplete: the user fills it in (step 2); re-run the names-only check |
-| Gold manifest `git_commit: null` | An image older than the `PI_GIT_COMMIT` fix, or built without `--build-arg PI_GIT_SHA` |
+| `docker build` stops with "build with --build-arg PI_GIT_SHA=…" | The pipeline image requires the commit: pass `--build-arg PI_GIT_SHA=$(git rev-parse HEAD)` |
+| Gold manifest `git_commit: null` | An image built before the `PI_GIT_COMMIT` fix: rebuild it |
 | `memwatch` records nothing | The `ancestor=` tag does not match `PI_PIPELINE_IMAGE` |
 | Memory peaks parse as 0 | The command contains commas (`discover,download`): take memory from the last CSV column |
 | Unpausing started a run | `PI_DAG_SCHEDULE` was not empty. Mark the run failed in the UI; the lock is released by its teardown |

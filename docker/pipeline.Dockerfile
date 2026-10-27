@@ -34,8 +34,9 @@ RUN useradd --create-home --uid 10001 pipeline \
     && chown pipeline /app/data /app/logs
 USER pipeline
 
-ARG PI_GIT_SHA=unknown
-# PI_GIT_COMMIT: the commit in gold's dataset manifest (the image carries no .git)
+ARG PI_GIT_SHA
+# The build must name its commit: gold's dataset manifest records PI_GIT_COMMIT (the image carries no .git).
+RUN test -n "$PI_GIT_SHA" || { echo 'build with --build-arg PI_GIT_SHA=$(git rev-parse HEAD)' >&2; exit 1; }
 ENV PI_GIT_SHA=${PI_GIT_SHA} \
     PI_GIT_COMMIT=${PI_GIT_SHA}
 

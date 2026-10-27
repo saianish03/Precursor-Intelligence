@@ -67,7 +67,7 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
 | 1 | The image did not pass the commit to gold (`PI_GIT_COMMIT`), so every container-built gold manifest had `git_commit: null` | **Fixed** in the Airflow PR; the manifest now records the full SHA | — | no |
 | 2 | **Gold's peak memory:** about 2.1 GB on 237k rows (measured); ≈ 5 GB on the full archive's ≈ 590k rows (scaled). Too tight for the 8 GB VM with the 6g task limit | Open: gold-side fix (§9.1) | gold | alert on exit 137 |
 | 3 | Every daily run re-publishes gold, even unchanged; `gold/_staging/run=<id>/` and old object versions are never deleted (≈ 10 GB more per month on GCS) | Open: lifecycle rules + skip-unchanged publish (§9.2) | gold + Terraform | no |
-| 4 | Gold manifest commit: the default build arg records `"unknown"`; no dirty flag | Open (§9.3) | image + gold | no |
+| 4 | Gold manifest commit: the build arg defaulted to `"unknown"`; no dirty flag | **Default fixed:** the build fails without `PI_GIT_SHA`. The dirty flag is still open (§9.3) | image + gold | no |
 | 5 | Out-of-memory kills (exit 137) are retried twice | Open (§9.4) | operator | **yes** |
 | 6 | No `execution_timeout` on `build_gold`: a hung run holds the lock | Open (§9.4) | DAG | **yes** |
 | 7 | A failed `release_lock` leaves the run green (teardowns don't set the run state) | By design; needs an alert | alerts | **yes** |
