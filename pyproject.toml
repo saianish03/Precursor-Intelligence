@@ -69,6 +69,9 @@ mlflow-server = [
     "mlflow>=3.17.0",
     "psycopg2-binary>=2.9.13",
 ]
+dvc = [
+    "dvc[gs]>=3.67.1",
+]
 
 [project.scripts]
 precursor-ingest = "precursorintelligence.ingestion.cli:main"
