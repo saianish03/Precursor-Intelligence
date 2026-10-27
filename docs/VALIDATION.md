@@ -12,7 +12,7 @@ with older configs. Code: `src/precursorintelligence/validation/`. Settings: `co
 | Schema | `allowed_values` for a column marked `allowed_severity: warning`: a value CMS may add (a new ownership type) | warning | `configs/contracts/<table>.yaml` |
 | Schema | `duplicate_key`: two rows of a month share the `unique` columns | error | `unique` in the contract |
 | Schema | `y_null_iff_unlabelled`, `y_matches_status`, `score_iff_immature`: each label's `y`, `status` and `split` agree | error | `rules` in the `labels` contract |
-| Schema | `month_mismatch`: `vintage_month` is not the stored month, or `cutoff_date` is not its first day; `before_first_month`: a gold month before `spine_start` | error | `configs/splits.yaml` |
+| Schema | `month_mismatch`: `vintage_month` is not the stored month, or `cutoff_date` is not its first day; `before_first_month`: a gold month before the `spine_start` gold was built with; `bad_month`: a stored month that is not `YYYY-MM` (nothing else is compared with it) | error | `spine_start` in `gold/dataset_manifest.json`, else `configs/splits.yaml` |
 | Schema | `empty_month`: a month with no rows; `table_missing`: a configured table has no months in the store | error | `configs/validation.yaml` |
 | Drift vs the previous month | `row_count_change` (more than ±`row_count_change_pct` %) | warning | `drift` in `configs/validation.yaml` |
 | | `null_rate_jump` (null % up by more than `null_rate_jump_pts` points) | warning | |
@@ -87,6 +87,11 @@ hand, and every edited line is marked `# hand`:
 - The gold `labels` file lists the `status_*` values from `gold/labels.py`, the `split_*` columns and values from
   `gold/splits.py`, and the three label `rules`.
 
+A contract that names something it does not have fails to load (exit 3), so a typo never switches a check off: a
+`unique` column not in `columns`, `rules` without a `status_<n>` column and its `y_<n>` (and `split_<n>` for
+`score_iff_immature`), `allowed_severity` without `allowed`, or a `pattern` that Polars' regex engine cannot run
+(e.g. a look-ahead). A label rule whose columns have the wrong dtype is skipped: the column is a `wrong_dtype` error.
+
 Running `--write-schema` again overwrites the files and drops the hand edits. Commit the files first and re-apply
 the edits from the diff.
 
@@ -129,5 +134,14 @@ for both errors and warnings.
 - Retries and reads: replace a run's `dq_results` rows on a retry with the same run id; write NaN as null; read each
   month once and list the partitions once.
 - Cover the other silver tables (ledgers, lookups, universe, QM), which are not one file per month.
+- Leakage checks on gold, per label, while the spec §11 gate is not built: `status = immature` exactly when
+  `t + H + B > v_labels` (H and B from `configs/labels.yaml`, `v_labels` from the gold manifest); one split value per
+  month `t`; `y_g6 = 1` implies `y_g12` is 1 or null.
+- Rows the checks miss: gold rows with a null `t` are dropped by month discovery, so count them once per table as an
+  error; drift after an empty month should compare with the last non-empty month.
+- The `--strict` help says "drift warnings", but any warning fails, new-value warnings included; a test that
+  `ownership_group`'s allowed list equals `value_maps.ownership_group`.
+- A full-archive run (61 vintages) before the first production run, and no `--strict` in the DAG until the
+  per-table drift thresholds exist.
 - The real gold in `data/gold` predates the split columns, and the real silver predates `survey_fn` and
   `high_performing_icon`, so `validate` on them reports those columns as missing until they are rebuilt.
