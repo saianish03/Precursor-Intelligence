@@ -10,6 +10,7 @@
 | `ALERTS_HANDOFF.md` | Ticket 2 (pipeline alerts): the signals the pipeline already records, what to alert on, how to force each case, and every problem found while wiring gold into the DAG |
 | `GOLD_HANDOFF.md` | Gold so far (spine, labels, `precursor-pipeline gold`) and what the features and assembly work must build: outputs, runs, toy world, leakage and join rules, open questions |
 | `STEP2_HANDOFF.md` | Step 2 profiling facts and reference drafts (`data/step2_reference/`) |
+| `bias/` | Data bias slicing on gold (`precursor-pipeline bias-report`): how to run it, what each output means, the gold schema findings and the assignment mapping |
 | `adr/` | architecture decision records (`0001-monorepo.md`, …) |
 | `data/` | data dictionary notes, footnote codes, schema-change log |
 | `reference/` | reference material, e.g. `column_lineage.xlsx` (raw CMS column → feature lineage) |
