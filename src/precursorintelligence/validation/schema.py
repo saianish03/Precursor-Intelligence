@@ -30,6 +30,9 @@ class ColumnRule(BaseModel):
     allowed: list[Scalar] | None = None
     allowed_severity: Literal["warning"] | None = None  # outside `allowed`: a warning, not an error
     str_length: int | None = Field(default=None, gt=0)  # exact length of every non-null value
+    pattern: str | None = (
+        None  # regex every non-null value must match, e.g. ^[0-9A-Z]{6}$ for a CCN
+    )
 
 
 class TableSchema(BaseModel):
@@ -38,6 +41,7 @@ class TableSchema(BaseModel):
     table: str
     layer: str
     inferred_from: dict[str, Any] = {}  # first and last month, number of months
+    unique: list[str] | None = None  # the key: no two rows of a month share these columns
     columns: dict[str, ColumnRule]
 
 
@@ -92,11 +96,12 @@ def dump_schema(schema: TableSchema) -> str:
     """YAML with one flow-style line per column, so a rule is easy to find and edit."""
     lines = [
         f"# Baseline schema for {schema.layer}/{schema.table} (precursor-pipeline validate).",
-        "# Inferred by `validate --write-schema`; tighten by hand (allowed, min, max, str_length, nullable).",
+        "# Inferred by `validate --write-schema`; tighten by hand (unique, allowed, min, max, str_length, pattern, nullable).",
         f"table: {schema.table}",
         f"layer: {schema.layer}",
         "inferred_from: "
         + yaml.safe_dump(schema.inferred_from, default_flow_style=True, sort_keys=False).strip(),
+        *([f"unique: [{', '.join(schema.unique)}]"] if schema.unique else []),
         "columns:",
     ]
     for name, rule in schema.columns.items():

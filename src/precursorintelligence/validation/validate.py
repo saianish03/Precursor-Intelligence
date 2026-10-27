@@ -51,6 +51,8 @@ def _checks(rule: ColumnRule) -> list[pa.Check]:
         checks.append(pa.Check.isin(rule.allowed))
     if rule.str_length is not None:
         checks.append(pa.Check.str_length(rule.str_length, rule.str_length))
+    if rule.pattern is not None:
+        checks.append(pa.Check.str_matches(rule.pattern))
     return checks
 
 
@@ -73,6 +75,7 @@ def _check_name(pandera_check: str) -> str:
         ("less_than", "out_of_range"),
         ("isin", "allowed_values"),
         ("str_length", "str_length"),
+        ("str_matches", "pattern"),
     ):
         if pandera_check.startswith(prefix):
             return name
@@ -88,6 +91,7 @@ def _expected(check: str, rule: ColumnRule | None) -> Any:
         "out_of_range": [rule.min, rule.max],
         "allowed_values": rule.allowed,
         "str_length": rule.str_length,
+        "pattern": rule.pattern,
     }.get(check)
 
 
@@ -110,16 +114,34 @@ def _new_values(df: pl.DataFrame, schema: TableSchema, month: str) -> list[Anoma
     return out
 
 
+def _duplicate_keys(df: pl.DataFrame, schema: TableSchema, month: str) -> list[Anomaly]:
+    key = schema.unique
+    if not key or not set(key) <= set(df.columns):
+        return []  # a missing key column is reported as missing_column
+    dup = df.select(key).filter(df.select(key).is_duplicated())
+    if not dup.height:
+        return []
+    shown = [
+        "|".join(str(v) for v in row)
+        for row in dup.unique(maintain_order=True).head(_EXAMPLES).rows()
+    ]
+    return [
+        Anomaly(schema.table, month, "duplicate_key", ERROR, ",".join(key),
+                {"rows": dup.height, "examples": shown}, key,
+                f"{dup.height} rows share a key ({', '.join(key)}), e.g. {', '.join(shown)}")
+    ]  # fmt: skip
+
+
 def check_schema(df: pl.DataFrame, schema: TableSchema, *, month: str) -> list[Anomaly]:
     """Every schema violation in the month, one anomaly per (column, check). All are errors, except a value
     outside an `allowed` list marked ``allowed_severity: warning``."""
-    warnings = _new_values(df, schema, month)
+    extra = _duplicate_keys(df, schema, month) + _new_values(df, schema, month)
     try:
         pandera_schema(schema).validate(df, lazy=True)
     except pa.errors.SchemaErrors as exc:
         cases = exc.failure_cases.with_columns(pl.col("failure_case").cast(pl.String))
     else:
-        return warnings
+        return extra
     out: list[Anomaly] = []
     observed: Any
     table_level = pl.col("schema_context") == "DataFrameSchema"
@@ -157,7 +179,7 @@ def check_schema(df: pl.DataFrame, schema: TableSchema, *, month: str) -> list[A
                 schema.table, month, check, ERROR, column, observed, _expected(check, rule), detail
             )
         )
-    return out + warnings
+    return out + extra
 
 
 def check_drift(

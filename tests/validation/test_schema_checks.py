@@ -108,3 +108,31 @@ def test_a_value_outside_a_warning_only_list_is_a_warning_not_an_error():
         ("allowed_values", WARNING, "scope_severity")
     ]
     assert found[0].observed == {"rows": 1, "examples": ["G"]}
+
+
+def test_a_value_not_matching_its_pattern_is_caught():
+    rules = SCHEMA.columns | {
+        "ccn": ColumnRule(dtype="String", nullable=False, pattern=r"^[0-9A-Z]{6}$")
+    }
+    df = citations(n=4, ccn=["015001", "01-19A", "015003", "015004"])  # 6 characters, wrong format
+    a = only(check(df, SCHEMA.model_copy(update={"columns": rules})))
+    assert (a.check, a.column, a.expected) == ("pattern", "ccn", r"^[0-9A-Z]{6}$")
+    assert a.observed == {"rows": 1, "examples": ["01-19A"]}
+
+
+def test_a_duplicate_key_is_caught():
+    schema = SCHEMA.model_copy(update={"unique": ["ccn", "survey_date"]})
+    df = citations(n=4)
+    df = pl.concat([df, df.head(1)])
+    a = only(check(df, schema))
+    assert (a.check, a.column, a.expected) == (
+        "duplicate_key",
+        "ccn,survey_date",
+        ["ccn", "survey_date"],
+    )
+    assert a.observed == {"rows": 2, "examples": ["015000|2026-05-01"]}
+
+
+def test_rows_sharing_part_of_the_key_are_not_duplicates():
+    schema = SCHEMA.model_copy(update={"unique": ["ccn", "survey_date"]})
+    assert check(citations(n=4, ccn=["015001"] * 4), schema) == []  # four survey dates

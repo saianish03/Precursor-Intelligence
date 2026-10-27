@@ -75,3 +75,12 @@ def test_a_missing_or_mistyped_schema_file_is_a_config_error(tmp_path):
     bad.write_text("table: x\nlayer: silver\ncolumns:\n  ccn: {dtype: String, alowed: [A]}\n")
     with pytest.raises(ConfigError, match="alowed"):
         load_schema(bad)
+
+
+def test_the_key_and_a_pattern_survive_write_and_load(tmp_path):
+    schema = infer(citations(n=4)).model_copy(update={"unique": ["ccn", "survey_date"]})
+    schema.columns["ccn"].pattern = r"^[0-9A-Z]{6}$"
+    path = tmp_path / "citations_by_vintage.yaml"
+    write_schema(schema, path)
+    assert load_schema(path) == schema
+    assert "unique: [ccn, survey_date]" in path.read_text()

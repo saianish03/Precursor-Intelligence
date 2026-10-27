@@ -1,15 +1,18 @@
 """The committed contracts in configs/contracts/: one per configured silver table, with the hand-tightened rules."""
 
+import re
+
 import pytest
 
 from precursorintelligence.common.config import load_features_config, load_validation_config
 from precursorintelligence.harmonize.columns import load_silver_config
-from precursorintelligence.harmonize.normalize import POLARS_TYPES
+from precursorintelligence.harmonize.normalize import CCN_PATTERN, POLARS_TYPES
 from precursorintelligence.validation.schema import load_schema
 from precursorintelligence.validation.validate import pandera_schema
 
 CFG = load_validation_config()
 SILVER = CFG.layers["silver"].tables
+ALL = SILVER + CFG.layers["gold"].tables
 
 
 @pytest.mark.parametrize("table", SILVER)
@@ -19,10 +22,30 @@ def test_each_silver_table_has_a_loadable_baseline(table):
     pandera_schema(schema)  # every dtype and rule turns into a Pandera check
 
 
-@pytest.mark.parametrize("table", SILVER)
+@pytest.mark.parametrize("table", ALL)
 def test_ccn_is_six_character_text_everywhere(table):
     ccn = load_schema(CFG.schema_path(table)).columns["ccn"]
-    assert (ccn.dtype, ccn.nullable, ccn.str_length) == ("String", False, 6)
+    assert (ccn.dtype, ccn.nullable, ccn.pattern) == ("String", False, CCN_PATTERN)
+
+
+@pytest.mark.parametrize("table", ALL)
+def test_every_month_column_is_yyyy_mm(table):
+    columns = load_schema(CFG.schema_path(table)).columns
+    month = columns.get("vintage_month") or columns["t"]
+    assert month.pattern is not None
+    assert re.fullmatch(month.pattern, "2026-08") and not re.fullmatch(month.pattern, "2026/08")
+    assert not re.fullmatch(month.pattern, "2026-13")
+
+
+@pytest.mark.parametrize("table", SILVER)
+def test_silver_key_is_the_keep_columns_key(table):
+    schema = load_schema(CFG.schema_path(table))
+    assert schema.unique == list(load_silver_config().tables[table].key)
+
+
+@pytest.mark.parametrize("table", CFG.layers["gold"].tables)
+def test_gold_key_is_one_row_per_facility_and_month(table):
+    assert load_schema(CFG.schema_path(table)).unique == ["ccn", "t"]
 
 
 def test_severity_is_the_full_a_to_l_grid():
@@ -109,3 +132,17 @@ def test_values_gold_logic_depends_on_stay_hard_errors(table, column):
 )
 def test_free_cms_text_only_warns_on_a_new_value(table, column):
     assert load_schema(CFG.schema_path(table)).columns[column].allowed_severity == "warning"
+
+
+@pytest.mark.parametrize(
+    "table, column, good, bad",
+    [
+        ("provider_by_vintage", "state", "CA", "ca"),
+        ("citations_by_vintage", "ftag", "F0880", "F880"),
+        ("citations_by_vintage", "deficiency_tag", "0880", "880A"),
+        ("labels", "t", "2025-01", "2025-1"),
+    ],
+)
+def test_committed_patterns_accept_the_format_and_reject_a_near_miss(table, column, good, bad):
+    pattern = load_schema(CFG.schema_path(table)).columns[column].pattern
+    assert pattern and re.fullmatch(pattern, good) and not re.fullmatch(pattern, bad)

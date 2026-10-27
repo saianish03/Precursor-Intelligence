@@ -26,7 +26,7 @@ def labels_month(t, n=20, y=0, status="negative", split="train"):
 @pytest.mark.parametrize("table", CFG.layers["gold"].tables)
 def test_each_gold_table_has_a_baseline_with_six_character_ccns(table):
     schema = load_schema(CFG.schema_path(table))
-    assert schema.layer == "gold" and schema.columns["ccn"].str_length == 6
+    assert schema.layer == "gold" and schema.columns["ccn"].pattern == r"^[0-9A-Z]{6}$"
 
 
 def test_the_labels_baseline_lists_gold_s_split_and_status_values():

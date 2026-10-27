@@ -1,16 +1,18 @@
 # Baseline schema for silver/citations_by_vintage (precursor-pipeline validate).
-# Inferred by `validate --write-schema`; tighten by hand (allowed, min, max, str_length, nullable).
+# Inferred by `validate --write-schema`; tighten by hand (unique, allowed, min, max, str_length, pattern, nullable).
 table: citations_by_vintage
 layer: silver
 inferred_from: {first: 2021-01, last: 2026-08, months: 61}
-# Hand-tightened (marked `# hand`): CCN 6 characters, severity A-L, domain bounds instead of the largest value seen.
+# Hand-tightened (marked `# hand`): the key, CCN and month patterns, severity A-L, allowed values from the silver
+# configs, domain bounds instead of the largest value seen.
+unique: [ccn, survey_date, deficiency_prefix, deficiency_tag]  # hand: the key in configs/keep_columns.yaml
 columns:
-  ccn: {dtype: String, nullable: false, str_length: 6}  # hand: CCN is 6-character text
+  ccn: {dtype: String, nullable: false, pattern: '^[0-9A-Z]{6}$'}  # hand: CCN is 6-character text (harmonize/normalize.py CCN_PATTERN)
   survey_date: {dtype: Date, nullable: false}
   deficiency_prefix: {dtype: String, nullable: false, allowed: [F]}
   deficiency_category: {dtype: String, nullable: false, allowed: [Administration Deficiencies, Environmental Deficiencies, 'Freedom from Abuse, Neglect, and Exploitation Deficiencies', Infection Control Deficiencies, Nursing and Physician Services Deficiencies, Nutrition and Dietary Deficiencies, Pharmacy Service Deficiencies, Quality of Life and Care Deficiencies, Resident Assessment and Care Planning Deficiencies, Resident Rights Deficiencies]}
-  deficiency_tag: {dtype: String, nullable: false}
-  ftag: {dtype: String, nullable: false}
+  deficiency_tag: {dtype: String, nullable: false, pattern: '^[0-9]{4}$'}  # hand: harmonize/normalize.py TAG_PATTERN
+  ftag: {dtype: String, nullable: false, pattern: '^F[0-9]{4}$'}  # hand: prefix F + 4-digit tag
   scope_severity: {dtype: String, nullable: false, allowed: [A, B, C, D, E, F, G, H, I, J, K, L]}  # hand: CMS scope/severity grid A-L
   deficiency_corrected: {dtype: String, nullable: true, allowed: ['Deficient, Provider has date of correction', 'Deficient, Provider has no plan of correction', 'Deficient, Provider has plan of correction', No revisit needed, Past Non-Compliance, Waiver has been granted], allowed_severity: warning}  # hand: CMS adds values (No revisit needed, 2025-10); a new one is a warning
   correction_date: {dtype: Date, nullable: true}
@@ -21,5 +23,5 @@ columns:
   citation_under_idr: {dtype: Boolean, nullable: true}
   citation_under_iidr: {dtype: Boolean, nullable: true}
   survey_fn: {dtype: String, nullable: true, allowed: ['1', '10', '12', '18', '2', '20', '23', '24', '25', '26', '27', '29', '6', '9']}  # hand: codes = configs/features.yaml footnote_reasons; CMS sends it from 2026-09
-  vintage_month: {dtype: String, nullable: false, str_length: 7}  # hand: YYYY-MM
+  vintage_month: {dtype: String, nullable: false, pattern: '^\d{4}-(0[1-9]|1[0-2])$'}  # hand: YYYY-MM
   cutoff_date: {dtype: Date, nullable: false}
