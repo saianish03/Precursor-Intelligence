@@ -7,6 +7,7 @@
 | `STEP1_TODO.md` | Step 1 backlog |
 | `BRONZE_CONTRACT.md` | What the bronze node guarantees and what silver may assume: layout, columns, metadata tables, flags, exit codes, measured numbers |
 | `GOLD_HANDOFF.md` | Gold so far (spine, labels, `precursor-pipeline gold`) and what the features and assembly work must build: outputs, runs, toy world, leakage and join rules, open questions |
+| `VALIDATION.md` | `precursor-pipeline validate`: schema (Pandera) and month-over-month drift checks of silver and gold, outputs, exit codes, baselines, DAG wiring, follow-ups |
 | `STEP2_HANDOFF.md` | Step 2 profiling facts and reference drafts (`data/step2_reference/`) |
 | `adr/` | architecture decision records (`0001-monorepo.md`, …) |
 | `data/` | data dictionary notes, footnote codes, schema-change log |
