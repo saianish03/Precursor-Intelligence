@@ -20,5 +20,6 @@ columns:
   inspection_cycle: {dtype: Int64, nullable: false, min: 1, max: 3}
   citation_under_idr: {dtype: Boolean, nullable: true}
   citation_under_iidr: {dtype: Boolean, nullable: true}
+  survey_fn: {dtype: String, nullable: true}  # hand: in keep_columns.yaml; CMS sends it from 2026-09
   vintage_month: {dtype: String, nullable: false, str_length: 7}  # hand: YYYY-MM
   cutoff_date: {dtype: Date, nullable: false}

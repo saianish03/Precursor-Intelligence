@@ -19,6 +19,7 @@ columns:
   ccrc: {dtype: Boolean, nullable: false}
   special_focus_status: {dtype: String, nullable: false, allowed: [NONE, SFF, SFF_CANDIDATE]}
   abuse_icon: {dtype: Boolean, nullable: false}
+  high_performing_icon: {dtype: Boolean, nullable: true}  # hand: in keep_columns.yaml; CMS sends it from 2026-09
   most_recent_inspection_over_2y: {dtype: Boolean, nullable: false}
   changed_ownership_12m: {dtype: Boolean, nullable: false}
   resident_family_council: {dtype: String, nullable: false, allowed: [BOTH, FAMILY, NONE, RESIDENT]}
