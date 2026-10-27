@@ -9,6 +9,7 @@ import pytest
 from make_toy_silver import TOY_SPLITS, make_toy, no_gate_splits
 
 from precursorintelligence.common.config import (
+    ConfigError,
     load_labels_config,
     load_settings,
     load_splits_config,
@@ -443,6 +444,78 @@ def test_the_run_manifest_records_the_clis_exit_code_for_a_config_error(toy, mon
     (m,) = toy.manifests()
     assert m["exit_code"] == code and m["promoted"] is False and "ConfigError" in m["error"]
     assert RunLock(toy.meta, LOCK_NAME).holder() is None  # checked before the lock was taken
+
+
+def _config_error(*_a, **_k):
+    raise ConfigError("broken config")
+
+
+@pytest.mark.parametrize("loader", ["load_features_config", "load_silver_config"])
+def test_a_broken_feature_or_silver_config_stops_gold_before_the_lock(toy, monkeypatch, loader):
+    monkeypatch.setattr(build, loader, _config_error)
+    code = toy.gold(monkeypatch)
+    assert code == EXIT_CONFIG
+    (m,) = toy.manifests()
+    assert m["exit_code"] == code and m["promoted"] is False and "broken config" in m["error"]
+    assert RunLock(toy.meta, LOCK_NAME).holder() is None
+    assert not [
+        r for r in toy.meta.read("run_log") if r["task"] == "gold"
+    ]  # the step never started
+
+
+def test_an_unexpected_error_before_the_lock_is_still_recorded(toy, monkeypatch):
+    # e.g. a silver YAML syntax error, which load_silver_config does not wrap in ConfigError
+    def broken(*_a, **_k):
+        raise KeyError("raw")
+
+    monkeypatch.setattr(build, "load_silver_config", broken)
+    ctx = build_context(load_settings(env_path=toy.env_file))
+    with pytest.raises(KeyError):
+        run_gold(
+            ctx, labels_cfg=load_labels_config(), splits_cfg=load_splits_config(toy.splits_file)
+        )
+    (m,) = toy.manifests()
+    assert m["exit_code"] == EXIT_ERROR and "KeyError" in m["error"]
+    assert RunLock(toy.meta, LOCK_NAME).holder() is None
+
+
+def test_a_config_error_inside_the_run_is_recorded_as_exit_3(toy, monkeypatch):
+    # e.g. silver published a month between the pre-lock --v check and the run
+    monkeypatch.setattr(build, "label_vintage", _config_error)
+    assert toy.gold(monkeypatch) == EXIT_CONFIG
+    (m,) = toy.manifests()
+    assert m["exit_code"] == EXIT_CONFIG and "broken config" in m["error"]
+
+
+def test_a_g_plus_set_features_cannot_use_is_a_config_error_before_the_lock(toy):
+    labels_cfg = load_labels_config().model_copy(update={"gplus_severities": ["G", "J", "K", "L"]})
+    ctx = build_context(load_settings(env_path=toy.env_file))
+    with pytest.raises(ConfigError, match="every letter above it"):
+        run_gold(ctx, labels_cfg=labels_cfg, splits_cfg=load_splits_config(toy.root / TOY_SPLITS))
+    (m,) = toy.manifests()
+    assert m["exit_code"] == EXIT_CONFIG
+    assert RunLock(toy.meta, LOCK_NAME).holder() is None
+    assert not [
+        r for r in toy.meta.read("run_log") if r["task"] == "gold"
+    ]  # the step never started
+
+
+def test_features_and_labels_use_the_g_plus_set_of_the_run(toy):
+    # Only L is G+ here: features must agree with the labels, not with configs/labels.yaml (G-L).
+    labels_cfg = load_labels_config().model_copy(update={"gplus_severities": ["L"]})
+    ctx = build_context(load_settings(env_path=toy.env_file))
+    splits_cfg = load_splits_config(no_gate_splits(toy.root))  # few L citations: no gate
+    assert run_gold(ctx, labels_cfg=labels_cfg, splits_cfg=splits_cfg).exit_code == EXIT_OK
+    cit = pl.concat(
+        pl.read_parquet(p)
+        for p in sorted((toy.root / "gold").glob("features_citations/t=*/*.parquet"))
+    )
+    sev = cit.drop_nulls("max_sev_last_std")
+    assert sev.filter(pl.col("max_sev_last_std").is_between(7, 11)).height  # G-K: G+ by labels.yaml
+    assert sev["gplus_last_std"].to_list() == (sev["max_sev_last_std"] >= 12).to_list()
+    manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
+    assert manifest["config_sha256"]["labels.yaml"] == _settings_sha(labels_cfg)
+    assert manifest["config_sha256"]["labels.yaml"] != _settings_sha(load_labels_config())
 
 
 def test_the_run_manifest_records_every_labels_split_windows(toy, monkeypatch):

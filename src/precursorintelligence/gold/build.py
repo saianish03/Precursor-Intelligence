@@ -29,12 +29,18 @@ from typing import Any
 
 import polars as pl
 
-from ..common.config import ConfigError, LabelsConfig, SplitsConfig, load_features_config
+from ..common.config import (
+    ConfigError,
+    FeaturesConfig,
+    LabelsConfig,
+    SplitsConfig,
+    load_features_config,
+)
 from ..common.io.object_store import ObjectStore
 from ..common.io.run_lock import RunLock
 from ..common.io.table_sink import ParquetTableSink
 from ..common.obs.logging import log_context
-from ..harmonize.columns import load_silver_config
+from ..harmonize.columns import SilverConfig, load_silver_config
 from ..harmonize.silver import latest_bronze
 from ..harmonize.silver_pipeline import CHECK_NAME, partitions_without_current_silver
 from ..ingestion.context import Context
@@ -49,6 +55,7 @@ from ..ingestion.pipeline import (
 from . import GoldCheckError
 from .dataset import DATASET, MANIFEST_NAME, assemble, by_t, dataset_manifest
 from .features import FAMILIES, FAMILY_ORDER, build_family
+from .features.common import gplus_min_ordinal
 from .features.reader import FeatureReader
 from .labels import build_labels
 from .spine import build_spine
@@ -121,7 +128,7 @@ def check_v(published: list[str], requested: str, spine_start: str) -> None:
         raise ConfigError(f"--v {requested} is before spine_start {spine_start}")
 
 
-def stale_silver(ctx: Context, sink: ParquetTableSink) -> list[str]:
+def stale_silver(ctx: Context, sink: ParquetTableSink, silver_cfg: SilverConfig) -> list[str]:
     """Silver partitions not built from the current bronze and configs (SILVER_CONTRACT §3); [] = current.
 
     Stops (exit 2) when the metadata store has no bronze records, since then nothing can be checked.
@@ -131,7 +138,7 @@ def stale_silver(ctx: Context, sink: ParquetTableSink) -> list[str]:
             "the metadata database has no bronze_files rows, so gold cannot check that silver is current; "
             "point --env or --env-file at the metadata database that came with this silver"
         )
-    return partitions_without_current_silver(ctx, sink, load_silver_config())
+    return partitions_without_current_silver(ctx, sink, silver_cfg)
 
 
 def label_vintage(
@@ -171,13 +178,20 @@ def run_gold(
 ) -> GoldResult:
     """``own_lock=True``: take the run lock for this call (RunLockHeldError if another run holds it).
     ``own_lock=False`` (DAG task): the run must already hold it (RunLockNotHeldError otherwise).
-    Data and gate problems are returned (exit 2); a bad ``v`` or required label raises ConfigError (exit 3)
-    before the lock is taken, with a run manifest that records exit 3."""
+    Data and gate problems are returned (exit 2). A bad ``v``, required label, G+ set, ``features.yaml`` or
+    silver config raises ConfigError (exit 3) before the lock is taken, with a run manifest that records exit 3
+    (no run_log row, as in silver: the step never started)."""
     now = now or datetime.now(UTC)
     lock = RunLock(ctx.metadata, LOCK_NAME)
     with log_context(run_id=ctx.run_id, env=ctx.settings.env.env):
         try:
             check_required_labels(labels_cfg, splits_cfg)
+            # features use the run's G+ set, so features and labels never disagree on it
+            features_cfg = load_features_config().model_copy(
+                update={"gplus_severities": list(labels_cfg.gplus_severities)}
+            )
+            gplus_min_ordinal(features_cfg)  # refuses a G+ set features cannot test
+            silver_cfg = load_silver_config()
             published = published_vintages(ParquetTableSink(ctx.object_store, prefix="silver"))
             if v is not None and published:  # no silver at all is a data failure, inside the run
                 check_v(published, v, splits_cfg.spine_start)
@@ -187,6 +201,14 @@ def run_gold(
                 error=f"{type(exc).__name__}: {exc}", exit_code=EXIT_CONFIG,
             )  # fmt: skip
             raise
+        except (
+            Exception
+        ) as exc:  # e.g. a silver config the loader does not wrap: exit 1, still recorded
+            _write_manifest(
+                ctx, GoldResult(run_id=ctx.run_id), [], [], None, labels_cfg, splits_cfg, now,
+                error=f"{type(exc).__name__}: {exc}", exit_code=EXIT_ERROR,
+            )  # fmt: skip
+            raise
         if own_lock:
             acquired = lock.acquire(ctx.run_id, stale_after=ctx.settings.env.run_lock.stale_after)
         else:
@@ -194,7 +216,7 @@ def run_gold(
             acquired = False
         try:
             with task_scope(ctx, "gold") as detail:
-                result = _run(ctx, labels_cfg, splits_cfg, v, now)
+                result = _run(ctx, labels_cfg, splits_cfg, features_cfg, silver_cfg, v, now)
                 # run_log marks the step failed when n_failures is non-zero
                 detail.update(rows=result.rows, n_failures=len(result.failures))
                 return result
@@ -220,6 +242,8 @@ def _run(
     ctx: Context,
     labels_cfg: LabelsConfig,
     splits_cfg: SplitsConfig,
+    features_cfg: FeaturesConfig,
+    silver_cfg: SilverConfig,
     v: str | None,
     now: datetime,
 ) -> GoldResult:
@@ -231,7 +255,7 @@ def _run(
         sink = ParquetTableSink(ctx.object_store, prefix="silver")
         published = published_vintages(sink)
         result.v = resolve_v(published, v, splits_cfg.spine_start)
-        not_current = stale_silver(ctx, sink)
+        not_current = stale_silver(ctx, sink, silver_cfg)
         if not_current:
             raise GoldCheckError(
                 f"silver is not current for {len(not_current)} partitions (rerun silver): "
@@ -267,7 +291,6 @@ def _run(
             raise GoldCheckError("; ".join(problems) + " (spec §9.5, §14 #10)")
         # Features read silver only through the reader, which refuses anything after V (spec §8, §11.3).
         reader = FeatureReader.from_store(ctx.object_store, published=published, limit=result.v)
-        features_cfg = load_features_config()
         features = {
             f: build_family(f, reader, spine, features_cfg) for f in FAMILY_ORDER if f in FAMILIES
         }
@@ -298,10 +321,11 @@ def _run(
         result.promoted = True
     except GoldCheckError as exc:
         result.failures.append(str(exc))
-    except Exception as exc:  # an error (exit 1): record the run, then let it fail
+    except Exception as exc:  # record the run with the CLI's exit code (3 or 1), then let it fail
         result.manifest_key = _write_manifest(
             ctx, result, published, stale, not_current, labels_cfg, splits_cfg, now,
-            error=f"{type(exc).__name__}: {exc}", exit_code=EXIT_ERROR,
+            error=f"{type(exc).__name__}: {exc}",
+            exit_code=EXIT_CONFIG if isinstance(exc, ConfigError) else EXIT_ERROR,
         )  # fmt: skip
         raise
     result.manifest_key = _write_manifest(
