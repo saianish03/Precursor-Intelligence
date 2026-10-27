@@ -1,0 +1,153 @@
+schema: '2.0'
+stages:
+  toy_gold:
+    cmd: rm -rf data/toy && python tests/gold/make_toy_silver.py data/toy && 
+      precursor-pipeline gold --env-file data/toy/env.yaml --splits-config 
+      data/toy/splits.yaml
+    deps:
+    - path: configs/calibration.yaml
+      hash: md5
+      md5: 4ded3798a74beb60735d28e1cfebc2f3
+      size: 1631
+    - path: configs/column_map.yaml
+      hash: md5
+      md5: ce07ac67546e56f046dd96f3ed6c3189
+      size: 26941
+    - path: configs/feature_registry.yaml
+      hash: md5
+      md5: 7745db765ad63bdccabdab32bf3860ca
+      size: 20699
+    - path: configs/features.yaml
+      hash: md5
+      md5: 669bbe90752d1584cdf464de0bb7d3ba
+      size: 2410
+    - path: configs/ingestion/sources.yaml
+      hash: md5
+      md5: 9dd4d485c05075ce3b9d7673d5022afc
+      size: 4759
+    - path: configs/keep_columns.yaml
+      hash: md5
+      md5: fb9661ad175c929c92e1ec700610b78e
+      size: 3350
+    - path: configs/labels.yaml
+      hash: md5
+      md5: 505301d0451f0e1631a4baed1aa51a20
+      size: 1025
+    - path: configs/logging.yaml
+      hash: md5
+      md5: 9e23c8e1b1be1a0467fe43293b667350
+      size: 1117
+    - path: configs/splits.yaml
+      hash: md5
+      md5: dc5731c6345bd669ded49050604b23a1
+      size: 792
+    - path: configs/value_maps.yaml
+      hash: md5
+      md5: 464378339f3983d764a9af4eb0df89e7
+      size: 1718
+    - path: src/precursorintelligence/common
+      hash: md5
+      md5: 875507282baf7add38397a049f5bba1e.dir
+      size: 58496
+      nfiles: 11
+    - path: src/precursorintelligence/gold
+      hash: md5
+      md5: 2ba0c5e6c7b2ceade88bb07b0fa96378.dir
+      size: 73025
+      nfiles: 15
+    - path: src/precursorintelligence/harmonize
+      hash: md5
+      md5: 42558f7dec3ade79bee4c6c563e02f23.dir
+      size: 106956
+      nfiles: 18
+    - path: src/precursorintelligence/ingestion
+      hash: md5
+      md5: 63dcb8a0960d8e0c6f5c25b83876b3e7.dir
+      size: 115291
+      nfiles: 17
+    - path: tests/gold/make_toy_silver.py
+      hash: md5
+      md5: f9051ca7a8adc131d63a7d601bbc4dfa
+      size: 3931
+    - path: tests/gold/silver_fakes.py
+      hash: md5
+      md5: cce6e8817980973912e4bb75f00b7e1d
+      size: 28062
+    outs:
+    - path: data/toy/gold/dim_facility_latest
+      hash: md5
+      md5: 8911669abe4402cece5a5cb8217d409d.dir
+      size: 4567
+      nfiles: 1
+    - path: data/toy/gold/facility_month_dataset
+      hash: md5
+      md5: 1feceac07ee6bdd6d9d8525cde3b0ae8.dir
+      size: 995781
+      nfiles: 26
+    - path: data/toy/gold/features_citations
+      hash: md5
+      md5: e6acc98b82984fd8831287a8c47f93d1.dir
+      size: 277209
+      nfiles: 26
+    - path: data/toy/gold/features_context
+      hash: md5
+      md5: a5bfeeeb932a549a4f29a32dce8829da.dir
+      size: 78727
+      nfiles: 26
+    - path: data/toy/gold/features_enforcement
+      hash: md5
+      md5: 030b48e89c9c2a569158e51b4bf9bc62.dir
+      size: 86492
+      nfiles: 26
+    - path: data/toy/gold/features_facility_staffing
+      hash: md5
+      md5: 2f42092f09f5c4b4e66535c1a41dc3e3.dir
+      size: 440400
+      nfiles: 26
+    - path: data/toy/gold/features_survey_timing
+      hash: md5
+      md5: 33e19b06b68700b628d3d868c14b926d.dir
+      size: 109887
+      nfiles: 26
+    - path: data/toy/gold/labels
+      hash: md5
+      md5: 0ac5f2de7ef82ed254a6809de8fe8b13.dir
+      size: 4424
+      nfiles: 1
+    - path: data/toy/gold/spine
+      hash: md5
+      md5: efc1a4a6de9694cd682ddc2bd659a8bc.dir
+      size: 1570
+      nfiles: 1
+    - path: data/toy/silver
+      hash: md5
+      md5: b05e5b5da6819dd6b033cb4943996341.dir
+      size: 1312647
+      nfiles: 215
+  toy_summary:
+    cmd: python scripts/dvc_gold_summary.py data/toy/gold metrics/toy_gold.json
+    deps:
+    - path: data/toy/gold/facility_month_dataset
+      hash: md5
+      md5: 1feceac07ee6bdd6d9d8525cde3b0ae8.dir
+      size: 995781
+      nfiles: 26
+    - path: data/toy/gold/labels
+      hash: md5
+      md5: 0ac5f2de7ef82ed254a6809de8fe8b13.dir
+      size: 4424
+      nfiles: 1
+    - path: data/toy/gold/spine
+      hash: md5
+      md5: efc1a4a6de9694cd682ddc2bd659a8bc.dir
+      size: 1570
+      nfiles: 1
+    - path: scripts/dvc_gold_summary.py
+      hash: md5
+      md5: e3c997a0c95fb6938c84a0157664b7ea
+      size: 1416
+    outs:
+    - path: metrics/toy_gold.json
+      hash: md5
+      md5: d09b1700b8bc5e6670b26b2ccf03f997
+      size: 566
