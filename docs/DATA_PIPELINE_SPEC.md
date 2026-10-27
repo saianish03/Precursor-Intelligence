@@ -134,7 +134,7 @@ Every step in this file belongs to exactly one node. A node is an Airflow `TaskG
 
 **Shared between nodes:**
 - One `--run-id {{ run_id }}` for every task of a DAG run.
-- One run lock (`data_pipeline`): taken by the first **ingestion** task (`acquire_lock`), released by the last task (`release_lock`, `trigger_rule="all_done"`).
+- One run lock (`data_pipeline`): taken by the first **ingestion** task (`acquire_lock`), released by the last task (`release_lock`, an Airflow **teardown** of `acquire_lock`, not `trigger_rule="all_done"`; §15.1).
 - Exit codes: 0 ok, 1 error (retried), 2 data/validation failure and 3 config (**both fail without retry**, decision §14 #21; §15.4).
 
 The task list per node, run modes, exit codes and the DAG sketch are in **§15**, verified on the sample run.
@@ -269,7 +269,7 @@ Details: `docs/STEP1_DATA_INGESTION_PIPELINE.md`. Summary of the rules:
 3. `entries --pending` (last stdout line = JSON list)
 4. `step1 --steps extract,inventory --entry-ids <id>` (mapped, one per pending zip)
 5. `step1 --steps resolve,report`
-6. `lock release` (`all_done`)
+6. `lock release` (a teardown of `lock acquire`)
 
 All with `--run-id {{ run_id }}`.
 
@@ -844,6 +844,7 @@ The dataset counts as **frozen** only after a human approves this checkpoint. Th
 | 22 | Live CMS API in development and tests | **Decided:** allowed for read-only checks (the `network` tests, catalog and metastore reads). A real ingest of a new release (e.g. 2026-10-08) only when the user asks. | Unit tests stay offline (fake CMS) |
 | 10 | Spine start | **Decided 2026-10-15:** 2023-01. **Revisit:** with the measured buffers it leaves 3 training months for `y_g12` and 0 for `y_pen12` (§9.5). | Recommended: training rows from 2022-01; scoring and evaluation from 2023-01 |
 | 13 | Storage, metadata, warehouse, run lock, manifests | **Decided 2026-10-08** (D1–D11). **Metadata store amended 2026-10-16:** Postgres `precursor_meta` plus a BigQuery `meta` mirror and `status/latest.json`, no BigQuery adapter (D4, D8 and O2 in `STEP1_DATA_INGESTION_PIPELINE.md` §0 are superseded where they assume one) | §0.6, §15.3 |
+| 23 | Lock release in the DAG | **Decided 2026-10-21:** `release_lock` is an Airflow teardown of `acquire_lock`, not `trigger_rule="all_done"` and not `on_failure_fail_dagrun=True` (both made failed runs show `success`, measured); it retries twice | §15.1, §15.3, §15.5 |
 
 **Measured or changed by the sample run:**
 
@@ -894,10 +895,14 @@ check_release ──(short-circuit unless proceed)──▶ ┌ ingestion ──
                                                   │ extract_inventory[mapped per zip] → resolve_report ──(cms_nh_landing)
                                                   └────────────────────────────────────────────────────────────────┘
                      ──▶ bronze: load_bronze ──(cms_nh_bronze)──▶ silver: build_silver [+ calibrate] ──(cms_nh_silver)──▶
-                     ──▶ gold: build_gold (gate; publish) ──(cms_nh_gold)──▶ release_lock (trigger_rule=all_done, retries=0)
+                     ──▶ gold: build_gold (gate; publish) ──(cms_nh_gold)──▶ release_lock (teardown of acquire_lock, retries=2)
 ```
 
 - The `data_pipeline` lock is taken by the first ingestion task and released by the last task, also on failure. Every task in between `require`s it.
+- `release_lock` is an Airflow **teardown** of `acquire_lock` (`release.as_teardown(setups=acquire_lock)`, trigger rule `ALL_DONE_SETUP_SUCCESS`): it runs whenever the lock was taken, also after a failure or a `stop_after` skip, and not when `acquire_lock` failed (another run's lock).
+  - **Not `trigger_rule="all_done"`:** Airflow sets a run's state from its leaf tasks, so an always-successful `all_done` release at the end would make every failed run show `success` (measured on the local stack: a run with an exit-3 failure showed `success`).
+  - **Not `on_failure_fail_dagrun=True`** on the teardown either: that makes Airflow count it as a leaf again, with the same effect.
+  - Other end-of-run tasks that must run after a failure (e.g. `mirror_metadata`) are teardowns of `acquire_lock` too, placed before `release_lock`.
 - The ML DAGs (`train_evaluate`, `batch_score`, `monitor`) are scheduled on the `cms_nh_gold` asset, which is emitted only when gold publishes.
 
 ### 15.2 Every step belongs to exactly one node
@@ -924,8 +929,8 @@ check_release ──(short-circuit unless proceed)──▶ ┌ ingestion ──
 | bronze | `load_bronze` | `bronze --run-id R` | Refuses to start if any inventory row is `pending` (exit 2). Can later be mapped per (table, vintage). |
 | silver | `build_silver` | `silver --run-id R [--calibrate]` | `--calibrate` in backfill (Checkpoints 3–4); monthly runs read buffers and QMs from config |
 | gold | `build_gold` | `gold --run-id R` | Gate: any failed check → exit 2, nothing published. Emits `cms_nh_gold` only when published. |
-| — | `mirror_metadata` | `precursor-pipeline mirror-metadata --run-id R` | **Not built yet.** Copies the `precursor_meta` tables to BigQuery `meta` with a load job (seconds; a few thousand rows). `trigger_rule=all_done`, so a failed run is mirrored too; a failure here is retried but never blocks `release_lock`. |
-| — | `release_lock` | `precursor-ingest lock release --run-id R` | `trigger_rule=all_done`, `retries=0` |
+| — | `mirror_metadata` | `precursor-pipeline mirror-metadata --run-id R` | **Not built yet.** Copies the `precursor_meta` tables to BigQuery `meta` with a load job (seconds; a few thousand rows). A teardown of `acquire_lock` placed before `release_lock` (not `trigger_rule=all_done`, §15.1), so a failed run is mirrored too; a failure here is retried but never blocks `release_lock`. |
+| — | `release_lock` | `precursor-ingest lock release --run-id R` | teardown of `acquire_lock` (not `trigger_rule=all_done`, §15.1), `retries=2` (30 s apart; the release is owner-checked and idempotent) |
 
 ### 15.4 Run modes and what each node does (measured on the sample)
 | Situation | check_release | ingestion | bronze | silver | gold |
@@ -1005,13 +1010,14 @@ def cms_nh_pipeline():
                  "{{ '--calibrate' if params.calibrate or params.mode == 'backfill' else '--no-calibrate' }}",
                  outlets=[SILVER])
     gold = run("build_gold", "precursor-pipeline", "gold", outlets=[GOLD])
-    unlock = run("release_lock", "precursor-ingest", "lock", "release", trigger_rule="all_done", retries=0)
+    unlock = run("release_lock", "precursor-ingest", "lock", "release", retries=2,
+                 retry_delay=timedelta(seconds=30))   # a teardown, wired below
 
     g = gate()
     g >> check
     g >> lock
     proceed(check.output) >> lock >> fetch >> pending
-    per_zip >> resolve >> bronze >> silver >> gold >> unlock
+    per_zip >> resolve >> bronze >> silver >> gold >> unlock.as_teardown(setups=lock)  # not all_done: §15.1
 
 cms_nh_pipeline()
 ```

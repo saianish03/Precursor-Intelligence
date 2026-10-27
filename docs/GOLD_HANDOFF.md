@@ -351,7 +351,7 @@ raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module
 | 11 | Is `y_pen12` a model or only a comparison? | Team | Spec §14 |
 | 12 | `high_performing_icon` is never a feature (it is not in the column contract, so not built); footnote code 29 maps to `not_yet_confirmed` in `configs/features.yaml` | Partner | **Done.** `tests/leakage/test_gold_inputs.py` keeps the badge out of all gold code, features included |
 | 13 | Gold reports `n_failures` instead of `failed` to `run_log` | Sai | **Done** in #16, which gave every step a dedicated `n_failures` key |
-| 14 | Plug gold into the Airflow DAG's `TODO(gold)` slot in `dags/cms_nh_pipeline.py` on `feat/dp_airflow_v1`, once that branch merges | Sai | `precursor-pipeline gold --run-id R` |
+| 14 | Plug gold into the Airflow DAG's `TODO(gold)` slot in `dags/cms_nh_pipeline.py` | Sai | **Done** on `feat/dp_airflow_v1`: `gold.build_gold` runs `precursor-pipeline gold --run-id R`; verified end to end on real CMS data (`docs/runbooks/airflow-local.md` §8.2) |
 | 15 | Censoring uses only the facility's last vintage, so a facility with a long gap in its history is never censored across the gap (it matches the spec text literally) | Team | From the PR #9 review |
 | 16 | Pass a `LabelsConfig` into silver's lag analysis (`lag_analysis`, `last_labeled`, `fine_crosscheck`) instead of `g_plus()` / `horizons()` reading `labels.yaml` on every call | Sai / silver owner | PR #9 review, not blocking |
 | 17 | Move `VINTAGE_RANGE` (2021-01 → 2026-12, `gold/build.py`) into `configs/splits.yaml`, so the first 2027 vintage needs no code change | Sai | PR #9 review, not blocking |

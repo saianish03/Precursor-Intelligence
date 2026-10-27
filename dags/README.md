@@ -1,5 +1,10 @@
 # dags/: Airflow DAGs
 
-DAG files are **thin**: they schedule and trigger containerised jobs (the pipeline image) and hold no business logic. Helpers that DAGs need go in `utils/` and must not import heavy libraries. Integrity test: `tests/dags/test_dag_integrity.py`.
+DAG files are **thin**: they schedule containerised jobs (the `precursor-pipeline` image) and hold no business logic. Helpers go in `utils/` and must not import heavy libraries (the DAG processor imports them on every parse).
 
-**The data pipeline is one DAG, `cms_nh_pipeline`** (5 TaskGroups: check_release → ingestion → bronze → silver → gold; `docs/DATA_PIPELINE_SPEC.md` §15). The ingestion TaskGroup's task contract is in `docs/STEP1_DATA_INGESTION_PIPELINE.md` §12.6; its older standalone `ingest_vintage` DAG is superseded. Add the DAG here once the `precursor-pipeline` image exists, with `tests/dags` (import check + `PipelineDockerOperator` exit codes, §12.6).
+| File | What |
+|---|---|
+| `cms_nh_pipeline.py` | **The data pipeline, one DAG** (`docs/DATA_PIPELINE_SPEC.md` §15): TaskGroups `ingestion` → `bronze` → `silver` → `gold`, lock released by a teardown. `check_release` and `mirror_metadata` are TODO slots until those exist. |
+| `utils/pipeline_operator.py` | `PipelineDockerOperator` (exit 2/3 fail without retry; exit 1 retried) and `docker_kwargs()` (laptop vs VM, from the environment) |
+
+How it works: `docs/AIRFLOW_PIPELINE.md`. How to run it, locally and on the VM: `docs/runbooks/airflow-local.md`. Tests: `tests/dags/`, run inside the `precursor-airflow` image.

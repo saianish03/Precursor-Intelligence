@@ -1,0 +1,9 @@
+# Build context = repo root (docker build -f docker/pipeline.Dockerfile .). Only what the images copy is needed.
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!configs/
+src/**/__pycache__
+**/*.pyc
