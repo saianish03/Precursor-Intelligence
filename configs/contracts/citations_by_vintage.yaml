@@ -1,0 +1,24 @@
+# Baseline schema for silver/citations_by_vintage (precursor-pipeline validate).
+# Inferred by `validate --write-schema`; tighten by hand (allowed, min, max, str_length, nullable).
+table: citations_by_vintage
+layer: silver
+inferred_from: {first: 2021-01, last: 2026-08, months: 61}
+# Hand-tightened (marked `# hand`): CCN 6 characters, severity A-L, domain bounds instead of the largest value seen.
+columns:
+  ccn: {dtype: String, nullable: false, str_length: 6}  # hand: CCN is 6-character text
+  survey_date: {dtype: Date, nullable: false}
+  deficiency_prefix: {dtype: String, nullable: false, allowed: [F]}
+  deficiency_category: {dtype: String, nullable: false, allowed: [Administration Deficiencies, Environmental Deficiencies, 'Freedom from Abuse, Neglect, and Exploitation Deficiencies', Infection Control Deficiencies, Nursing and Physician Services Deficiencies, Nutrition and Dietary Deficiencies, Pharmacy Service Deficiencies, Quality of Life and Care Deficiencies, Resident Assessment and Care Planning Deficiencies, Resident Rights Deficiencies]}
+  deficiency_tag: {dtype: String, nullable: false}
+  ftag: {dtype: String, nullable: false}
+  scope_severity: {dtype: String, nullable: false, allowed: [A, B, C, D, E, F, G, H, I, J, K, L]}  # hand: CMS scope/severity grid A-L
+  deficiency_corrected: {dtype: String, nullable: true, allowed: ['Deficient, Provider has date of correction', 'Deficient, Provider has no plan of correction', 'Deficient, Provider has plan of correction', No revisit needed, Past Non-Compliance, Waiver has been granted]}
+  correction_date: {dtype: Date, nullable: true}
+  is_standard: {dtype: Boolean, nullable: false}
+  is_complaint: {dtype: Boolean, nullable: false}
+  is_infection_control: {dtype: Boolean, nullable: false}
+  inspection_cycle: {dtype: Int64, nullable: false, min: 1, max: 3}
+  citation_under_idr: {dtype: Boolean, nullable: true}
+  citation_under_iidr: {dtype: Boolean, nullable: true}
+  vintage_month: {dtype: String, nullable: false, str_length: 7}  # hand: YYYY-MM
+  cutoff_date: {dtype: Date, nullable: false}

@@ -1,0 +1,58 @@
+# Baseline schema for silver/provider_by_vintage (precursor-pipeline validate).
+# Inferred by `validate --write-schema`; tighten by hand (allowed, min, max, str_length, nullable).
+table: provider_by_vintage
+layer: silver
+inferred_from: {first: 2021-01, last: 2026-08, months: 61}
+# Hand-tightened (marked `# hand`): CCN 6 characters, severity A-L, domain bounds instead of the largest value seen.
+columns:
+  ccn: {dtype: String, nullable: false, str_length: 6}  # hand: CCN is 6-character text
+  state: {dtype: String, nullable: false, str_length: 2}  # hand: state code
+  county_name: {dtype: String, nullable: false}
+  ownership_type: {dtype: String, nullable: true, allowed: [For profit - Corporation, For profit - Individual, For profit - Limited Liability company, For profit - Partnership, Government - City, Government - City/county, Government - County, Government - Federal, Government - Hospital district, Government - State, Non profit - Church related, Non profit - Corporation, Non profit - Other]}
+  ownership_group: {dtype: String, nullable: true, allowed: [for_profit, government, non_profit]}
+  certified_beds: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  avg_residents_per_day: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  avg_residents_per_day_fn: {dtype: String, nullable: true, allowed: ['10']}
+  provider_type: {dtype: String, nullable: false, allowed: [Medicaid, Medicare, Medicare and Medicaid]}
+  provider_in_hospital: {dtype: Boolean, nullable: false}
+  date_first_approved: {dtype: Date, nullable: false}
+  ccrc: {dtype: Boolean, nullable: false}
+  special_focus_status: {dtype: String, nullable: false, allowed: [NONE, SFF, SFF_CANDIDATE]}
+  abuse_icon: {dtype: Boolean, nullable: false}
+  most_recent_inspection_over_2y: {dtype: Boolean, nullable: false}
+  changed_ownership_12m: {dtype: Boolean, nullable: false}
+  resident_family_council: {dtype: String, nullable: false, allowed: [BOTH, FAMILY, NONE, RESIDENT]}
+  sprinkler_status: {dtype: String, nullable: true, allowed: [PARTIAL, 'YES']}
+  sprinkler_status_not_available: {dtype: Boolean, nullable: false}
+  overall_rating: {dtype: Float64, nullable: true, min: 1.0, max: 5.0}
+  overall_rating_fn: {dtype: String, nullable: true, allowed: ['1', '18']}
+  health_inspection_rating: {dtype: Float64, nullable: true, min: 1.0, max: 5.0}
+  health_inspection_rating_fn: {dtype: String, nullable: true, allowed: ['1', '18']}
+  qm_rating: {dtype: Float64, nullable: true, min: 1.0, max: 5.0}
+  qm_rating_fn: {dtype: String, nullable: true, allowed: ['1', '18', '2', '20']}
+  staffing_rating: {dtype: Float64, nullable: true, min: 1.0, max: 5.0}
+  staffing_rating_fn: {dtype: String, nullable: true, allowed: ['1', '12', '18', '2', '23', '24', '25']}
+  reported_staffing_fn: {dtype: String, nullable: true, allowed: ['23', '25', '6']}
+  pt_staffing_fn: {dtype: String, nullable: true, allowed: ['23', '6']}
+  hprd_aide: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_lpn: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_rn: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_licensed: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_total: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_weekend_total: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_weekend_rn: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  hprd_pt: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  adj_hprd_aide: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  adj_hprd_lpn: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  adj_hprd_rn: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  adj_hprd_total: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  turnover_total: {dtype: Float64, nullable: true, min: 0.0, max: 100.0}
+  turnover_total_fn: {dtype: String, nullable: true, allowed: ['26', '27', '6']}
+  turnover_rn: {dtype: Float64, nullable: true, min: 0.0, max: 100.0}
+  turnover_rn_fn: {dtype: String, nullable: true, allowed: ['26', '27', '6']}
+  admin_departures: {dtype: Float64, nullable: true, min: 0.0}  # hand: >= 0, no upper bound
+  admin_departures_fn: {dtype: String, nullable: true, allowed: ['26', '27', '6']}
+  chain_id: {dtype: String, nullable: true}
+  chain_name: {dtype: String, nullable: true}
+  vintage_month: {dtype: String, nullable: false, str_length: 7}  # hand: YYYY-MM
+  cutoff_date: {dtype: Date, nullable: false}

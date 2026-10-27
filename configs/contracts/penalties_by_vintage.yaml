@@ -1,0 +1,18 @@
+# Baseline schema for silver/penalties_by_vintage (precursor-pipeline validate).
+# Inferred by `validate --write-schema`; tighten by hand (allowed, min, max, str_length, nullable).
+table: penalties_by_vintage
+layer: silver
+inferred_from: {first: 2021-01, last: 2026-08, months: 61}
+# Hand-tightened (marked `# hand`): CCN 6 characters, severity A-L, domain bounds instead of the largest value seen.
+columns:
+  ccn: {dtype: String, nullable: false, str_length: 6}  # hand: CCN is 6-character text
+  penalty_date: {dtype: Date, nullable: false}
+  penalty_type: {dtype: String, nullable: false, allowed: [Fine, Payment Denial]}
+  fine_amount: {dtype: Float64, nullable: true, min: 0.0}  # hand: no upper bound
+  payment_denial_start_date: {dtype: Date, nullable: true}
+  payment_denial_length_days: {dtype: Float64, nullable: true}  # hand: CMS data has negative lengths; no range
+  fine_id: {dtype: String, nullable: true}
+  dup_seq: {dtype: Int64, nullable: false, min: 1}  # hand: no upper bound
+  penalty_event_key: {dtype: String, nullable: false}
+  vintage_month: {dtype: String, nullable: false, str_length: 7}  # hand: YYYY-MM
+  cutoff_date: {dtype: Date, nullable: false}
