@@ -3,7 +3,7 @@
 - **What this covers:** how the CMS data pipeline runs as one Airflow DAG, what each task does, how the run lock and the exit codes work, what the metadata database holds (its schema), and where logs and run artifacts go.
 - **How to run it** on a laptop or on GCP: [`runbooks/airflow-local.md`](runbooks/airflow-local.md).
 - **Rules behind it:** `DATA_PIPELINE_SPEC.md` §15 (one DAG, five nodes) and §0.6–0.7 (storage and metadata).
-- **Status (2026-10-21):** ingestion → bronze → silver implemented and run end to end on real CMS data (runbook §8). `check_release` and `gold` are TODO slots in the DAG.
+- **Status (2026-10-27):** ingestion → bronze → silver → gold implemented and run end to end on real CMS data, from download to a published gold dataset (runbook §8.2). `check_release` and `mirror_metadata` are TODO slots in the DAG.
 
 ---
 
@@ -22,7 +22,7 @@ you / @daily -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080     
                                                       │  the scheduler asks docker-proxy to start one container per task
                                                       v
                 ┌─ precursor-pipeline container (one per task) ──────────────────────────────────────┐
-                │ runs one command:  precursor-ingest ...  or  precursor-pipeline bronze|silver ...  │
+                │ runs one command:  precursor-ingest ...  or  precursor-pipeline bronze|silver|gold │
                 │ files      laptop: a host folder mounted at /app/data                              │
                 │            GCP:    gs://precursor-intel-mlops-data                                 │
                 │ metadata   Postgres precursor_meta (PI_DATABASE_URL)                               │
@@ -68,9 +68,15 @@ you / @daily -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080     
 ┌─ silver ─────────────────────────────────────────────────────┐
 │ build_silver                         => asset cms_nh_silver  │
 └──────────────────────────────────────────────────────────────┘
+       |  continue_after_silver      (skips gold if stop_after=silver)
+       v
+┌─ gold ───────────────────────────────────────────────────────┐
+│ build_gold                           => asset cms_nh_gold    │
+│   (emitted only when gold was published)                     │
+└──────────────────────────────────────────────────────────────┘
        |
        v
-[gold]            TODO (spec §7-§11)
+[mirror_metadata] TODO (spec §15.3)
        |
        v
 release_lock      teardown of acquire_lock: runs whenever the lock was taken (§3)
@@ -86,6 +92,7 @@ release_lock      teardown of acquire_lock: runs whenever the lock was taken (§
 | `ingestion.resolve_report` | `precursor-ingest step1 --steps resolve,report` | Picks one file per (table, month), lists gaps and anomalies, writes the Checkpoint 1 report and the run manifest. `none_failed`, so it also runs when nothing was pending |
 | `bronze.load_bronze` | `precursor-pipeline bronze` | Lossless all-text Parquet per selected file; reconciles against the inventory; content hash, `stale_refresh`, `revised_after_publication` |
 | `silver.build_silver` | `precursor-pipeline silver --calibrate\|--no-calibrate` | Typed per-vintage tables, ledgers, universe, QM inventory; Checkpoint 2 report (with calibration also Checkpoints 3–4) |
+| `gold.build_gold` | `precursor-pipeline gold` | Spine, labels and splits, 5 feature families and `facility_month_dataset`, built in `gold/_staging/run=<id>/`, checked, then promoted to `gold/` with `_current.json` and `dataset_manifest.json`. A failed check or the training gate (`configs/splits.yaml: required_labels`) exits 2: nothing is published and the run fails without a retry |
 | `continue_after_*` | (Python) | `stop_after` short-circuit: skip the next node |
 | `release_lock` | `precursor-ingest lock release` | Releases the lock (§3) |
 
@@ -95,7 +102,7 @@ release_lock      teardown of acquire_lock: runs whenever the lock was taken (§
 |---|---|---|
 | `mode` | `monthly` | `backfill` also runs silver's calibration (lag and QM proposals) |
 | `calibrate` | `false` | calibration in a monthly run |
-| `stop_after` | `null` | `ingestion` or `bronze`: run up to that node (the first backfill, checked node by node) |
+| `stop_after` | `null` | `ingestion`, `bronze` or `silver`: run up to that node (the first backfill, checked node by node) |
 | `entry_ids` | `""` | development only: ingest just these catalog entries (comma-separated). Empty = every in-scope zip |
 
 **Schedule:** `PI_DAG_SCHEDULE`. Production polls CMS once a day (CMS sends no notification); a laptop uses manual runs only. `max_active_runs=1`, `catchup=False`.
@@ -123,7 +130,7 @@ release_lock      teardown of acquire_lock: runs whenever the lock was taken (§
   - Run E: `discover_download` failed with exit 3 and all downstream tasks were `upstream_failed`, yet the run showed `success`.
   - Run B (silver exit 2) did the same.
   - No alert would ever fire.
-- **As a teardown** (`release.as_teardown(setups=acquire)`), Airflow leaves it out of the leaves. The leaf becomes `build_silver`, so a failure anywhere upstream makes the run `failed`, while the release still runs (`ALL_DONE_SETUP_SUCCESS`). Runs E2 and E4: `failed`, lock released.
+- **As a teardown** (`release.as_teardown(setups=acquire)`), Airflow leaves it out of the leaves. The leaf becomes the last node's task (`build_silver` then, `build_gold` now; `tests/dags` checks it is the only leaf), so a failure anywhere upstream makes the run `failed`, while the release still runs (`ALL_DONE_SETUP_SUCCESS`). Runs E2 and E4: `failed`, lock released.
 - **Not with `on_failure_fail_dagrun=True`** either. That flag (meant to fail the run when the teardown fails) makes Airflow count the teardown as a leaf again, so its success hid the failure once more (run E3).
 - **What covers a release that fails:** 2 retries, and the next run's `acquire_lock` failing loudly (or taking over the lock after 12 h).
 
@@ -269,3 +276,60 @@ It would work on a demo day. The table lists what this implementation does inste
 | `docker/airflow-local/docker-compose.yaml`, `init-db.sh`, `.env.example` | the stack |
 | `tests/dags/` | DAG integrity and exit-code tests (run in the airflow image) |
 | `docs/runbooks/airflow-local.md` | how to build, run, inspect and clean up; laptop and GCP; verified results |
+
+## 9. Open follow-ups (infra review of the gold wiring, 2026-10-26)
+
+None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraform, operator policy), so they are recorded here for whoever picks them up.
+
+### 9.1 Gold's peak memory on the full archive
+- **What:** gold holds several copies of the dataset at once:
+  - the silver inputs;
+  - the feature frames and the assembled dataset;
+  - per-month copies;
+  - the staged Parquet bytes;
+  - a re-read of every staged file for its checks (`gold/build.py`, `_run` and `_stage`).
+- **Why it matters:** on the full archive (spine 2023-01 → 2026-09, ≈ 590k rows; ≈ 755k with a 2022-01 start, spec §14 #10) the review estimates a 4–5 GB peak. The VM has 8 GB, the Airflow services and Postgres use about 2–2.5 GB, and `PI_TASK_MEM_LIMIT` is 6g. The VM itself could run out of memory before the container limit stops the task.
+- **Measured locally (runbook §8.2):** gold peaked at **1.95–2.17 GB** for 207k–237k rows (sampled every 2 s, so short spikes can be missed). Scaled linearly to the full archive's ≈ 590k rows, that is **≈ 5 GB**, above the ~4 GB comfort line, so this fix is needed before the first full-archive run on the VM.
+- **Fix, if the full-archive peak is above ~4 GB:**
+  1. In `_stage`, check each staged file right after writing it, instead of re-reading all of them at the end.
+  2. Drop `silver` after the labels are built, and the feature frames after `assemble`.
+  3. Otherwise, lower `PI_TASK_MEM_LIMIT` to about 5g.
+- **Owner:** gold.
+
+### 9.2 Every daily run rewrites gold, and nothing cleans up
+- **What:**
+  - Bronze and silver skip unchanged work; gold rebuilds and re-publishes the whole dataset on every successful run.
+  - Until `check_release` exists, that means every day.
+  - Each run also leaves `gold/_staging/run=<id>/`.
+  - The prod bucket has object versioning, so each overwrite of `gold/*` keeps the old version.
+  - The only lifecycle rule is for `quarantine/` (`infra/terraform/modules/gcs/main.tf`).
+- **Why it matters:** about 0.3–0.4 GB of extra storage a day, ≈ 10 GB more every month. Cheap at first (cents), but it grows for as long as the pipeline runs.
+- **Fix:**
+  1. Lifecycle rules: delete `gold/_staging/` after 14 days, and keep at most 3 noncurrent versions (or 30 days) under `gold/`.
+  2. In gold, skip the publish when the staged sha256s equal those in `gold/_current.json`. A rerun with nothing new then writes nothing, as in bronze and silver.
+  3. `check_release` (spec §2.0) stops most of these runs before they start.
+- **Owner:** gold + Terraform.
+
+### 9.3 Commit recorded in the gold manifest
+- **What:** the image passes the commit to gold through `PI_GIT_COMMIT` (fixed in this branch; before, every container-built manifest had `git_commit: null`).
+- **Remaining:**
+  - **The default.** The Dockerfile's default is `PI_GIT_SHA=unknown`, so an image built without the build arg records `"unknown"` as the commit.
+  - **SHA format.** Build with the **full** SHA (`--build-arg PI_GIT_SHA=$(git rev-parse HEAD)`), so container and laptop runs record the same 40-character format. MLflow logs the full commit too.
+  - **Dirty state.** An image built from a working tree with uncommitted changes still records `git_dirty: null`.
+- **Fix:**
+  - default the build arg to empty, and treat an empty value as unknown (`os.environ.get(...) or None` in `gold/dataset.py` and `ingestion/report.py`);
+  - optionally pass a `PI_GIT_DIRTY` build arg.
+- **Owner:** pipeline image + gold.
+
+### 9.4 Operator and scheduling notes
+- **Out of memory is retried.**
+  - **What:** a container killed for running out of memory exits 137, which the operator treats like exit 1. So it is retried twice, 5 minutes apart.
+  - **Why it matters:** a retry rarely helps, and the run stays busy for about 15 more minutes.
+  - **Fix:** treat 137 as no-retry, or at least alert on it (ticket 2).
+- **No timeout on `build_gold`.**
+  - **Why it matters:** a hanging or swapping gold run holds the lock, and with `max_active_runs=1` the next daily runs queue behind it.
+  - **Fix:** about 2 h, once a full-archive gold duration has been measured.
+- **`cms_nh_gold` means published, not verified.**
+  - **What:** the asset is emitted on every successful gold run, even when nothing changed. Gold stays `verified: false` until the spec §11 verification gate exists.
+  - **Fix:** any DAG triggered by this asset (training) must check `gold/_current.json` (`verified`, `dataset_version`) first.
+- **Two variables carry the commit:** `PI_GIT_SHA` (ingestion report) and `PI_GIT_COMMIT` (gold). That's fine as a bridge; unify later.

@@ -4,7 +4,7 @@ DAG files are **thin**: they schedule containerised jobs (the `precursor-pipelin
 
 | File | What |
 |---|---|
-| `cms_nh_pipeline.py` | **The data pipeline, one DAG** (`docs/DATA_PIPELINE_SPEC.md` §15): TaskGroups `ingestion` → `bronze` → `silver`, lock released by a teardown. `check_release` and `gold` are TODO slots until those nodes exist. |
+| `cms_nh_pipeline.py` | **The data pipeline, one DAG** (`docs/DATA_PIPELINE_SPEC.md` §15): TaskGroups `ingestion` → `bronze` → `silver` → `gold`, lock released by a teardown. `check_release` and `mirror_metadata` are TODO slots until those exist. |
 | `utils/pipeline_operator.py` | `PipelineDockerOperator` (exit 2/3 fail without retry; exit 1 retried) and `docker_kwargs()` (laptop vs VM, from the environment) |
 
 How it works: `docs/AIRFLOW_PIPELINE.md`. How to run it, locally and on the VM: `docs/runbooks/airflow-local.md`. Tests: `tests/dags/`, run inside the `precursor-airflow` image.

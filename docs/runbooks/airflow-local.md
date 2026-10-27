@@ -2,7 +2,7 @@
 
 How it works (DAG, tasks, lock, exit codes, metadata DB schema): [`../AIRFLOW_PIPELINE.md`](../AIRFLOW_PIPELINE.md). This page is the how-to.
 
-One DAG, `cms_nh_pipeline` (spec §15), runs the implemented nodes **ingestion → bronze → silver**. Every task is one CLI command in a `precursor-pipeline` container. The same compose file, images and DAG run on a laptop and on the VM; only `docker/airflow-local/.env` differs.
+One DAG, `cms_nh_pipeline` (spec §15), runs the implemented nodes **ingestion → bronze → silver → gold**. Every task is one CLI command in a `precursor-pipeline` container. The same compose file, images and DAG run on a laptop and on the VM; only `docker/airflow-local/.env` differs.
 
 ```
 docker compose (docker/airflow-local/)
@@ -18,7 +18,7 @@ DAG task → PipelineDockerOperator → precursor-pipeline container on the comp
 
 ## 1. Build the images (from the repo root)
 ```bash
-docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse --short HEAD) -t precursor-pipeline:latest .
+docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) -t precursor-pipeline:latest .   # full SHA: gold's manifest records it
 docker build -f docker/airflow.Dockerfile -t precursor-airflow:latest .
 ```
 Rebuild `precursor-pipeline` after any change to `src/` or `configs/`; a task runs whatever the image holds. The DAGs are mounted, so a DAG edit needs no rebuild.
@@ -45,7 +45,7 @@ docker compose exec airflow-scheduler airflow dags trigger cms_nh_pipeline --run
 |---|---|---|
 | `mode` | `monthly` | `backfill` also runs silver's calibration tasks (Checkpoints 3–4) |
 | `calibrate` | `false` | calibration in a monthly run |
-| `stop_after` | `null` | `ingestion` or `bronze`: skip the later nodes (first backfill, node by node) |
+| `stop_after` | `null` | `ingestion`, `bronze` or `silver`: skip the later nodes (first backfill, node by node) |
 | `entry_ids` | `""` | **development only:** ingest just these catalog entries. Empty = every in-scope zip. List them with `precursor-ingest catalog`. Ids are `theme:<zip date>:<zip name>` or `current:<date>:theme_nursing-homes_current.zip` |
 
 - **Exit codes:** 1 is retried (2 × 5 min); 2 (data or validation) and 3 (config or wiring) fail at once (`PipelineDockerOperator`).
@@ -63,7 +63,7 @@ docker compose exec postgres psql -U airflow -d precursor_meta -c "select status
 - **Task logs:** in the UI, or `/opt/airflow/logs/dag_id=cms_nh_pipeline/run_id=…/task_id=…/attempt=N.log` inside the scheduler container.
 - **Pipeline logs:** each task also ships its own JSON log to `reports/<node>/run=<id>/logs/`.
 - **Outputs** (under `PI_HOST_DATA_DIR`):
-  - `landing/`, `bronze/`, `silver/`, and `gold/dim_facility_latest`;
+  - `landing/`, `bronze/`, `silver/`, and `gold/` (`_current.json`, `dataset_manifest.json`, `spine`, `labels`, `features_<family>/t=…`, `facility_month_dataset/t=…`, and silver's `dim_facility_latest`);
   - `reports/step1`, `step2`, `step4`, `step5` (Checkpoints 1–4);
   - `metadata/<layer>/run_date=…/` (per-run manifests).
 - **Postgres from the host:** `127.0.0.1:${PI_POSTGRES_HOST_PORT}`.
@@ -106,7 +106,9 @@ rm -rf "$PI_HOST_DATA_DIR"     # the local bucket (landing files are chmod 444: 
   docker run --rm --network pi-airflow-tasks -e PI_DATABASE_URL=… precursor-pipeline:latest precursor-ingest lock status
   ```
 
-## 8. Verified locally (2026-10-21, real CMS downloads, 18 zips, 15 vintages)
+## 8. Verified locally
+
+### 8.1 Ingestion → silver (2026-10-21, real CMS downloads, 18 zips, 15 vintages)
 | Run | Input | Result |
 |---|---|---|
 | A backfill | 14 zips (2021-07 → 2026-07) | 3.1 min. 14 downloaded; 91 files selected (13 × 7) and 7 `duplicate_vintage` (October). cp1252 only before 2023-05; blank rows only before 2024-07. `stale_refresh` only for 2025-09. 104 silver partitions plus ledgers, universe, QM inventory and Checkpoint 2–4 reports |
@@ -121,3 +123,32 @@ rm -rf "$PI_HOST_DATA_DIR"     # the local bucket (landing files are chmod 444: 
 | H (from the repo branch) | + 2022-01-27 | committed code and branch-built images: 1 downloaded and 19 skipped; 1 mapped task; bronze 7; silver 8; 63 s; 17 vintages in total |
 
 Disk: about 4.4 GB of data (4.2 GB extracted CSVs), plus images (pipeline about 0.9 GB, airflow about 2.2 GB).
+
+### 8.2 Download → gold (2026-10-27, real CMS downloads, 23 zips, 20 vintages)
+- **Setup:** clean slate (new `.env` from `.env.example`, empty data folder, fresh databases); images built from the branch (`bd1e68b`); production configs (`configs/splits.yaml`, `required_labels: [g12, g6]`).
+- **Sample:** the 8.1 sample plus 2023-01 (`spine_start`, the first training month), 2023-09 and 2024-09 (calibration months). At V = 2026-09, every split of every label is non-empty.
+- **Checks after each run:** Airflow task states and tries, `precursor_meta`, the asset events, and every gold file against silver:
+  - spine = silver's facility universe for t ≥ 2023-01;
+  - every feature and dataset partition holds exactly the spine's rows of its month;
+  - split months match the windows computed by hand;
+  - `score` rows = `immature` rows;
+  - Δ features are null exactly where t−6 / t−12 is unpublished.
+
+| Run | Input | Result |
+|---|---|---|
+| A backfill | 14 zips (2021-07 → 2025-09) | 107 s, run **failed** as intended. Ingestion, bronze (91 loaded) and silver (91 built, plus calibration reports) green. **Gold exit 2 on its first try, not retried:** V = 2025-09 is `stale_refresh`, so labels are measured from 2025-07, and g12's training window ends before `spine_start` (*"no training month for the required labels g12"*). Nothing published, no `cms_nh_gold` event, lock released, run manifest with exit 2 |
+| B monthly | + 2025-10, 2025-12, 2026-02, 2026-06, 2026-07 | 74 s. 5 downloaded and 14 skipped; bronze and silver 35 built, 91 skipped. **Gold published** at V = 2026-07 in 9 s: 207,368 rows × 14 months, 5 feature families + the dataset (107 columns). Base rates y_g12 26.7%, y_g6 15.2% (full archive: 27.0%, 15.4%). Manifest `git_commit` = the image's full SHA |
+| C monthly | + 2026-08-06, 2026-08-26, 2026-10-08 current | 54 s. 2026-07 Provider Info **reloaded + `revised_after_publication`**; 2026-08 and 2026-09 (current zip) added; silver 15 built, 125 skipped. Gold republished at V = 2026-09: 236,748 rows × 16 months, all 5 splits non-empty for g12, g6 and pen12 |
+| D monthly | + 2026-10-08 archive | 54 s. Archive beats current: 2026-09 bronze reloaded (7), silver 7 rebuilt; the gold manifest's 2026-09 sources point at the archive zip. Same content, so all 98 gold files are byte-identical to C's (same `dataset_version`) |
+| E rerun | same as D | 56 s. 23 zips skipped, 0 mapped tasks; bronze and silver skipped all 140 (307 Parquet files byte-identical); gold rebuilt **byte-identical** (98/98 sha256) |
+| F | `stop_after=silver` | 37 s, run success: `build_gold` skipped, lock released, `gold/_current.json` unchanged |
+| G negative | a bogus entry id | 19 s, run **failed**: `discover_download` exit 3, not retried; every later task `upstream_failed`, gold included; lock released; gold unchanged |
+
+**Peak memory per task** (`docker stats` every 2 s):
+- gold: 1.95–2.17 GB;
+- bronze: 2.28 GB (backfill);
+- silver: 1.2–1.7 GB.
+
+Gold's peak scales with rows; on the full archive, see `../AIRFLOW_PIPELINE.md` §9.1.
+
+**Disk:** about 7.3 GB of data, of which 287 MB is gold.

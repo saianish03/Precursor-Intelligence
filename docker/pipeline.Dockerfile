@@ -1,7 +1,7 @@
 # precursor-pipeline: the image every data-pipeline DAG task runs, one CLI command per container
 # (`precursor-ingest …`, `precursor-pipeline bronze|silver|gold …`). Same image locally and on the VM.
 #
-#   docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse --short HEAD) \
+#   docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) \
 #     -t precursor-pipeline:<tag> .
 FROM python:3.12.12-slim-bookworm
 
