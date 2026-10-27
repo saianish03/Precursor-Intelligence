@@ -4,12 +4,13 @@ statistics (warnings)."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from fnmatch import fnmatch
 from typing import Any
 
 import pandera.polars as pa
 import polars as pl
 
-from ..common.config import ConfigError
+from ..common.config import ConfigError, DriftConfig
 from .schema import ColumnRule, TableSchema
 
 ERROR, WARNING = "error", "warning"
@@ -135,4 +136,42 @@ def check_schema(df: pl.DataFrame, schema: TableSchema, *, month: str) -> list[A
                 schema.table, month, check, ERROR, column, observed, _expected(check, rule), detail
             )
         )
+    return out
+
+
+def check_drift(
+    stats: dict[str, Any], prev: dict[str, Any], cfg: DriftConfig, *, table: str
+) -> list[Anomaly]:
+    """This month's stats against the previous month's (both from stats.table_stats). All are warnings."""
+    month, out = stats["month"], []
+    rows, prev_rows = stats["row_count"], prev["row_count"]
+    if prev_rows:
+        change = 100 * (rows - prev_rows) / prev_rows
+        if abs(change) > cfg.row_count_change_pct:
+            out.append(
+                Anomaly(table, month, "row_count_change", WARNING, None, rows, prev_rows,
+                        f"{rows} rows vs {prev_rows} in {prev['month']} ({change:+.1f}%, "
+                        f"limit {cfg.row_count_change_pct}%)")
+            )  # fmt: skip
+    for name, col in stats["columns"].items():
+        before = prev["columns"].get(name)
+        if before is None or any(fnmatch(name, p) for p in cfg.skip_columns):
+            continue
+        jump = col["null_pct"] - before["null_pct"]
+        if jump > cfg.null_rate_jump_pts:
+            out.append(
+                Anomaly(table, month, "null_rate_jump", WARNING, name, col["null_pct"], before["null_pct"],
+                        f"{name} null {col['null_pct']:.2f}% vs {before['null_pct']:.2f}% "
+                        f"(+{jump:.2f} points, limit {cfg.null_rate_jump_pts})")
+            )  # fmt: skip
+        mean, prev_mean, prev_std = col.get("mean"), before.get("mean"), before.get("std")
+        if mean is None or prev_mean is None or not prev_std:
+            continue
+        shift = abs(mean - prev_mean) / prev_std
+        if shift > cfg.mean_shift_std:
+            out.append(
+                Anomaly(table, month, "mean_shift", WARNING, name, mean, prev_mean,
+                        f"{name} mean {mean:.4g} vs {prev_mean:.4g} ({shift:.2f} previous std, "
+                        f"limit {cfg.mean_shift_std})")
+            )  # fmt: skip
     return out
