@@ -47,6 +47,19 @@ def test_bronze_loads_every_file_step1_selected(landed):
         assert part["CMS Certification Number (CCN)"].to_list() == ["000000", "000001", "000002"]
 
 
+def test_each_node_writes_only_its_own_folders(landed):
+    """On GCS every layer must stay in its own prefix of the one bucket (memory:// is the gcsfs adapter)."""
+    store = landed.object_store
+    step1 = set(store.list(""))
+    assert {k.split("/")[0] for k in step1} == {"landing", "reports", "metadata"}
+    assert [
+        k for k in step1 if not k.startswith(("landing/", "reports/step1/", "metadata/ingestion/"))
+    ] == []
+    run_bronze(landed)
+    bronze = set(store.list("")) - step1
+    assert bronze and [k for k in bronze if not k.startswith(("bronze/", "metadata/bronze/"))] == []
+
+
 def test_the_stale_month_is_the_one_whose_event_tables_repeat_the_previous_release(landed):
     result = run_bronze(landed)
     # The fake archive repeats the same data every month (only Processing Date moves).
