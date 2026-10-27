@@ -68,3 +68,20 @@ def test_skipped_columns_never_drift():
 def test_a_new_column_has_nothing_to_compare_to():
     df = citations(n=40).with_columns(pl.lit(None, pl.Float64).alias("new_col"))
     assert drift(citations(n=40), df) == []
+
+
+def test_a_downward_mean_shift_is_a_warning():
+    df = citations(n=40).with_columns(pl.col("inspection_cycle") - 1)
+    (a,) = drift(citations(n=40), df)
+    assert (a.check, a.column) == ("mean_shift", "inspection_cycle")
+    assert a.observed == a.expected - 1
+
+
+def test_a_row_change_of_exactly_the_limit_is_clean():
+    assert drift(citations(n=40), citations(n=44)) == []  # +10%, limit 10%
+    assert [a.check for a in drift(citations(n=40), citations(n=45))] == ["row_count_change"]
+
+
+def test_a_constant_column_last_month_gives_no_mean_shift_and_no_crash():
+    before = citations(n=40, inspection_cycle=[1] * 40)  # std 0
+    assert drift(before, citations(n=40)) == []

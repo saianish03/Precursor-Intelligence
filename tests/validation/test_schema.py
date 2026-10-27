@@ -99,3 +99,16 @@ def test_rules_survive_write_and_load_and_an_unknown_rule_is_a_config_error(tmp_
     path.write_text(path.read_text().replace("score_iff_immature", "score_if_immature"))
     with pytest.raises(ConfigError, match="score_if_immature"):
         load_schema(path)
+
+
+def test_nulls_and_extremes_only_in_the_first_month_are_kept():
+    jan = citations(n=4, inspection_cycle=[None, 9, 1, 1])
+    feb = citations(n=4, inspection_cycle=[2, 3, 2, 3])  # no nulls, narrower range
+    cycle = infer(jan, feb).columns["inspection_cycle"]
+    assert (cycle.nullable, cycle.min, cycle.max) == (True, 1, 9)
+
+
+def test_exactly_low_cardinality_max_values_still_get_an_allowed_list():
+    schema = infer(citations(n=4), low_cardinality_max=3)  # D, E, G
+    assert schema.columns["scope_severity"].allowed == ["D", "E", "G"]
+    assert infer(citations(n=4), low_cardinality_max=2).columns["scope_severity"].allowed is None

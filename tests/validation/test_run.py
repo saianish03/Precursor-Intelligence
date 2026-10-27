@@ -140,3 +140,13 @@ def test_an_empty_month_fails_the_run(silver, ctx, cfg):
         ("empty_month", "error"),
         ("row_count_change", "warning"),
     }
+
+
+def test_drift_across_a_gap_compares_with_the_previous_vintage_present(put_silver, ctx, cfg):
+    """Silver has no 2024-12 or 2025-01: 2025-02 is compared with 2024-11, not with an empty month."""
+    for v, n in (("2024-10", 40), ("2024-11", 40), ("2025-02", 28)):
+        put_silver(TABLE, v, citations(n=n, vintage=v))
+    write_schemas(ctx, cfg, layer="silver")
+    (a,) = run_validation(ctx, cfg, layer="silver").anomalies
+    assert (a.month, a.check, a.expected) == ("2025-02", "row_count_change", 40)
+    assert "in 2024-11" in a.detail

@@ -141,3 +141,14 @@ def test_rows_sharing_part_of_the_key_are_not_duplicates():
 def test_an_empty_month_is_an_error():
     a = only(check(citations(n=4).clear()))
     assert (a.check, a.column, a.observed) == ("empty_month", None, 0)
+
+
+def test_a_max_only_range_works():
+    schema = SCHEMA.model_copy(deep=True)
+    schema.columns["inspection_cycle"] = ColumnRule(dtype="Int64", max=2)
+    a = only(check(citations(n=4), schema))
+    assert (a.check, a.observed, a.expected) == (
+        "out_of_range",
+        {"rows": 1, "examples": ["3"]},
+        [None, 2],
+    )

@@ -1,7 +1,7 @@
 """Reading silver and gold tables month by month, read-only."""
 
 import polars as pl
-from validation_fakes import citations
+from validation_fakes import citations, parquet
 
 from precursorintelligence.common.config import ValidationLayer
 from precursorintelligence.validation.tables import TableReader
@@ -45,3 +45,13 @@ def test_reading_writes_nothing(store, put_silver):
     reader = TableReader(store, "silver", SILVER, "citations_by_vintage")
     reader.month(reader.months()[0])
     assert store.list("") == before
+
+
+def test_the_partition_key_comes_from_the_config(store):
+    df = citations(vintage="2026-07")
+    store.put_bytes("silver/citations_by_vintage/month=2026-07/part-0.parquet", parquet(df))
+    store.put_bytes("silver/citations_by_vintage/vintage=2026-06/part-0.parquet", parquet(df))
+    layer = ValidationLayer(partition_key="month", tables=["citations_by_vintage"])
+    reader = TableReader(store, "silver", layer, "citations_by_vintage")
+    assert reader.months() == ["2026-07"]
+    assert reader.month("2026-07").height == df.height
