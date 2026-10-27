@@ -83,3 +83,19 @@ def test_gold_checks_cutoff_date_against_t_and_the_spine_start(put_gold, ctx, cf
         (before, "before_first_month", None),
         (SPINE_START, "month_mismatch", "cutoff_date"),
     ]
+
+
+def test_a_month_that_is_not_yyyy_mm_is_one_error_not_a_crash():
+    df = pl.DataFrame({"ccn": ["015001"], "t": ["2026-13"], "cutoff_date": [date(2026, 1, 1)]})
+    for month in ("2026-13", "junk", "2026-1"):
+        assert found(df, month=month, first_month="2023-01") == [("bad_month", None, ERROR)]
+
+
+def test_a_malformed_gold_month_fails_the_run_with_exit_2(put_gold, ctx, cfg):
+    put_gold("spine", spine(SPINE_START))
+    write_schemas(ctx, cfg, layer="gold")
+    bad = spine(SPINE_START).with_columns(t=pl.lit("2026-13"))
+    put_gold("spine", pl.concat([spine(SPINE_START), bad]))
+    res = run_validation(ctx, cfg, layer="gold", all_months=True)
+    assert res.exit_code == EXIT_VALIDATION
+    assert ("2026-13", "bad_month") in {(a.month, a.check) for a in res.anomalies}

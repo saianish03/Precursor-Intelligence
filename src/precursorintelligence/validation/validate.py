@@ -3,6 +3,7 @@ statistics (warnings)."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from datetime import date
 from fnmatch import fnmatch
@@ -15,6 +16,7 @@ from ..common.config import ConfigError, DriftConfig
 from .schema import ColumnRule, TableSchema
 
 ERROR, WARNING = "error", "warning"
+MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")  # YYYY-MM, as the contracts' month patterns
 _EXAMPLES = 5  # failing values kept per check
 
 
@@ -242,7 +244,14 @@ def check_month(
     df: pl.DataFrame, *, table: str, month: str, first_month: str | None = None
 ) -> list[Anomaly]:
     """The rows belong to the month they are stored under: ``vintage_month`` equals it, ``cutoff_date`` is its
-    first day, and the month is not before ``first_month`` (gold: spine_start). All are errors."""
+    first day, and the month is not before ``first_month`` (gold: spine_start). All are errors. A month that is not
+    YYYY-MM (a gold ``t`` of 2026-13, a silver folder ``vintage=junk``) is one ``bad_month`` error, and nothing else
+    is compared with it."""
+    if not MONTH.fullmatch(month):
+        return [
+            Anomaly(table, month, "bad_month", ERROR, None, month, "YYYY-MM",
+                    f"month {month!r} is not YYYY-MM")
+        ]  # fmt: skip
     out = []
     if first_month is not None and month < first_month:
         out.append(
