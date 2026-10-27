@@ -1,8 +1,11 @@
 """SliceFinder-style testing (Lecture 4): which slices' label rates differ from the rest, by enough to matter
 (Cohen's h) and beyond chance after Benjamini-Hochberg false-discovery control across all tests of a label.
 
-The test is a pooled two-proportion z-test, or Fisher's exact test when any cell of the 2x2 table has fewer
-than 5 rows. A small slice (representation) is never problematic, however large its effect.
+The test is a z-test on the difference of rates with a cluster-robust (by home) variance
+(disparity.clustered_variance), because a home's labels are correlated across months; Fisher's exact test
+(on rows) replaces it when any observed cell of the 2x2 table has fewer than 5 rows. A slice that is small in
+this label's labeled rows (fewer than ``min_slice_facilities`` homes or ``min_slice_rows`` rows) is never
+problematic, however large its effect.
 """
 
 from __future__ import annotations
@@ -37,6 +40,13 @@ def two_proportion_test(x1: int, n1: int, x2: int, n2: int) -> tuple[float, str]
     return float(2 * norm.sf(abs(z))), "z"
 
 
+def clustered_z_test(diff: float, var_diff: float | None) -> float:
+    """Two-sided p-value of a difference of rates with its cluster-robust variance."""
+    if var_diff is None or var_diff <= 0:
+        return 1.0 if diff == 0 else 0.0
+    return float(2 * norm.sf(abs(diff) / math.sqrt(var_diff)))
+
+
 def bh_adjust(pvalues: Sequence[float]) -> list[float]:
     """Benjamini-Hochberg adjusted p-values (statsmodels ``fdr_bh``)."""
     if not pvalues:
@@ -44,27 +54,28 @@ def bh_adjust(pvalues: Sequence[float]) -> list[float]:
     return [float(p) for p in multipletests(list(pvalues), method="fdr_bh")[1]]
 
 
-def find_problematic(rates: pl.DataFrame, summary: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
+def find_problematic(rates: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
     """Test every (label, slice value) of ``rates`` (label_rates) with labeled rows on both sides, adjust
     p-values per label, and rank them per label: problematic first, then by |h|, then by adj_p
     (``top_k`` keeps the report's head).
-
-    ``summary`` (representation) supplies ``small_slice``.
     """
     thr = cfg.thresholds
-    small = summary.select("slice", "value", "small_slice")
     frames = []
     for _, part in sorted(rates.group_by("label"), key=lambda kv: str(kv[0][0])):
-        part = part.join(small, on=["slice", "value"], how="left").with_columns(
-            pl.col("small_slice").fill_null(True)
+        part = part.with_columns(
+            (
+                (pl.col("n_homes") < thr.min_slice_facilities) | (pl.col("n") < thr.min_slice_rows)
+            ).alias("small_slice")
         )
         testable = part.filter((pl.col("n") > 0) & (pl.col("complement_n") > 0))
         rows = []
         for r in testable.iter_rows(named=True):
-            p, test = two_proportion_test(
-                r["positives"], r["n"], r["complement_positives"], r["complement_n"]
-            )
-            h = cohens_h(r["positives"] / r["n"], r["complement_positives"] / r["complement_n"])
+            x1, n1, x2, n2 = r["positives"], r["n"], r["complement_positives"], r["complement_n"]
+            if min(x1, n1 - x1, x2, n2 - x2) < MIN_CELL:
+                p, test = two_proportion_test(x1, n1, x2, n2)
+            else:
+                p, test = clustered_z_test(x1 / n1 - x2 / n2, r["var_diff"]), "z_cluster"
+            h = cohens_h(x1 / n1, x2 / n2)
             rows.append({**r, "cohens_h": h, "p_value": p, "test_used": test})
         if not rows:
             continue
@@ -91,6 +102,7 @@ def find_problematic(rates: pl.DataFrame, summary: pl.DataFrame, cfg: BiasConfig
                 "slice",
                 "value",
                 "n",
+                "n_homes",
                 "rate",
                 "complement_rate",
                 "cohens_h",
@@ -109,6 +121,7 @@ def find_problematic(rates: pl.DataFrame, summary: pl.DataFrame, cfg: BiasConfig
                 "slice": pl.String,
                 "value": pl.String,
                 "n": pl.Int64,
+                "n_homes": pl.Int64,
                 "rate": pl.Float64,
                 "complement_rate": pl.Float64,
                 "cohens_h": pl.Float64,

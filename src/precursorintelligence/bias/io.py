@@ -124,3 +124,17 @@ def apply_scope(df: pl.DataFrame, cfg: BiasConfig, scope: str, label: str) -> pl
     if scope == "latest":
         return df.filter(pl.col("t") == df["t"].max())
     raise BiasInputError(f"unknown scope {scope}")
+
+
+def scope_any(df: pl.DataFrame, cfg: BiasConfig, scope: str, labels: list[str]) -> pl.DataFrame:
+    """Rows in ``scope`` for at least one of ``labels``: the rows the label-free checks (representation,
+    missingness, the slice list) read. Only ``train`` depends on the label; a label without its split column
+    is skipped here (its own label checks still raise)."""
+    if scope != "train":
+        return apply_scope(df, cfg, scope, labels[0])
+    splits = [cfg.split_column(lb) for lb in labels if cfg.split_column(lb) in df.columns]
+    if not splits:
+        raise BiasInputError(
+            f"scope train needs a split column: {[cfg.split_column(lb) for lb in labels]}"
+        )
+    return df.filter(pl.any_horizontal([(pl.col(s) == "train").fill_null(False) for s in splits]))

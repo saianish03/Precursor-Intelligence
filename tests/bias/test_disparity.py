@@ -23,7 +23,7 @@ def _run(cfg, df):
     slices = enumerate_slices(df, cfg)
     rep = representation(df, slices, cfg)
     rates = label_rates(df, slices, cfg, ["y_g12"])
-    return df, rep, rates, find_problematic(rates, rep, cfg)
+    return df, rep, rates, find_problematic(rates, cfg)
 
 
 def _row(df, **eq):

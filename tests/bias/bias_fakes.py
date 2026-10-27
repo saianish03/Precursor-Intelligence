@@ -43,7 +43,7 @@ def make_gold(
                     "state_gplus_rate_12m": 0.1 + 0.05 * ((i // 3) % len(STATES)),
                     "days_since_last_std": float(30 + (i * 7 + j) % 400),
                     "hprd_total": float(3 + (i % 10) / 10),
-                    "turnover_total_fn": None,
+                    "turnover_total_fn": "none",  # gold writes "none" when CMS gives no footnote
                     "y_g12": y,
                     "status_g12": "positive" if y else "negative",
                     "split_g12": (

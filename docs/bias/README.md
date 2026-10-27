@@ -42,14 +42,14 @@ in [`gold_schema_findings.md`](gold_schema_findings.md).
 
 | Check | Module | Method |
 |---|---|---|
-| Slices | `bias/slices.py` | state, CMS region, ownership, bed band, chain status, in-hospital, CCRC, SFF status, star band (slicing only, never a feature), plus 4 two-way crossings; nulls → `missing`; leakage guard rejects `y_`, `status_`, `split_`, `_fwd` columns |
+| Slices | `bias/slices.py` | state, CMS region, ownership, bed band, chain status, in-hospital, CCRC, SFF status, star band (slicing only, never a feature), plus 4 two-way crossings; nulls → `missing`, and so is every month before the source column's first vintage (`chain_id` from 2023-06, feature registry); 0 beds and NaN ratings → `missing`; leakage guard rejects `y_`, `status_`, `split_`, `_fwd` columns |
 | Representation | `bias/representation.py` | rows, homes, shares, first/last month; **small** below 30 homes or 500 rows |
-| Label-rate disparity | `bias/disparity.py` | Fairlearn `MetricFrame` rates on labeled rows (immature/censored excluded, counted), Wilson CI, complement ratio, four-fifths flag |
-| SliceFinder | `bias/slicefinder.py` | Cohen's h, pooled z-test (Fisher's exact below 5 per cell), Benjamini–Hochberg per label; problematic = adj p < 0.05, \|h\| ≥ 0.2, not small |
+| Label-rate disparity | `bias/disparity.py` | Fairlearn `MetricFrame` rates on labeled rows (immature/censored excluded, counted), complement ratio, four-fifths flag; **inference by home**: cluster-robust (by `ccn`) variances, Wilson CI sized on the effective n |
+| SliceFinder | `bias/slicefinder.py` | Cohen's h, z-test with the cluster-robust variance of the difference (Fisher's exact on rows below 5 observed per cell), Benjamini–Hochberg per label; problematic = adj p < 0.05, \|h\| ≥ 0.2, not small in that label's labeled rows |
 | Rater bias | `bias/rater_bias.py` | per state: label rate vs inspection exposure (`n_std_36m`, `n_complaint_surveys_cited_12m`) and `state_gplus_rate_12m`; Spearman ρ; flag above the 90th percentile on both |
-| Missingness | `bias/missingness.py` | null-rate gap per slice and registry feature (`*_fn` footnotes as has-reason rates); flag at 0.10 |
+| Missingness | `bias/missingness.py` | null-rate gap per slice and registry **model** feature (`model_use: model`; `*_fn` footnotes as has-reason rates, gold's `"none"` = no reason); flag at 0.10 |
 | Skew | `bias/skew.py` | train vs test per slice: Jensen–Shannon distance (numeric, base 2) and L∞ (categorical); time-thirds fallback without splits |
-| Mitigation | `bias/mitigation.py` | sample weights (`inverse_frequency`, Kamiran–Calders `balance_label_rate`, `none`), mean 1, clipped; effective sample size |
+| Mitigation | `bias/mitigation.py` | sample weights (`inverse_frequency`, Kamiran–Calders `balance_label_rate`, `none`), fit on and written for `split_<weight_label> == train` rows only (null elsewhere, so no held-out label is read), clipped and renormalised to mean 1; effective sample size. `weight_slice` may not be `star_band` or `chain_status` |
 
 ## Outputs (`reports/bias/`)
 
@@ -60,13 +60,13 @@ Sorted rows and a fixed float format, so two runs on the same gold give byte-ide
 |---|---|
 | `slice_summary.csv` | slice, value, n_rows, n_facilities, shares, small_slice, first_t, last_t |
 | `slice_by_month.csv` | rows per single-slice value and month (stability) |
-| `label_rates.csv` | per label and slice value: n, positives, rate, Wilson CI, complement, ratio, diff, flag, immature/censored counts |
+| `label_rates.csv` | per label and slice value: n, n_homes, n_eff, positives, rate, Wilson CI, complement, ratio, diff, flag, var_diff, immature/censored counts |
 | `problematic_slices.csv` | top-k per label: Cohen's h, p, BH-adjusted p, test used, problematic, rank |
 | `rater_bias_by_state.csv` | per label and state: label rate, exposure means/medians, state G+ rate, flag (ρ in `summary.json`) |
 | `missingness_by_slice.csv` | slice, value, feature, kind, null_rate, overall_null_rate, gap, flag |
 | `skew_by_slice.csv` | slice, value, feature, type, distance, metric, flag, n_ref, n_cmp |
 | `mitigation_decisions.csv` | one proposed decision per finding (check, finding, decision, reason) |
-| `sample_weights.parquet` | ccn, t, weight, scheme (keyed like gold, for the ML phase) |
+| `sample_weights.parquet` | ccn, t, weight, scheme (keyed like gold, for the ML phase; weight null outside the training split; `summary.json` records the split, gold V and run) |
 | `summary.json` | gold pointer and dataset sha256, config sha256, git commit, scope, counts, thresholds, flags per check |
 | `charts/*.png` | label rate with CI per slice, a heatmap per crossing, slice sizes, state rate vs exposure |
 | `bias_report.md` | the readable report: 10 sections, from summary to future work |

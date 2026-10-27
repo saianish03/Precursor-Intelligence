@@ -42,7 +42,7 @@ def test_bed_band_edges(cfg):
         "100-149",
         "150-199",
         "200+",
-        "<50",
+        MISSING,  # 0 beds is a data error, not a small home
         MISSING,
     ]
 

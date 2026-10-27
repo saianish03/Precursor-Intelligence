@@ -108,11 +108,12 @@ def test_weights_inverse_frequency(cfg):
     df = build_slice_columns(df, cfg)
     w = sample_weights(df, cfg, "inverse_frequency")
     assert w.height == df.height and w.columns == ["ccn", "t", "weight", "scheme"]
+    assert w["weight"].null_count() == df.filter(pl.col("split_g12") != "train").height
     assert w["weight"].mean() == pytest.approx(1.0)
     by = (
         w.with_columns(df[slice_col("ownership_group")].alias("g"))
         .group_by("g")
-        .agg(pl.col("weight").first())
+        .agg(pl.col("weight").drop_nulls().first())
     )
     weight = dict(by.iter_rows())
     assert weight["government"] > weight["for_profit"]
@@ -132,9 +133,14 @@ def test_weights_balance_label_rate(cfg):
     )
     df = build_slice_columns(df, wide)
     w = sample_weights(df, wide, "balance_label_rate")
-    lab = labeled(df, wide, "y_g12")
+    train = pl.col("split_g12") == "train"
+    lab = labeled(df.filter(train), wide, "y_g12")
     overall = lab["y_g12"].cast(pl.Float64).mean()
-    joined = df.select(slice_col("ownership_group"), "y_g12").with_columns(w["weight"])
+    joined = (
+        df.select(slice_col("ownership_group"), "y_g12", train.alias("_train"))
+        .with_columns(w["weight"])
+        .filter(pl.col("_train"))
+    )
     rates = joined.group_by(slice_col("ownership_group")).agg(
         ((pl.col("weight") * pl.col("y_g12")).sum() / pl.col("weight").sum()).alias("r")
     )

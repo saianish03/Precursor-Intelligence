@@ -22,7 +22,7 @@ from ..gold.dataset import git_state
 from . import BiasInputError
 from .config import BiasConfig
 from .disparity import label_rates, status_totals
-from .io import GoldData, apply_scope, require_columns
+from .io import GoldData, apply_scope, require_columns, scope_any
 from .missingness import missingness_by_slice, scan_features
 from .mitigation import ess_report, sample_weights
 from .rater_bias import rater_bias_by_state
@@ -92,18 +92,21 @@ def run_bias_report(
     """Run the checks on ``gold`` in ``scope`` and write every output under ``out_dir``."""
     labels = list(labels)
     require_columns(gold.df, cfg, labels)
-    df = build_slice_columns(gold.df, cfg)
-    rows = apply_scope(df, cfg, scope, labels[0])
+    df = build_slice_columns(gold.df, cfg, registry)
+    # every label check reads its own scope rows (scope train: split_<label> == train); the label-free checks
+    # (representation, missingness, the slice list) read the rows in scope for any of the labels
+    rows = scope_any(df, cfg, scope, labels)
     if rows.height == 0:
         raise BiasInputError(f"scope {scope} leaves no rows")
+    scoped = {lb: apply_scope(df, cfg, scope, lb) for lb in labels}
     slices = enumerate_slices(rows, cfg)
     singles = list(cfg.slices.single)
-    totals = {lb: status_totals(apply_scope(df, cfg, scope, lb), cfg, [lb])[lb] for lb in labels}
+    totals = {lb: status_totals(scoped[lb], cfg, [lb])[lb] for lb in labels}
     for label, c in totals.items():
         log.info(
             "bias %s: %d rows in scope %s, labeled %d (positive %d, negative %d), excluded immature %d, censored %d",
             label,
-            rows.height,
+            scoped[label].height,
             scope,
             c["used"],
             c["positive"],
@@ -114,20 +117,24 @@ def run_bias_report(
 
     summary_tbl = representation(rows, slices, cfg)
     by_month = monthly_counts(rows, singles)
-    rates = pl.concat(
-        [label_rates(apply_scope(df, cfg, scope, lb), slices, cfg, [lb]) for lb in labels]
-    )
-    ranked = find_problematic(rates, summary_tbl, cfg)
+    no_labels = all(c["used"] == 0 for c in totals.values())
+    if no_labels:
+        log.warning("bias: no labeled rows in scope %s: representation and missingness only", scope)
+    rates = pl.concat([label_rates(scoped[lb], slices, cfg, [lb]) for lb in labels])
+    ranked = find_problematic(rates, cfg)
     tested = n_tests(rates)
     log.info("bias: %d slices, %d (label, slice) tests", len(slices), tested)
-    rater, rater_summary = rater_bias_by_state(rows, cfg, labels)
+    rater_parts = [rater_bias_by_state(scoped[lb], cfg, [lb]) for lb in labels]
+    rater = pl.concat([t for t, _ in rater_parts])
+    rater_summary = {k: v for _, s in rater_parts for k, v in s.items()}
     features = scan_features(rows, registry)
     missing = missingness_by_slice(rows, singles, features, cfg)
     # skew compares the configured train and test splits itself, so it reads every row, not the scope
     skew_features = [f for f in features if not f.endswith("_fn")]
     skew, skew_method = skew_by_slice(df, singles, skew_features, cfg)
-    weights = sample_weights(rows, cfg)
-    ess = ess_report(weights, rows, cfg)
+    # weights read only split_<weight_label> == train rows, whatever the scope (mitigation.py)
+    weights = sample_weights(df, cfg)
+    ess = ess_report(weights, df, cfg)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     tables = {
@@ -157,12 +164,18 @@ def run_bias_report(
         "facilities_in_scope": rows["ccn"].n_unique(),
         "months": {"first": rows["t"].min(), "last": rows["t"].max(), "n": rows["t"].n_unique()},
         "label_rows": totals,
+        "no_labeled_rows": no_labels,
+        "inference": "by home: cluster-robust (ccn) variances; Fisher's exact on rows for observed cells < 5",
         "n_slices": len(slices),
         "n_tests": tested,
         "thresholds": cfg.thresholds.model_dump(),
         "skew_method": skew_method,
         "rater_bias": rater_summary,
-        "mitigation": ess,
+        "mitigation": {
+            **ess,
+            "gold_v": gold.pointer.get("v"),
+            "gold_run_id": gold.pointer.get("run_id"),
+        },
         "flagged": {
             "small_slices": int(summary_tbl["small_slice"].sum()),
             "label_rate_ratio": int(rates["flag_ratio"].sum()),
@@ -389,7 +402,8 @@ def render_markdown(
         SECTIONS[2],
         "",
         f"Rate = positives / labeled rows in the slice; complement = all other labeled rows. Flagged when the ratio is "
-        f"outside [{thr.ratio_low}, {thr.ratio_high}] (four-fifths rule). Intervals are Wilson at {thr.ci_level:.0%}.",
+        f"outside [{thr.ratio_low}, {thr.ratio_high}] (four-fifths rule). Intervals are Wilson at {thr.ci_level:.0%}, sized on the effective number of "
+        "independent rows (`n_eff`): inference is by home, since a home's labels are correlated across months.",
         "",
     ]
     for label in summary["labels"]:
@@ -410,7 +424,7 @@ def render_markdown(
     out += [
         SECTIONS[3],
         "",
-        f"Cohen's h against the complement; pooled two-proportion z-test (Fisher's exact when a cell has < 5 rows); "
+        f"Cohen's h against the complement; z-test with a cluster-robust (by home) variance (Fisher's exact on rows when an observed cell has < 5); "
         f"Benjamini–Hochberg across all tests of a label. **Problematic** = adj p < {thr.fdr_alpha}, |h| ≥ {thr.effect_size_T}, "
         f"and not small. {f['problematic']} problematic (label, slice) pairs. Top {thr.top_k} per label:",
         "",
@@ -509,7 +523,7 @@ def render_markdown(
         SECTIONS[7],
         "",
         f"Sample weights: `{m['scheme']}` on `{m['weight_slice']}`, clipped to {list(cfg.mitigation.clip)}; "
-        f"effective sample size {m['ess']:,.0f} of {m['n']:,} rows. The weights are a separate artifact "
+        f"fit on `{m['fit_on']}` rows only; effective sample size {m['ess']:,.0f} of {m['n']:,} rows. The weights are a separate artifact "
         "(`sample_weights.parquet`); gold is unchanged.",
         "",
         "**Status: proposed.** Each finding below has one proposed decision; the team confirms or changes them "

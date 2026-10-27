@@ -1,7 +1,9 @@
 """Slice construction (Lecture 4, data slicing): derive the slice columns and enumerate the slices.
 
 Every slice column comes from the row's own month t: gold's facility attributes are snapshots of the vintage-t
-provider file, so a slice never sees a later month. ``check_no_leakage`` enforces the part code can check: no
+provider file, so a slice never sees a later month. Before a source column's first vintage (the feature registry's
+``first_available_vintage``, e.g. ``chain_id`` from 2023-06) the slice is ``missing``: gold leaves the column null
+there, and a null would otherwise read as a value (no chain = "independent"). ``check_no_leakage`` enforces the part code can check: no
 slice may read a label, a label status, a split or a forward-looking (``_fwd``) column.
 """
 
@@ -13,6 +15,7 @@ from dataclasses import dataclass
 
 import polars as pl
 
+from ..common.config import FeatureRegistry
 from . import BiasInputError
 from .config import BiasConfig
 
@@ -107,9 +110,9 @@ def _bool(expr: pl.Expr) -> pl.Expr:
 def _bed_band(expr: pl.Expr, cfg: BiasConfig) -> pl.Expr:
     edges, labels = cfg.bed_band_edges, cfg.bed_band_labels
     x = expr.cast(pl.Float64)
-    out: pl.Expr = pl.lit(MISSING)
+    out: pl.Expr = pl.lit(MISSING)  # also 0 or fewer beds: a data error, not a small home
     for lo, hi, label in reversed(list(zip(edges, edges[1:], labels, strict=False))):
-        out = pl.when((x >= lo) & (x < hi)).then(pl.lit(label)).otherwise(out)
+        out = pl.when((x >= lo) & (x < hi) & (x > 0)).then(pl.lit(label)).otherwise(out)
     return out
 
 
@@ -125,12 +128,22 @@ def _derive(name: str, expr: pl.Expr, cfg: BiasConfig) -> pl.Expr:
     if name in ("in_hospital", "ccrc"):
         return _bool(expr)
     if name == "star_band":
-        return _text(expr.cast(pl.Float64).round(0).cast(pl.Int64))
+        return _text(expr.cast(pl.Float64).fill_nan(None).round(0).cast(pl.Int64))
     return _text(expr)
 
 
-def build_slice_columns(df: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
-    """``df`` plus one ``slice__<name>`` String column per used slice; nulls become ``"missing"``.
+def available_from(registry: FeatureRegistry | None) -> dict[str, str]:
+    """gold column -> its first vintage, from the feature registry."""
+    if registry is None:
+        return {}
+    return {f.name: f.first_available_vintage for f in registry.features}
+
+
+def build_slice_columns(
+    df: pl.DataFrame, cfg: BiasConfig, registry: FeatureRegistry | None = None
+) -> pl.DataFrame:
+    """``df`` plus one ``slice__<name>`` String column per used slice; nulls become ``"missing"``, and so does
+    every row before the source column's first vintage in ``registry``.
 
     Raises LeakageError if a slice is mapped to a label/status/split/_fwd column, and BiasInputError if a
     mapped column is not in ``df``.
@@ -147,9 +160,14 @@ def build_slice_columns(df: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
         )
         if unknown:
             log.warning("states with no CMS region (sliced as %s): %s", MISSING, unknown)
-    return df.with_columns(
-        _derive(name, pl.col(col), cfg).alias(slice_col(name)) for name, col in sources.items()
-    )
+    first = available_from(registry)
+    exprs = []
+    for name, col in sources.items():
+        expr = _derive(name, pl.col(col), cfg)
+        if col in first:
+            expr = pl.when(pl.col("t") < first[col]).then(pl.lit(MISSING)).otherwise(expr)
+        exprs.append(expr.alias(slice_col(name)))
+    return df.with_columns(exprs)
 
 
 def expected_levels(name: str, cfg: BiasConfig) -> list[str]:

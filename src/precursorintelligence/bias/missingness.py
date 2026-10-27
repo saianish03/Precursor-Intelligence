@@ -1,5 +1,7 @@
 """Missingness disparity (data quality): per slice value and feature, the null rate against the overall null
-rate. CMS footnote columns (``*_fn``) are read the other way round: the rate of rows that carry a reason code.
+rate. CMS footnote columns (``*_fn``) are read the other way round: the rate of rows that carry a reason code
+(gold writes ``"none"`` when there is no footnote). Only model features are scanned (``model_use: model``):
+ablation-only and product-only columns such as ``overall_rating`` and ``chain_id`` never reach the model.
 """
 
 from __future__ import annotations
@@ -11,20 +13,20 @@ from .config import BiasConfig
 from .slices import slice_col, with_slice_value
 
 FOOTNOTE_SUFFIX = "_fn"
+NO_FOOTNOTE = "none"  # gold's footnote value when CMS gives no reason (gold/features/common.py)
 
 
 def scan_features(df: pl.DataFrame, registry: FeatureRegistry) -> list[str]:
-    """Registry features present in ``df`` (registry order), then any other ``*_fn`` column."""
-    names = [f.name for f in registry.features if f.name in df.columns]
-    extra = sorted(c for c in df.columns if c.endswith(FOOTNOTE_SUFFIX) and c not in names)
-    return [*names, *extra]
+    """Registry model features present in ``df``, in registry order."""
+    return [f.name for f in registry.features if f.model_use == "model" and f.name in df.columns]
 
 
 def _missing(feature: str, dtype: pl.DataType) -> pl.Expr:
     """1 per row that counts: null (features) or a non-empty reason code (footnotes)."""
     col = pl.col(feature)
     if feature.endswith(FOOTNOTE_SUFFIX):
-        has = col.is_not_null() & (col.cast(pl.String).str.strip_chars() != "")
+        text = col.cast(pl.String).str.strip_chars()
+        has = col.is_not_null() & (text != "") & (text != NO_FOOTNOTE)
         return has.cast(pl.Float64)
     miss = col.is_null()
     if dtype.is_float():

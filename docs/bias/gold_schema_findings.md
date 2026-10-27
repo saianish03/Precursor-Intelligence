@@ -24,7 +24,7 @@ gold build (run `20261027T183821Z-f2ea91`, V = 2026-08: 578,975 rows, 15,274 fac
 | `state` | `state` | String | 53 values (50 states, DC, PR, GU); no nulls |
 | `ownership_group` | `ownership_group` | String | `for_profit` / `non_profit` / `government` (snake case, not the spec's hyphens) |
 | `certified_beds` | `certified_beds` | Float64 | 57 nulls; range 0–874 |
-| `chain_id` | `chain_id` | String | 240,781 nulls (41.6%) → `independent` |
+| `chain_id` | `chain_id` | String | 240,781 nulls (41.6%); from 2023-06 a null → `independent`, before 2023-06 (column not published) → `missing` |
 | `provider_in_hospital` | `provider_in_hospital` | Boolean | no nulls |
 | `ccrc` | `ccrc` | Boolean | no nulls |
 | `sff_status` | `sff_status` | String | `SFF` / `SFF_CANDIDATE` / `NONE`; no nulls |
@@ -34,7 +34,7 @@ gold build (run `20261027T183821Z-f2ea91`, V = 2026-08: 578,975 rows, 15,274 fac
 | `n_complaint_surveys_12m` | **`n_complaint_surveys_cited_12m`** | Int64 | renamed in gold; mapped in `configs/bias_slices.yaml` |
 | `state_gplus_rate_12m` | `state_gplus_rate_12m` | Float64 | rater-bias rate column |
 | registry features | `configs/feature_registry.yaml` | — | 95 features, read through `load_feature_registry()`; nothing hard-coded |
-| `*_fn` footnote columns | 10 columns (`turnover_total_fn`, …, `overall_rating_fn`) | String | scanned as "has reason" rates |
+| `*_fn` footnote columns | 10 columns (`turnover_total_fn`, …, `overall_rating_fn`) | String | gold writes `"none"` for no footnote; scanned as "has reason" rates (the 8 `model` ones) |
 
 No required column is missing, so nothing has to be derived from a substitute.
 

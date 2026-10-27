@@ -20,6 +20,8 @@ SLICE_NAMES = (
     "sff_status",
     "star_band",
 )
+# their source columns are not model features (feature_registry model_use), so they never feed training
+NOT_WEIGHT_SLICES = ("star_band", "chain_status")
 SCOPES = ("all_labeled", "train", "latest")
 WEIGHT_SCHEMES = ("inverse_frequency", "balance_label_rate", "none")
 
@@ -36,6 +38,12 @@ class DatasetCfg(_Model):
 class SlicesCfg(_Model):
     single: list[str]
     crossings: list[tuple[str, str]] = []
+
+    @model_validator(mode="after")
+    def _distinct_pairs(self) -> SlicesCfg:
+        if same := [a for a, b in self.crossings if a == b]:
+            raise ValueError(f"slices.crossings: a slice crossed with itself: {same}")
+        return self
 
 
 class Thresholds(_Model):
@@ -110,6 +118,11 @@ class BiasConfig(_Model):
         if self.mitigation.weight_slice not in SLICE_NAMES:
             raise ValueError(
                 f"mitigation.weight_slice: unknown slice {self.mitigation.weight_slice}"
+            )
+        if self.mitigation.weight_slice in NOT_WEIGHT_SLICES:
+            raise ValueError(
+                f"mitigation.weight_slice: {self.mitigation.weight_slice} reads a column that is not a model "
+                f"feature (star ratings are ablation-only, chain_id product-only); not one of {list(NOT_WEIGHT_SLICES)}"
             )
         edges = self.bed_band_edges
         if len(edges) != len(self.bed_band_labels) + 1:

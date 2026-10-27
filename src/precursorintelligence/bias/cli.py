@@ -101,6 +101,8 @@ def bias_report(
         f"bias report ({scope}): {s['rows_in_scope']} rows, {s['n_slices']} slice values, "
         f"{s['n_tests']} tests"
     )
+    if s["no_labeled_rows"]:
+        typer.echo("  no labeled rows in this scope: representation and missingness only")
     for name, n in s["flagged"].items():
         typer.echo(f"  {name}: {n} flagged")
     typer.echo(f"  report: {(res.out_dir / 'bias_report.md').as_posix()}")
