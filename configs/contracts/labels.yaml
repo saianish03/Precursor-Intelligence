@@ -1,0 +1,18 @@
+# Baseline schema for gold/labels (precursor-pipeline validate).
+# Inferred by `validate --write-schema`; tighten by hand (allowed, min, max, str_length, nullable).
+table: labels
+layer: gold
+inferred_from: {first: 2023-01, last: 2026-08, months: 39}
+# Hand-tightened (marked `# hand`): CCN 6 characters, t is YYYY-MM, label values, and the split columns.
+columns:
+  ccn: {dtype: String, nullable: false, str_length: 6}  # hand: CCN is 6-character text
+  t: {dtype: String, nullable: false, str_length: 7}  # hand: YYYY-MM
+  y_g12: {dtype: Int8, nullable: true, min: 0, max: 1}
+  status_g12: {dtype: String, nullable: false, allowed: [positive, negative, censored, immature]}  # hand: gold/labels.py
+  y_g6: {dtype: Int8, nullable: true, min: 0, max: 1}
+  status_g6: {dtype: String, nullable: false, allowed: [positive, negative, censored, immature]}  # hand: gold/labels.py
+  y_pen12: {dtype: Int8, nullable: true, min: 0, max: 1}
+  status_pen12: {dtype: String, nullable: false, allowed: [positive, negative, censored, immature]}  # hand: gold/labels.py
+  split_g12: {dtype: String, nullable: false, allowed: [train, calib, purge, test, score]}  # hand: gold/splits.py SPLITS
+  split_g6: {dtype: String, nullable: false, allowed: [train, calib, purge, test, score]}  # hand: gold/splits.py SPLITS
+  split_pen12: {dtype: String, nullable: false, allowed: [train, calib, purge, test, score]}  # hand: gold/splits.py SPLITS

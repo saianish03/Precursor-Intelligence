@@ -1,0 +1,10 @@
+# Baseline schema for gold/spine (precursor-pipeline validate).
+# Inferred by `validate --write-schema`; tighten by hand (allowed, min, max, str_length, nullable).
+table: spine
+layer: gold
+inferred_from: {first: 2023-01, last: 2026-08, months: 39}
+# Hand-tightened (marked `# hand`): CCN 6 characters, t is YYYY-MM, label values, and the split columns.
+columns:
+  ccn: {dtype: String, nullable: false, str_length: 6}  # hand: CCN is 6-character text
+  t: {dtype: String, nullable: false, str_length: 7}  # hand: YYYY-MM
+  cutoff_date: {dtype: Date, nullable: false}
