@@ -112,3 +112,17 @@ def test_exactly_low_cardinality_max_values_still_get_an_allowed_list():
     schema = infer(citations(n=4), low_cardinality_max=3)  # D, E, G
     assert schema.columns["scope_severity"].allowed == ["D", "E", "G"]
     assert infer(citations(n=4), low_cardinality_max=2).columns["scope_severity"].allowed is None
+
+
+@pytest.mark.parametrize(
+    "pattern", ["^[A-", "^(?=0)[0-9]{6}$"]
+)  # invalid; a look-ahead Polars can't run
+def test_a_pattern_polars_cannot_run_is_a_config_error(tmp_path, pattern):
+    path = tmp_path / "citations_by_vintage.yaml"
+    write_schema(infer(citations(n=4)), path)
+    text = path.read_text().replace(
+        "  ccn: {dtype: String", f"  ccn: {{pattern: '{pattern}', dtype: String"
+    )
+    path.write_text(text)
+    with pytest.raises(ConfigError, match="not a regex Polars can run"):
+        load_schema(path)

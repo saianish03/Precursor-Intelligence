@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 import polars as pl
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..common.config import ConfigError
 
@@ -37,6 +37,17 @@ class ColumnRule(BaseModel):
     pattern: str | None = (
         None  # regex every non-null value must match, e.g. ^[0-9A-Z]{6}$ for a CCN
     )
+
+    @field_validator("pattern")
+    @classmethod
+    def _polars_regex(cls, v: str | None) -> str | None:
+        """Compiled by the engine that runs it: a look-ahead is valid in Python but not in Polars."""
+        if v is not None:
+            try:
+                pl.Series([""], dtype=pl.String).str.contains(v)
+            except pl.exceptions.PolarsError as exc:
+                raise ValueError(f"pattern {v!r} is not a regex Polars can run: {exc}") from exc
+        return v
 
 
 class TableSchema(BaseModel):
