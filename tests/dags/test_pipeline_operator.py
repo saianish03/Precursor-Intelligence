@@ -1,5 +1,6 @@
 """PipelineDockerOperator on the pinned Docker provider: exit 0 returns the last output line (the XCom), exit 1
-stays a retryable DockerContainerFailedException, exits 2 and 3 become AirflowFailException (no retry).
+stays a retryable DockerContainerFailedException, exits 2, 3 and 137 become AirflowFailException (no retry), and a
+failed container's exit code is kept as an XCom for the failure alert.
 The Docker API is mocked at the provider's `cli` (docker.APIClient), so this runs without a daemon."""
 
 from importlib.metadata import version
@@ -9,6 +10,7 @@ import pytest
 from airflow.exceptions import AirflowFailException
 from airflow.providers.docker.exceptions import DockerContainerFailedException
 from utils.pipeline_operator import (
+    EXIT_CODE_XCOM,
     PipelineDockerOperator,
     docker_kwargs,
     exit_code_of,
@@ -16,7 +18,7 @@ from utils.pipeline_operator import (
 )
 
 
-def _run(status_code: int, logs: list[bytes]):
+def _run(status_code: int, logs: list[bytes], context: dict | None = None):
     cli = MagicMock()
     cli.images.return_value = [{"Id": "img"}]
     cli.create_container.return_value = {"Id": "c1"}
@@ -30,7 +32,7 @@ def _run(status_code: int, logs: list[bytes]):
         mount_tmp_dir=False,
     )
     with patch.object(PipelineDockerOperator, "cli", new_callable=PropertyMock, return_value=cli):
-        return op.execute(context={})
+        return op.execute(context=context or {})
 
 
 def test_pinned_provider_version():
@@ -52,10 +54,23 @@ def test_exit_1_is_retryable():
     assert exit_code_of(exc.value) == 1
 
 
-@pytest.mark.parametrize("code", [2, 3])
-def test_exit_2_and_3_fail_without_retry(code):
+@pytest.mark.parametrize("code", [2, 3, 137])
+def test_exit_2_3_and_137_fail_without_retry(code):
     with pytest.raises(AirflowFailException, match=f"pipeline exit {code}"):
         _run(code, [b"validation failed\n"])
+
+
+def test_oom_kill_is_named_in_the_error():
+    with pytest.raises(AirflowFailException, match=r"exit 137 \(killed, usually out of memory\)"):
+        _run(137, [])
+
+
+@pytest.mark.parametrize("code", [1, 2])
+def test_a_failed_container_keeps_its_exit_code_for_the_alert(code):
+    ti = MagicMock()
+    with pytest.raises((DockerContainerFailedException, AirflowFailException)):
+        _run(code, [b"boom\n"], context={"ti": ti})
+    ti.xcom_push.assert_called_once_with(key=EXIT_CODE_XCOM, value=code)
 
 
 def test_docker_kwargs_from_environment(monkeypatch):

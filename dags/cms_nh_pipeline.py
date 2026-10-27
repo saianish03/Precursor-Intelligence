@@ -5,6 +5,10 @@ run passes the same `--run-id {{ run_id }}`. The `data_pipeline` run lock is tak
 and released by the last task of the DAG (a teardown, so it always runs once the lock was taken but never
 hides a failed run), so all nodes run under one lock. No business logic here.
 
+Alerts (utils/alerts.py, email; nothing is sent when PI_ALERT_EMAIL_TO is unset): one per failed run
+(the DAG's on_failure_callback), one when release_lock fails (that leaves the run green), and one per run
+with new error anomalies (`check_anomalies` → `alert_anomalies`, after resolve_report).
+
 Implemented nodes: ingestion → bronze → silver → gold. Not built yet, slots marked TODO: `check_release`
 (spec §2.0, gates the DAG) and `mirror_metadata` (spec §15.3).
 
@@ -22,6 +26,7 @@ import re
 from datetime import datetime, timedelta
 
 from airflow.sdk import Asset, Param, dag, get_current_context, task, task_group
+from utils.alerts import anomalies_alert, on_dag_failure, on_release_failure, send
 from utils.pipeline_operator import (
     PipelineDockerOperator,
     docker_kwargs,
@@ -34,6 +39,9 @@ LANDING, BRONZE, SILVER, GOLD = (
 )
 INGEST, PIPELINE = "precursor-ingest", "precursor-pipeline"
 NODES = ("ingestion", "bronze", "silver")
+GOLD_TIMEOUT = timedelta(
+    minutes=int(os.environ.get("PI_GOLD_TIMEOUT_MINUTES") or 120)
+)  # a hang holds the lock
 ENTRY_ID = re.compile(r"^[A-Za-z0-9_.:\-]+$")  # e.g. theme:2026-08-26:nursing-homes_2026-08-26.zip
 
 
@@ -60,6 +68,7 @@ def run(task_id: str, command: str, **kwargs) -> PipelineDockerOperator:
         "retries": 2,
         "retry_delay": timedelta(minutes=5),
     },  # exit 1 only (see the operator)
+    on_failure_callback=on_dag_failure,  # once per failed run, after the last retry
     params={
         "mode": Param("monthly", enum=["monthly", "backfill"]),
         "calibrate": Param(False, type="boolean"),
@@ -97,6 +106,14 @@ def cms_nh_pipeline():
             for entry_id in entry_ids
         ]
 
+    @task
+    def alert_anomalies(output: str | list[str] | None) -> None:
+        context = get_current_context()
+        if alert := anomalies_alert(
+            context["dag"].dag_id, context["run_id"], last_json_list(output)
+        ):
+            send(*alert)
+
     @task_group(group_id="ingestion")
     def ingestion():
         acquire = run("acquire_lock", f"{INGEST} lock acquire")
@@ -117,9 +134,18 @@ def cms_nh_pipeline():
             trigger_rule="none_failed",  # also runs when no zip was pending (mapped task skipped)
             outlets=[LANDING],
         )
+        # New error anomalies (e.g. no_vintage) do not fail the run: alert on them. Read-only, and not
+        # behind continue_after, so a stop_after run checks them too.
+        check = run(
+            "check_anomalies",
+            f"{INGEST} anomalies --severity error --new-only",
+            do_xcom_push=True,
+            xcom_all=True,
+        )
+        alert = alert_anomalies(check.output)
         acquire >> fetch >> pending
-        per_zip >> resolve
-        return acquire, resolve
+        per_zip >> resolve >> check
+        return acquire, resolve, alert
 
     @task_group(group_id="bronze")
     def bronze():
@@ -137,7 +163,8 @@ def cms_nh_pipeline():
     @task_group(group_id="gold")
     def gold():
         # exit 2 (a failed gate or check: nothing published) fails the task, so cms_nh_gold means published
-        return run("build_gold", f"{PIPELINE} gold", outlets=[GOLD])
+        # execution_timeout: a hung gold run would hold the lock and queue the next daily runs
+        return run("build_gold", f"{PIPELINE} gold", outlets=[GOLD], execution_timeout=GOLD_TIMEOUT)
 
     # TODO(mirror_metadata): spec §15.3, a teardown of acquire_lock before release_lock.
 
@@ -146,12 +173,17 @@ def cms_nh_pipeline():
     # `success`. If acquire_lock fails (another run holds the lock), nothing is released.
     # Owner-checked and idempotent, so it may retry. Not on_failure_fail_dagrun: that makes Airflow count the
     # teardown as a leaf, and then its success would hide a failed run. A release that still fails shows as a
-    # failed task; the next run's acquire_lock then fails (exit 1) or takes over the lock after 12 h.
+    # failed task (and an alert: the run itself may show success); the next run's acquire_lock then fails
+    # (exit 1) or takes over the lock after 12 h.
     release = run(
-        "release_lock", f"{INGEST} lock release", retries=2, retry_delay=timedelta(seconds=30)
+        "release_lock",
+        f"{INGEST} lock release",
+        retries=2,
+        retry_delay=timedelta(seconds=30),
+        on_failure_callback=on_release_failure,
     )
 
-    acquire, landed = ingestion()
+    acquire, landed, anomalies_alerted = ingestion()
     bronze_done, silver_done, gold_done = bronze(), silver(), gold()
     (
         landed
@@ -160,7 +192,7 @@ def cms_nh_pipeline():
     )
     bronze_done >> continue_after.override(task_id="continue_after_bronze")("bronze") >> silver_done
     silver_done >> continue_after.override(task_id="continue_after_silver")("silver") >> gold_done
-    gold_done >> release.as_teardown(setups=acquire)
+    [gold_done, anomalies_alerted] >> release.as_teardown(setups=acquire)
 
 
 cms_nh_pipeline()

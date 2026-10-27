@@ -3,7 +3,7 @@
 - **For:** whoever builds the pipeline alerts (`feat/pipeline-alerts`, ticket 2).
 - **Depends on:** the Airflow PR from `feat/dp_airflow_v1` (ticket 1). Branch from `dev` after it merges.
 - **State on 2026-10-27:**
-  - **Nothing sends an alert yet.** The DAG has no `on_failure_callback`, no notifier, and no Slack or email code.
+  - **Nothing sends an alert yet.** The DAG has no `on_failure_callback`, no notifier, and no Slack or email code. (Since built on `feat/pipeline-alerts`: see §6.)
   - **What exists:** every signal an alert needs is already produced and stored (§1), and failed runs really show as failed.
 - **Read first:**
   - `AIRFLOW_PIPELINE.md`: the DAG, the lock, exit codes, the metadata DB schema (§5), and the open follow-ups (§9);
@@ -17,7 +17,7 @@
 | **DAG run state** | Airflow | — | Honest: `release_lock` is a teardown, so any failed task makes the run `failed` (verified: runs A and G in runbook §8.2). `tests/dags` asserts `gold.build_gold` is the only leaf, so a new node cannot silently break this |
 | **Task exit codes** | `dags/utils/pipeline_operator.py` | yes | **1** = error, retried 2 × 5 min; **2** = data or validation failure and **3** = config or usage error, both failed at once with `AirflowFailException`. The task log contains `pipeline exit <n> (<kind>), not retried` |
 | **`run_log`** (`precursor_meta`) | one row per step per run | — | `status` `ok` or `failed`; `detail` JSON with `n_failures` (non-zero = failed) and `error`; keyed by `run_id` = the Airflow run id |
-| **`anomalies`** (`precursor_meta`) | Step 1 resolve | **only `no_tables_recognised`** | `severity` is `info`, `warning` or `error`. **Error kinds:** `no_tables_recognised` (fails resolve: exit 2), plus `no_vintage` and `download_<status>` (a quarantined, rejected or failed zip), which are `error` but **do not fail the run**. Warning kinds: `partial_zip`, `size_outlier`, `republished` |
+| **`anomalies`** (`precursor_meta`) | Step 1 resolve | **only `no_tables_recognised`** | `severity` is `info`, `warning` or `error`. **Error kinds:** `no_tables_recognised` (fails resolve: exit 2), plus `no_vintage` and `download_<status>` (a quarantined, rejected or failed zip), which are `error` but **do not fail resolve**. (A quarantined or rejected zip does fail the run earlier, at `discover_download` with exit 2, and a failed download with exit 1; so in practice `no_vintage` is the error anomaly a green run can carry.) Warning kinds: `partial_zip`, `size_outlier`, `republished` |
 | **`vintage_flags`** (`precursor_meta`) | bronze | no (by design) | `stale_refresh` (CMS re-posted old event data; 2025-09) and `revised_after_publication` (CMS corrected an old release; 2026-07 Provider Info). Worth a notice, not a failure |
 | **`bronze_files` / `silver_partitions`** | bronze / silver | yes, if any is `failed` | A failed file or partition is written nowhere, recorded as `failed` and retried next run; the task exits 2 |
 | **Run manifests** | `metadata/<layer>/run_date=…/<layer>_run_<run_id>_*.json` | — | `exit_code`, `failures`, counts. Gold's also holds `v`, `v_labels`, `split_windows` and `promoted` |
@@ -82,3 +82,17 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
 - **Silence:** a `stop_after` run and a clean run produce none, and nothing is sent when the destination is unset.
 - **Tests:** offline, with a fake sender, in `tests/dags` and the repo tests.
 - **Docs and evidence:** how to set the webhook and what an alert looks like, plus one screenshot of a real alert.
+
+## 6. Status on `feat/pipeline-alerts`
+- **Built** (`dags/utils/alerts.py`; setup and examples in `runbooks/airflow-local.md` §3.1):
+  - **Failed run:** DAG `on_failure_callback`, one email with the failed tasks, exit codes (XCom `pipeline_exit_code`, pushed by `PipelineDockerOperator`) and log links.
+  - **Failed `release_lock`:** task-level `on_failure_callback`.
+  - **New error anomalies:** `precursor-ingest anomalies --run-id R --severity error --new-only` (`ingestion/anomalies.py`) runs as `ingestion.check_anomalies` after `resolve_report`; `ingestion.alert_anomalies` posts it. "New" = an (entry_id, kind) the previous run with a successful resolve did not have, because resolve re-records an unfixed problem on every run.
+  - **Exit 137:** no-retry, named in the alert. **Hang:** `build_gold` `execution_timeout` 2 h (`PI_GOLD_TIMEOUT_MINUTES`).
+  - **Destination:** email over SMTP with the standard library's `smtplib` (no provider; TLS always), settings `PI_ALERT_EMAIL_TO` / `PI_ALERT_SMTP_*` in `.env`, e.g. Gmail with an app password. Empty `PI_ALERT_EMAIL_TO` = nothing sent. Slack was set aside for now; `send()` is the one place to add it.
+- **Tests:** `tests/dags/test_alerts.py` (fake SMTP delivery), `tests/dags/test_dag_integrity.py` (wiring), `tests/dags/test_pipeline_operator.py` (137, XCom), `tests/ingestion/test_anomalies.py`.
+- **Verified in the local stack** (`runbooks/airflow-local.md` §8.3): run G → 1 failure email; a forced `no_vintage` → 1 anomaly email, and 0 on the repeat; `stop_after` and clean runs → 0.
+  - Screenshots of the two real emails: `runbooks/img/alert-email-run-failed.png`, `runbooks/img/alert-email-new-anomaly.png` (shown in `runbooks/airflow-local.md` §3.1).
+- **Left to do:**
+  - `check_release` / "partial release stuck for N days": blocked (§2).
+  - A timeout is retried like exit 1, so a hang alerts after about 6 h (§9.4 of `AIRFLOW_PIPELINE.md`).

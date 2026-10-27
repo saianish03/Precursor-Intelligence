@@ -42,6 +42,14 @@ x-airflow-common: &airflow-common
     PI_DAG_SCHEDULE: ${PI_DAG_SCHEDULE-@daily}
     PI_TASK_MEM_LIMIT: ${PI_TASK_MEM_LIMIT:-}
     PI_AUTO_REMOVE: ${PI_AUTO_REMOVE:-success}
+    PI_GOLD_TIMEOUT_MINUTES: ${PI_GOLD_TIMEOUT_MINUTES:-}
+    # Alerts (dags/utils/alerts.py): read by the callbacks in these containers, never passed to task containers
+    PI_ALERT_EMAIL_TO: ${PI_ALERT_EMAIL_TO:-}
+    PI_ALERT_EMAIL_FROM: ${PI_ALERT_EMAIL_FROM:-}
+    PI_ALERT_SMTP_HOST: ${PI_ALERT_SMTP_HOST:-}
+    PI_ALERT_SMTP_PORT: ${PI_ALERT_SMTP_PORT:-}
+    PI_ALERT_SMTP_USER: ${PI_ALERT_SMTP_USER:-}
+    PI_ALERT_SMTP_PASSWORD: ${PI_ALERT_SMTP_PASSWORD:-}
   volumes:
     - ../../dags:/opt/airflow/dags:ro
     - ../../tests/dags:/opt/airflow/tests/dags:ro

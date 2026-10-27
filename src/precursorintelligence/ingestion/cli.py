@@ -14,6 +14,7 @@ As the `ingestion` TaskGroup of the one-DAG pipeline (docs/DATA_PIPELINE_SPEC.md
   precursor-ingest entries --run-id R --pending            # last stdout line: JSON list of entry ids
   precursor-ingest step1 --run-id R --steps extract,inventory --entry-ids <id>   # one per entry
   precursor-ingest step1 --run-id R --steps resolve,report
+  precursor-ingest anomalies --run-id R --severity error --new-only   # last stdout line: JSON list (alert)
   ... bronze, silver, gold ...
   precursor-ingest lock release --run-id R                 # last task of the whole DAG (all_done)
 
@@ -36,6 +37,7 @@ import typer
 from ..common.config import ConfigError, Settings, load_settings
 from ..common.io.run_lock import RunLock, RunLockHeldError, RunLockNotHeldError
 from ..common.obs.logging import setup_logging
+from .anomalies import SEVERITIES, NoResolveError, run_anomalies
 from .catalog import UnknownEntryError, default_source, select
 from .context import Context, build_context, new_run_id, validate_run_id
 from .inventory import pending_entries
@@ -205,6 +207,35 @@ def entries(
         chosen = pending_entries(ctx, chosen)
     log.info("entries: %d %s", len(chosen), "pending" if pending else "selected")
     typer.echo(json.dumps([e.entry_id for e in chosen]))
+
+
+@app.command()
+def anomalies(
+    run_id: str = typer.Option(..., help="the DAG run's id"),
+    severity: str = typer.Option(
+        "error", help=f"lowest severity to list: {' | '.join(SEVERITIES)}"
+    ),
+    new_only: bool = typer.Option(
+        False,
+        help="only anomalies the previous successful resolve did not have (one alert per problem)",
+    ),
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+) -> None:
+    """Print the run's anomalies as a JSON list of "kind (entry_id): detail" lines on the last stdout line
+    (the DAG's anomaly alert). Reads the metadata store only."""
+    if severity not in SEVERITIES:
+        typer.echo(f"config error: --severity {severity!r}; valid: {SEVERITIES}", err=True)
+        raise typer.Exit(EXIT_CONFIG)
+    settings, run_id, _ = _init(env, env_file, None, run_id, label="anomalies")
+    ctx = build_context(settings, run_id=run_id)
+    try:
+        rows = run_anomalies(ctx.metadata, run_id, severity, new_only=new_only)
+    except NoResolveError as exc:  # DAG wiring: the check runs after resolve_report
+        typer.echo(f"config error: {exc}", err=True)
+        raise typer.Exit(EXIT_CONFIG) from None
+    log.info("anomalies: %d at %s or above%s", len(rows), severity, " (new)" if new_only else "")
+    typer.echo(json.dumps([f"{a['kind']} ({a['entry_id'] or '-'}): {a['detail']}" for a in rows]))
 
 
 @lock_app.command("acquire")

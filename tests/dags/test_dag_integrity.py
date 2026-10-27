@@ -1,9 +1,12 @@
 """The DAG imports, has no cycles, and wires the spec §15 task contract: every task a PipelineDockerOperator,
 one shared --run-id, the lock taken first and released last (a teardown, so a failed run still fails)."""
 
+from datetime import timedelta
+
 import pytest
 from airflow.models.dagbag import DagBag
 from airflow.task.trigger_rule import TriggerRule
+from utils.alerts import on_dag_failure, on_release_failure
 from utils.pipeline_operator import PipelineDockerOperator
 
 DAG_ID = "cms_nh_pipeline"
@@ -13,6 +16,7 @@ CONTAINER_TASKS = {
     "ingestion.pending_entries",
     "ingestion.extract_inventory",
     "ingestion.resolve_report",
+    "ingestion.check_anomalies",
     "bronze.load_bronze",
     "silver.build_silver",
     "gold.build_gold",
@@ -65,7 +69,11 @@ def test_node_order_and_lock(dag):
     assert upstream("silver.build_silver") == {"continue_after_bronze"}
     assert upstream("continue_after_silver") == {"silver.build_silver"}
     assert upstream("gold.build_gold") == {"continue_after_silver"}
-    assert upstream("release_lock") == {"gold.build_gold", "ingestion.acquire_lock"}
+    assert upstream("release_lock") == {
+        "gold.build_gold",
+        "ingestion.acquire_lock",
+        "ingestion.alert_anomalies",
+    }
     release = tasks["release_lock"]
     assert release.is_teardown and release.trigger_rule == TriggerRule.ALL_DONE_SETUP_SUCCESS
     assert "ingestion.acquire_lock" in release.upstream_task_ids  # its setup
@@ -74,13 +82,17 @@ def test_node_order_and_lock(dag):
     # on_failure_fail_dagrun would make the teardown a leaf, and its success would hide a failed run
     assert not release.on_failure_fail_dagrun
     assert tasks["ingestion.resolve_report"].trigger_rule == TriggerRule.NONE_FAILED
-    # the run's state comes from its leaves (teardowns aside): gold alone, so any failure fails the run
-    leaves = [
+    # the run's state comes from its leaves (teardowns aside): gold, and the anomaly alert after resolve
+    # (not behind continue_after, so it also runs on a stop_after run). Every other task is upstream of one,
+    # so any failure fails the run.
+    leaves = {
         t.task_id
         for t in dag.tasks
         if not t.is_teardown and all(tasks[d].is_teardown for d in t.downstream_task_ids)
-    ]
-    assert leaves == ["gold.build_gold"]
+    }
+    assert leaves == {"gold.build_gold", "ingestion.alert_anomalies"}
+    assert upstream("ingestion.check_anomalies") == {"ingestion.resolve_report"}
+    assert upstream("ingestion.alert_anomalies") == {"ingestion.check_anomalies"}
 
 
 def test_schedule_and_params(dag):
@@ -88,3 +100,18 @@ def test_schedule_and_params(dag):
     assert dag.timetable.summary == "0 0 * * *"  # @daily: production polls CMS once a day
     assert set(dag.params) == {"mode", "calibrate", "stop_after", "entry_ids"}
     assert dag.params["mode"] == "monthly" and dag.params["entry_ids"] == ""
+
+
+def test_alerts_are_wired(dag):
+    tasks = {t.task_id: t for t in dag.tasks}
+    assert on_dag_failure in _callbacks(dag.on_failure_callback)  # once per failed run
+    # a teardown never fails the run, so a failed release alerts on its own
+    assert on_release_failure in _callbacks(tasks["release_lock"].on_failure_callback)
+    check = tasks["ingestion.check_anomalies"]
+    assert " anomalies --severity error --new-only " in check.command and check.do_xcom_push
+    # a hung gold run would hold the lock; the timeout fails it, and the DAG callback alerts
+    assert tasks["gold.build_gold"].execution_timeout == timedelta(hours=2)
+
+
+def _callbacks(value):
+    return value if isinstance(value, list) else [value]
