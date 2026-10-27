@@ -130,3 +130,13 @@ def test_gold_months_come_from_t(put_gold, ctx, cfg):
     res = run_validation(ctx, cfg, layer="gold")
     assert res.checked == {"spine": ["2025-02"]}
     assert [(a.check, a.severity) for a in res.anomalies] == [("row_count_change", "warning")]
+
+
+def test_an_empty_month_fails_the_run(silver, ctx, cfg):
+    silver(TABLE, "2026-08", citations(n=40, vintage="2026-08").clear())
+    res = run_validation(ctx, cfg, layer="silver")
+    assert res.exit_code == EXIT_VALIDATION
+    assert {(a.check, a.severity) for a in res.anomalies} == {
+        ("empty_month", "error"),
+        ("row_count_change", "warning"),
+    }

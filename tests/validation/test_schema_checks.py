@@ -136,3 +136,8 @@ def test_a_duplicate_key_is_caught():
 def test_rows_sharing_part_of_the_key_are_not_duplicates():
     schema = SCHEMA.model_copy(update={"unique": ["ccn", "survey_date"]})
     assert check(citations(n=4, ccn=["015001"] * 4), schema) == []  # four survey dates
+
+
+def test_an_empty_month_is_an_error():
+    a = only(check(citations(n=4).clear()))
+    assert (a.check, a.column, a.observed) == ("empty_month", None, 0)

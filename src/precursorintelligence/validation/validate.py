@@ -175,10 +175,15 @@ def _rules(df: pl.DataFrame, schema: TableSchema, month: str) -> list[Anomaly]:
 
 
 def check_schema(df: pl.DataFrame, schema: TableSchema, *, month: str) -> list[Anomaly]:
-    """Every schema violation in the month, one anomaly per (column, check). All are errors, except a value
-    outside an `allowed` list marked ``allowed_severity: warning``."""
+    """Every schema violation in the month, one anomaly per (column, check), and an error for a month with no
+    rows. All are errors, except a value outside an `allowed` list marked ``allowed_severity: warning``."""
+    empty = [
+        Anomaly(schema.table, month, "empty_month", ERROR, None, 0, "at least one row",
+                f"{schema.table} {month} has no rows")
+    ] if not df.height else []  # fmt: skip
     extra = (
-        _duplicate_keys(df, schema, month)
+        empty
+        + _duplicate_keys(df, schema, month)
         + _rules(df, schema, month)
         + _new_values(df, schema, month)
     )
