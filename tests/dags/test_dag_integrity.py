@@ -63,6 +63,7 @@ def test_node_order_and_lock(dag):
     assert upstream("ingestion.discover_download") == {"ingestion.acquire_lock"}
     assert upstream("bronze.load_bronze") == {"continue_after_ingestion"}
     assert upstream("silver.build_silver") == {"continue_after_bronze"}
+    assert upstream("continue_after_silver") == {"silver.build_silver"}
     assert upstream("gold.build_gold") == {"continue_after_silver"}
     assert upstream("release_lock") == {"gold.build_gold", "ingestion.acquire_lock"}
     release = tasks["release_lock"]
@@ -73,6 +74,13 @@ def test_node_order_and_lock(dag):
     # on_failure_fail_dagrun would make the teardown a leaf, and its success would hide a failed run
     assert not release.on_failure_fail_dagrun
     assert tasks["ingestion.resolve_report"].trigger_rule == TriggerRule.NONE_FAILED
+    # the run's state comes from its leaves (teardowns aside): gold alone, so any failure fails the run
+    leaves = [
+        t.task_id
+        for t in dag.tasks
+        if not t.is_teardown and all(tasks[d].is_teardown for d in t.downstream_task_ids)
+    ]
+    assert leaves == ["gold.build_gold"]
 
 
 def test_schedule_and_params(dag):
