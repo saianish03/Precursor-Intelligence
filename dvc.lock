@@ -73,6 +73,10 @@ stages:
       hash: md5
       md5: cce6e8817980973912e4bb75f00b7e1d
       size: 28062
+    - path: uv.lock
+      hash: md5
+      md5: a808266478f3c267afaa8603cad06be7
+      size: 744295
     outs:
     - path: data/toy/gold/dim_facility_latest
       hash: md5

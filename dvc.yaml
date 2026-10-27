@@ -14,6 +14,8 @@ stages:
     deps:
       - tests/gold/make_toy_silver.py
       - tests/gold/silver_fakes.py
+      # Parquet outputs record the writer's library version, so a polars/pyarrow bump changes every hash.
+      - uv.lock
       # What the toy gold run imports and loads, not all of src/ and configs/: a change elsewhere (validation,
       # agents, serving, other configs) must not make dvc.lock stale. gold imports ingestion (task_scope, Context).
       - src/precursorintelligence/common

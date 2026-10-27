@@ -40,6 +40,11 @@ def test_dependencies_that_are_not_stage_outputs_exist_in_the_repo(stages):
                 assert (ROOT / dep).exists(), f"{name}: dep {dep} is missing"
 
 
+def test_the_locked_library_versions_are_a_declared_input(stages):
+    # Parquet files record the writer version, so a polars/pyarrow bump changes every output hash.
+    assert "uv.lock" in _paths(stages["toy_gold"]["deps"])
+
+
 def test_data_outputs_stay_under_data_and_metrics_are_committed_to_git(stages):
     for name, stage in stages.items():
         for out in _paths(stage.get("outs")):
