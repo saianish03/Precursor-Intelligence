@@ -53,7 +53,7 @@ from ..ingestion.pipeline import (
     task_scope,
 )
 from . import GoldCheckError
-from .dataset import DATASET, MANIFEST_NAME, assemble, by_t, dataset_manifest
+from .dataset import DATASET, MANIFEST_NAME, MERGED, assemble, by_t, dataset_manifest
 from .features import FAMILIES, FAMILY_ORDER, build_family
 from .features.common import gplus_min_ordinal
 from .features.reader import FeatureReader
@@ -299,6 +299,7 @@ def _run(
         for family, df in features.items():
             tables |= {f"features_{family}/t={t}": p for t, p in by_t(df).items()}
         tables |= {f"{DATASET}/t={t}": p for t, p in by_t(dataset).items()}
+        tables[MERGED] = dataset.sort("t", "ccn")  # every month, rebuilt in full each run
         staged = _stage(ctx, tables)
         result.rows = {"spine": spine.height, "labels": labels.height}
         result.rows |= {f"features_{f}": df.height for f, df in features.items()}
@@ -308,7 +309,10 @@ def _run(
             meta=ctx.metadata,
             v=result.v,
             v_labels=result.v_labels,
-            partition_sha256={n: s for n, s in result.outputs.items() if n.startswith(DATASET)},
+            partition_sha256={
+                n: s for n, s in result.outputs.items() if n.startswith(f"{DATASET}/")
+            },
+            merged_sha256=result.outputs[MERGED],
             families=list(features),
             labels=labels,
             labels_cfg=labels_cfg,
@@ -365,8 +369,13 @@ def _stage(ctx: Context, tables: dict[str, pl.DataFrame]) -> dict[str, bytes]:
     return staged
 
 
+def _file(name: str) -> str:
+    """Where an output's parquet lives under gold/: ``<name>/part-0.parquet``, or ``<name>`` for MERGED."""
+    return name if name.endswith(".parquet") else f"{name}/part-0.parquet"
+
+
 def _staging_key(ctx: Context, name: str) -> str:
-    return f"gold/_staging/run={ctx.run_id}/{name}/part-0.parquet"
+    return f"gold/_staging/run={ctx.run_id}/{_file(name)}"
 
 
 def _put_json(ctx: Context, key: str, doc: dict[str, Any]) -> None:
@@ -387,7 +396,7 @@ def _promote(
     disk; readers take the partitions that ``gold/_current.json`` lists."""
     _put_json(ctx, CURRENT_KEY, {"state": "promoting", "run_id": ctx.run_id})
     for name, data in staged.items():
-        ctx.object_store.put_bytes(f"gold/{name}/part-0.parquet", data, overwrite=True)
+        ctx.object_store.put_bytes(f"gold/{_file(name)}", data, overwrite=True)
     for key, doc in (documents or {}).items():
         _put_json(ctx, key, doc)
     _put_json(
@@ -412,7 +421,7 @@ def read_current_gold(store: ObjectStore) -> dict[str, Any]:
             f"gold/ is not current: run {current.get('run_id')} did not finish promoting; rerun gold"
         )
     for name, sha in current["sha256"].items():
-        with store.open_read(f"gold/{name}/part-0.parquet") as f:
+        with store.open_read(f"gold/{_file(name)}") as f:
             if hashlib.sha256(f.read()).hexdigest() != sha:
                 raise GoldCheckError(f"gold/{name} does not match {CURRENT_KEY}; rerun gold")
     return current
