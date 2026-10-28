@@ -77,6 +77,9 @@ def test_docker_kwargs_from_environment(monkeypatch):
     monkeypatch.setenv("PI_PIPELINE_IMAGE", "precursor-pipeline:x")
     monkeypatch.setenv("PI_HOST_DATA_DIR", "/srv/pi/data")
     monkeypatch.delenv("PI_BUCKET_URI", raising=False)
+    monkeypatch.delenv(
+        "PI_GCP_CREDENTIALS_FILE", raising=False
+    )  # set in a stack that runs against GCS
     kw = docker_kwargs()
     assert kw["image"] == "precursor-pipeline:x"
     assert [(m["Source"], m["Target"]) for m in kw["mounts"]] == [("/srv/pi/data", "/app/data")]
