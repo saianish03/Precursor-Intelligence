@@ -85,6 +85,7 @@ gold/spine/part-0.parquet                  # zstd; sorted by t, then ccn
 gold/labels/part-0.parquet                 # same rows, same order as the spine
 gold/features_<family>/t=YYYY-MM/part-0.parquet          # 5 families; one row per spine row of t
 gold/facility_month_dataset/t=YYYY-MM/part-0.parquet     # spine + features + labels (§10)
+gold/facility_month_dataset.parquet        # the same rows, columns and dtypes in one file, sorted by t, ccn
 gold/dataset_manifest.json                 # sources, flags, config hashes (labels, splits: the settings used; the rest: the files), git commit and dirty flag, rows per label status, verified
 gold/_current.json                         # which run gold/ holds: state, run id, V, verified, sha256 of each file
 gold/_staging/run=<run_id>/...            # what each run built and checked, same layout (kept)
@@ -96,6 +97,11 @@ reports/gold/run=<run_id>/logs/<file>.json # the process log of each run
 returns the run that `gold/_current.json` names and fails (`GoldCheckError`) unless that run finished
 promoting and both files still match its sha256: copying the two files is two writes, so a run that fails in
 between leaves `_current.json` at `promoting`, and a reader must not trust that pair.
+
+**`gold/facility_month_dataset.parquet`** holds every month of the dataset in one file, for readers that want
+one file. Each run rebuilds it in full and never appends to it: gold recomputes everything, so revised history,
+matured labels and moved splits are always right. It is staged and promoted with the other outputs, listed with
+its sha256 in `_current.json` and under `merged_file` in `dataset_manifest.json`. The `t=` partitions are unchanged.
 
 | Table | Columns (type) |
 |---|---|
