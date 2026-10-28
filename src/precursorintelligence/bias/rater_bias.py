@@ -42,19 +42,20 @@ def rater_bias_by_state(
     """(per-state table for every label, summary with Spearman rho per label and exposure)."""
     rb = cfg.rater_bias
     group, exposures = rb.group_column, rb.exposure_columns
+    total = rb.citation_total_column
     severity = bool(
         rb.severity_columns
-        and rb.citation_total_column
-        and all(c in df.columns for c in [*rb.severity_columns, rb.citation_total_column])
+        and total is not None
+        and all(c in df.columns for c in [*rb.severity_columns, total])
     )
     share = (
         [
             (
                 pl.sum_horizontal(pl.col(c).cast(pl.Float64) for c in rb.severity_columns).sum()
-                / pl.col(rb.citation_total_column).cast(pl.Float64).sum()
+                / pl.col(total).cast(pl.Float64).sum()
             ).alias("gplus_share")
         ]
-        if severity
+        if severity and total is not None
         else []
     )
     frames, summary = [], {}

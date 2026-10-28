@@ -3,7 +3,8 @@
 
 The test is a z-test on the difference of rates with a cluster-robust (by home) variance
 (disparity.clustered_variance), because a home's labels are correlated across months; Fisher's exact test
-(on rows) replaces it when any observed cell of the 2x2 table has fewer than 5 rows. A slice that is small in
+(on rows) replaces it when any observed cell of the 2x2 table has fewer than 5 rows, and a slice of a single
+home is not tested (p = 1, ``too_few_homes``). A slice that is small in
 this label's labeled rows (fewer than ``min_slice_facilities`` homes or ``min_slice_rows`` rows) is never
 problematic, however large its effect.
 
@@ -25,6 +26,8 @@ from .config import BiasConfig
 from .slices import NAME_SEP
 
 MIN_CELL = 5  # below this in any observed 2x2 cell, Fisher's exact test replaces the z-test
+# one home cannot carry a test: its residuals sum to 0 around its own rate, so its variance is 0 (p = 1)
+MIN_HOMES = 2
 BOOLEAN_SLICES = ("in_hospital", "ccrc")
 MIRRORED = "false"  # the side of a boolean slice that is not tested
 
@@ -79,7 +82,9 @@ def find_problematic(rates: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
         rows = []
         for r in testable.iter_rows(named=True):
             x1, n1, x2, n2 = r["positives"], r["n"], r["complement_positives"], r["complement_n"]
-            if min(x1, n1 - x1, x2, n2 - x2) < MIN_CELL:
+            if r["n_homes"] < MIN_HOMES:
+                p, test = 1.0, "too_few_homes"
+            elif min(x1, n1 - x1, x2, n2 - x2) < MIN_CELL:
                 p, test = two_proportion_test(x1, n1, x2, n2)
             else:
                 p, test = clustered_z_test(x1 / n1 - x2 / n2, r["var_diff"]), "z_cluster"

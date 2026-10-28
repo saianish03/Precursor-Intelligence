@@ -199,3 +199,31 @@ def test_rater_severity_share(cfg):
     # homes with an odd index have 1 G+ citation; totals 4 + i % 3
     assert table["gplus_share"].is_between(0, 1).all()
     assert "gplus_share" in summary["y_g12"]["severity"]
+
+
+def test_one_home_slice_is_not_tested(cfg):
+    """A single home has zero clustered variance by construction: no p-value can come from it."""
+    df = (
+        make_gold(n_fac=300, months=12, persistent=True)
+        .with_columns(
+            pl.when(pl.col("ccn") == "100000")
+            .then(pl.lit("GU"))
+            .otherwise(pl.col("state"))
+            .alias("state"),
+            pl.when(pl.col("ccn") == "100000")
+            .then(1)
+            .otherwise(pl.col("y_g12"))
+            .cast(pl.Int8)
+            .alias("y_g12"),
+        )
+        .with_columns(
+            pl.when(pl.col("y_g12") == 1)
+            .then(pl.lit("positive"))
+            .otherwise(pl.lit("negative"))
+            .alias("status_g12")
+        )
+    )
+    df = build_slice_columns(df, cfg)
+    ranked = find_problematic(label_rates(df, enumerate_slices(df, cfg), cfg, ["y_g12"]), cfg)
+    gu = ranked.filter((pl.col("slice") == "state") & (pl.col("value") == "GU")).row(0, named=True)
+    assert (gu["test_used"], gu["p_value"], gu["problematic"]) == ("too_few_homes", 1.0, False)
