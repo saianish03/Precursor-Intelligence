@@ -43,6 +43,7 @@ stages:
       - data/toy/gold/features_facility_staffing
       - data/toy/gold/features_survey_timing
       - data/toy/gold/facility_month_dataset
+      - data/toy/gold/facility_month_dataset.parquet
   toy_summary:
     cmd: python scripts/dvc_gold_summary.py data/toy/gold metrics/toy_gold.json
     deps:
