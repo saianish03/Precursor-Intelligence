@@ -1,0 +1,75 @@
+# Data-level bias slicing on gold/facility_month_dataset (precursor-pipeline bias-report).
+# Column names were checked against gold in docs/bias/gold_schema_findings.md; change a mapping here, never in
+# code. Slices are facility attributes and state inspection practice, not protected classes.
+version: 1
+dataset:
+  table: facility_month_dataset
+  key: [ccn, t]
+labels: [y_g12, y_g6, y_pen12]
+status_column_pattern: "status_{label_suffix}"   # y_g12 -> status_g12
+split_column_pattern: "split_{label_suffix}"     # y_g12 -> split_g12
+labeled_values: [positive, negative]
+columns:                                         # spec name -> actual gold column
+  state: state
+  ownership_group: ownership_group
+  certified_beds: certified_beds
+  chain_id: chain_id
+  provider_in_hospital: provider_in_hospital
+  ccrc: ccrc
+  sff_status: sff_status
+  overall_rating: overall_rating               # slicing only; never a model feature
+  era: era                                     # star-rating era (CMS changed the method in 2025-07)
+slices:
+  single: [state, cms_region, ownership_group, bed_band, chain_status, in_hospital, ccrc, sff_status, star_band]
+  crossings:                                     # 2-way slices (SliceFinder lattice level 2)
+    - [ownership_group, bed_band]
+    - [ownership_group, chain_status]
+    - [cms_region, ownership_group]
+    - [bed_band, star_band]
+    - [star_band, era]                           # a star band means a different thing in each era
+  risk_tiers: [sff_status, star_band]            # built from past inspections: own section, never "problematic"
+bed_band_edges: [0, 50, 100, 150, 200, 100000]   # left-closed: [0, 50) -> "<50"
+bed_band_labels: ["<50", "50-99", "100-149", "150-199", "200+"]
+cms_region_map: {CT: 1, ME: 1, MA: 1, NH: 1, RI: 1, VT: 1, NJ: 2, NY: 2, PR: 2, VI: 2, DE: 3, DC: 3, MD: 3, PA: 3, VA: 3, WV: 3,
+                 AL: 4, FL: 4, GA: 4, KY: 4, MS: 4, NC: 4, SC: 4, TN: 4, IL: 5, IN: 5, MI: 5, MN: 5, OH: 5, WI: 5,
+                 AR: 6, LA: 6, NM: 6, OK: 6, TX: 6, IA: 7, KS: 7, MO: 7, NE: 7, CO: 8, MT: 8, ND: 8, SD: 8, UT: 8, WY: 8,
+                 AZ: 9, CA: 9, HI: 9, NV: 9, GU: 9, AS: 9, MP: 9, AK: 10, ID: 10, OR: 10, WA: 10}
+thresholds:
+  min_slice_facilities: 30        # below -> "small slice": rates reported but flagged unreliable
+  min_slice_rows: 500
+  ratio_low: 0.8                  # four-fifths rule on the label-rate ratio (slice / complement)
+  ratio_high: 1.25
+  effect_size_T: 0.2              # |Cohen's h| at or above this = practically meaningful
+  fdr_alpha: 0.05                 # Benjamini-Hochberg
+  top_k: 20
+  missingness_gap: 0.10           # slice null rate minus overall null rate
+  skew_js: 0.10                   # Jensen-Shannon distance, numeric features
+  skew_linf: 0.10                 # L-infinity distance, categorical features
+  censoring_gap: 0.02             # slice censored share minus the overall share (homes that closed)
+  ci_level: 0.95
+skew:
+  reference_scope: train          # split value of the reference rows (per label: split_<label>)
+  comparison_scope: test
+  split_label: y_g12              # whose split column defines train / test for skew
+  numeric_bins: 20
+  max_features: null              # null = all registry features
+  null_draws: 20                  # random same-size samples of the whole population per slice x feature
+  null_quantile: 0.95             # flag only above this quantile of those draws (time drift + sample noise)
+  seed: 0
+  geo_slices: [state, cms_region]                 # these slices skip the state-level features below
+  state_level_features: [state_gplus_rate_12m, state_median_hprd_total]
+rater_bias:
+  group_column: state
+  # inspection frequency and backlog; complaint counts are not exposure (CMS lists only cited complaints)
+  exposure_columns: [n_std_36m, days_since_last_std, std_overdue]
+  rate_column: state_gplus_rate_12m             # the state's past G+ rate: persistence, not rater bias
+  quantile: 0.9                   # flag states above this quantile on both label rate and exposure
+  min_state_facilities: 30        # smaller states (territories) are reported but not ranked or flagged
+  severity_columns: [n_cit_GI_24m, n_cit_JL_24m]  # G+ citations, 24 months
+  citation_total_column: n_cit_24m                # all citations, 24 months
+mitigation:
+  weights: inverse_frequency      # inverse_frequency | balance_label_rate | none
+  weight_slice: ownership_group
+  weight_label: y_g12             # label used by balance_label_rate
+  clip: [0.2, 5.0]
+output_dir: reports/bias

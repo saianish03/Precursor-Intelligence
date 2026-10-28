@@ -11,6 +11,7 @@
 | `GOLD_HANDOFF.md` | Gold so far (spine, labels, `precursor-pipeline gold`) and what the features and assembly work must build: outputs, runs, toy world, leakage and join rules, open questions |
 | `VALIDATION.md` | `precursor-pipeline validate`: schema (Pandera) and month-over-month drift checks of silver and gold, outputs, exit codes, baselines, DAG wiring, follow-ups |
 | `STEP2_HANDOFF.md` | Step 2 profiling facts and reference drafts (`data/step2_reference/`) |
+| `bias/` | Data bias slicing on gold (`precursor-pipeline bias-report`): how to run it, what each output means, the gold schema findings and the assignment mapping |
 | `adr/` | architecture decision records (`0001-monorepo.md`, …) |
 | `data/` | data dictionary notes, footnote codes, schema-change log |
 | `reference/` | reference material, e.g. `column_lineage.xlsx` (raw CMS column → feature lineage) |

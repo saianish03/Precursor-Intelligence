@@ -1,0 +1,155 @@
+"""Load gold/facility_month_dataset: from a local folder, or from the object store behind gold/_current.json.
+
+No new storage code: the store path reuses ``gold.build.read_current_gold`` (which checks every partition's
+sha256 against the pointer) and the same ``ObjectStore`` the pipeline uses (local disk or GCS). A local
+``--gold`` folder that holds ``_current.json`` is read the same way, so it reads only the partitions the
+pointer lists and fails on a file that no longer matches; a folder without one is hashed as it is read.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import polars as pl
+
+from ..common.io.object_store import LocalObjectStore, ObjectStore
+from ..gold.build import read_current_gold
+from . import BiasInputError
+from .config import BiasConfig
+
+
+@dataclass(frozen=True)
+class GoldData:
+    df: pl.DataFrame
+    source: str  # where it came from (folder or gold/_current.json)
+    pointer: dict[str, Any]  # run_id, v, verified and a sha256 over the dataset's partitions
+
+
+def _pointer(current: dict[str, Any], table: str) -> dict[str, Any]:
+    shas = {k: v for k, v in sorted(current.get("sha256", {}).items()) if k.startswith(table)}
+    return {
+        "run_id": current.get("run_id"),
+        "v": current.get("v"),
+        "verified": current.get("verified"),
+        "dataset_sha256": hashlib.sha256(json.dumps(shas, sort_keys=True).encode()).hexdigest(),
+        "partitions": len(shas),
+    }
+
+
+def load_gold_path(path: Path, cfg: BiasConfig) -> GoldData:
+    """``path`` is a gold folder (holding ``<table>/``), the table folder itself, or one parquet file.
+
+    When the gold folder holds ``_current.json`` it is read through ``read_current_gold`` (see the module
+    docstring); otherwise the files read are hashed into the pointer's ``dataset_sha256``.
+    """
+    path = Path(path)
+    table_dir = path / cfg.dataset.table if (path / cfg.dataset.table).is_dir() else path
+    gold_dir = table_dir.parent
+    if table_dir.is_dir() and gold_dir.name == "gold" and (gold_dir / "_current.json").is_file():
+        data = load_gold_store(LocalObjectStore(gold_dir.parent, immutable=None), cfg)
+        return GoldData(df=data.df, source=path.as_posix(), pointer=data.pointer)
+    if table_dir.is_file():
+        files = [table_dir]
+    else:
+        files = sorted(table_dir.glob("t=*/*.parquet")) or sorted(table_dir.glob("*.parquet"))
+    if not files:
+        raise BiasInputError(f"no {cfg.dataset.table} parquet files under {path}")
+    df = pl.concat([_read_part(f) for f in files], how="diagonal_relaxed")
+    digest = hashlib.sha256()
+    for f in files:
+        digest.update(f.read_bytes())
+    pointer = {
+        "run_id": None,
+        "v": None,
+        "verified": None,
+        "dataset_sha256": digest.hexdigest(),
+        "partitions": len(files),
+    }
+    return GoldData(df=_unique_keys(df, cfg), source=path.as_posix(), pointer=pointer)
+
+
+def _unique_keys(df: pl.DataFrame, cfg: BiasConfig) -> pl.DataFrame:
+    """Exit-2 check: one row per dataset key (ccn, t); a stray or repeated partition would break it."""
+    key = [k for k in cfg.dataset.key if k in df.columns]
+    if key and df.select(key).is_duplicated().any():
+        n = int(df.select(key).is_duplicated().sum())
+        raise BiasInputError(f"{n} rows share a {'/'.join(key)} key with another row")
+    return df
+
+
+def _read_part(f: Path) -> pl.DataFrame:
+    df = pl.read_parquet(f)
+    if "t" not in df.columns and f.parent.name.startswith("t="):
+        df = df.with_columns(pl.lit(f.parent.name[2:]).alias("t"))
+    return df
+
+
+def load_gold_store(store: ObjectStore, cfg: BiasConfig) -> GoldData:
+    """The dataset gold/_current.json points at (sha256-checked by read_current_gold)."""
+    current = read_current_gold(store)
+    keys = sorted(k for k in current["sha256"] if k.startswith(f"{cfg.dataset.table}/"))
+    if not keys:
+        raise BiasInputError(f"gold/_current.json lists no {cfg.dataset.table} partitions")
+    parts = []
+    for k in keys:
+        with store.open_read(f"gold/{k}/part-0.parquet") as f:
+            part = pl.read_parquet(io.BytesIO(f.read()))
+        if "t" not in part.columns:
+            part = part.with_columns(pl.lit(k.split("t=", 1)[1]).alias("t"))
+        parts.append(part)
+    return GoldData(
+        df=_unique_keys(pl.concat(parts, how="diagonal_relaxed"), cfg),
+        source="gold/_current.json",
+        pointer=_pointer(current, cfg.dataset.table),
+    )
+
+
+def require_columns(df: pl.DataFrame, cfg: BiasConfig, labels: list[str]) -> None:
+    """Exit-2 check: keys, every requested label with its status column, and the rater-bias columns."""
+    need = [*cfg.dataset.key]
+    for label in labels:
+        need += [label, cfg.status_column(label)]
+    need += [
+        cfg.rater_bias.group_column,
+        cfg.rater_bias.rate_column,
+        *cfg.rater_bias.exposure_columns,
+    ]
+    absent = [c for c in dict.fromkeys(need) if c not in df.columns]
+    if absent:
+        raise BiasInputError(f"required columns missing from the dataset: {absent}")
+    if df.height == 0:
+        raise BiasInputError("the dataset has no rows")
+
+
+def apply_scope(df: pl.DataFrame, cfg: BiasConfig, scope: str, label: str) -> pl.DataFrame:
+    """Rows in ``scope``: ``all_labeled`` = every row (label checks then keep labeled rows only), ``train`` =
+    ``split_<label> == "train"``, ``latest`` = the latest month t (the current population)."""
+    if scope == "all_labeled":
+        return df
+    if scope == "train":
+        split = cfg.split_column(label)
+        if split not in df.columns:
+            raise BiasInputError(f"scope train needs the split column {split}")
+        return df.filter(pl.col(split) == "train")
+    if scope == "latest":
+        return df.filter(pl.col("t") == df["t"].max())
+    raise BiasInputError(f"unknown scope {scope}")
+
+
+def scope_any(df: pl.DataFrame, cfg: BiasConfig, scope: str, labels: list[str]) -> pl.DataFrame:
+    """Rows in ``scope`` for at least one of ``labels``: the rows the label-free checks (representation,
+    missingness, the slice list) read. Only ``train`` depends on the label; a label without its split column
+    is skipped here (its own label checks still raise)."""
+    if scope != "train":
+        return apply_scope(df, cfg, scope, labels[0])
+    splits = [cfg.split_column(lb) for lb in labels if cfg.split_column(lb) in df.columns]
+    if not splits:
+        raise BiasInputError(
+            f"scope train needs a split column: {[cfg.split_column(lb) for lb in labels]}"
+        )
+    return df.filter(pl.any_horizontal([(pl.col(s) == "train").fill_null(False) for s in splits]))

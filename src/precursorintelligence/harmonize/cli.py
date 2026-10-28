@@ -17,6 +17,7 @@ from pathlib import Path
 
 import typer
 
+from ..bias.cli import bias_report
 from ..common.config import ConfigError
 from ..common.io.run_lock import RunLockHeldError, RunLockNotHeldError
 from ..gold.cli import gold
@@ -34,9 +35,10 @@ app = typer.Typer(
     help="Precursor Intelligence pipeline nodes after ingestion (bronze, then silver and gold)",
 )
 app.command()(gold)  # the gold node; its code lives in src/precursorintelligence/gold/
-app.command()(
-    validate
-)  # schema and drift checks of silver or gold; src/precursorintelligence/validation/
+# data bias slicing on gold (src/precursorintelligence/bias/)
+app.command("bias-report")(bias_report)
+# schema and drift checks of silver or gold; src/precursorintelligence/validation/
+app.command()(validate)
 
 
 @app.callback()
