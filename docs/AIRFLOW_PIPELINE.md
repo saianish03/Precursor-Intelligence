@@ -300,6 +300,7 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
   - a re-read of every staged file for its checks (`gold/build.py`, `_run` and `_stage`).
 - **Why it matters:** on the full archive (spine 2023-01 → 2026-09, ≈ 590k rows; ≈ 755k with a 2022-01 start, spec §14 #10) the review estimates a 4–5 GB peak. The VM has 8 GB, the Airflow services and Postgres use about 2–2.5 GB, and `PI_TASK_MEM_LIMIT` is 6g. The VM itself could run out of memory before the container limit stops the task.
 - **Measured locally (runbook §8.2):** gold peaked at **1.95–2.17 GB** for 207k–237k rows (sampled every 2 s, so short spikes can be missed). Scaled linearly to the full archive's ≈ 590k rows, that is **≈ 5 GB**, above the ~4 GB comfort line, so this fix is needed before the first full-archive run on the VM.
+- **Merged dataset file (PR #32):** writing `gold/facility_month_dataset.parquet` adds about 16% to the peak (2.55–2.57 → 2.95–2.99 GiB on the 237k-row subset, sampled every 0.1 s), so the full-archive estimate goes from ≈ 5 GB to **≈ 5.8 GB**, close to the 6g limit. Before the first full-archive run, write that file by streaming the staged partitions instead of holding a second sorted copy.
 - **Fix, if the full-archive peak is above ~4 GB:**
   1. In `_stage`, check each staged file right after writing it, instead of re-reading all of them at the end.
   2. Drop `silver` after the labels are built, and the feature frames after `assemble`.
