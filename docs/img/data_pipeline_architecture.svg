@@ -224,5 +224,5 @@
     <rect x="790" y="-6" width="34" height="4" fill="#a0643c"/><rect x="830" y="-6" width="34" height="4" fill="#80868b"/><rect x="870" y="-6" width="34" height="4" fill="#b8902c"/>
     <text x="914" y="4" class="cap">bronze · silver · gold layers</text>
   </g>
-  <text x="302" y="480" class="grp" style="paint-order:stroke;stroke:#fafbfc;stroke-width:7px;stroke-linejoin:round">OBJECT STORE · PARQUET FILES (LOCAL DISK / CLOUD STORAGE)</text>
+  <text x="302" y="480" class="grp" style="paint-order:stroke;stroke:#fafbfc;stroke-width:7px;stroke-linejoin:round">OBJECT STORE · PARQUET FILES (GOOGLE CLOUD PLATFORM BUCKETS)</text>
 </svg>

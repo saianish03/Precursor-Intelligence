@@ -66,27 +66,6 @@ lossless Parquet · 3 tables are cleaned and aligned across years · 4 point-in-
 5 gold is published only if the gate passes · 6 every stage records its run in metadata. Dashed parts are planned;
 the moving dashes show the direction of the data flow.*
 
-The same flow as a diagram GitHub draws from text:
-
-```mermaid
-flowchart LR
-  CMS["CMS Provider Data Catalog<br/>7 tables · monthly releases"] --> ING
-
-  subgraph AF["Airflow 3 · DAG cms_nh_pipeline · one container per task"]
-    direction LR
-    ING["Ingestion<br/>download · inventory"] --> BRZ["Bronze<br/>raw → Parquet"] --> SLV["Silver<br/>clean · harmonise · ledgers"]
-    SLV --> VS{{validate_silver}} --> GLD["Gold<br/>features · labels · gate"] --> VG{{validate_gold}}
-  end
-
-  ING --- L[(landing/)]
-  BRZ --- B[(bronze/)]
-  SLV --- S[(silver/)]
-  GLD --- G[(gold/)]
-  AF -. run history .-> PG[(Postgres<br/>precursor_meta)]
-  VG -->|asset cms_nh_gold| ML["ML pipeline<br/>(next)"]
-  GLD -.-> BIAS["bias-report<br/>(CLI)"]
-```
-
 - **Files stay files.** Every layer is Parquet on one object store: local disk in development, Google Cloud Storage
   in test and production. All I/O goes through the `ObjectStore` / `TableSink` ports, so the same code runs on
   both. No database for intermediate layers.
