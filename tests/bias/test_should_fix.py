@@ -55,6 +55,13 @@ def test_slice_specific_drift_is_flagged(cfg):
     assert gov["distance"] > gov["null_q"]
 
 
+def test_geo_slices_skip_state_level_features(cfg):
+    cfg = _loose(cfg)
+    df = build_slice_columns(make_gold(), cfg)
+    out, _ = skew_by_slice(df, ["state", "ownership_group"], ["state_gplus_rate_12m"], cfg)
+    assert set(out["slice"]) == {"ownership_group"}
+
+
 def test_skew_null_is_deterministic(cfg):
     cfg = _loose(cfg)
     df = build_slice_columns(make_gold(), cfg)

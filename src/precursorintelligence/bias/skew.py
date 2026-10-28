@@ -11,6 +11,8 @@ between the two periods, and sample noise (JS on a histogram is biased upward at
 feature is compared with ``null_draws`` random samples of the whole population of the same sizes (n_ref,
 n_cmp), which carry both, and is flagged when its distance is above the configured threshold **and** above the
 ``null_quantile`` of those draws. ``population_distance`` (all rows) and ``null_q`` are reported alongside.
+Geographic slices (``geo_slices``) skip the state-level features (``state_level_features``): those are one
+value per state and month, so within a state their distance is trivially large.
 """
 
 from __future__ import annotations
@@ -144,7 +146,8 @@ def skew_by_slice(
             if _small(ref, cfg) or _small(cmp, cfg):
                 continue
             mr, mc = in_ref == v, in_cmp == v
-            for f in feats:
+            skip = set(sk.state_level_features) if name in sk.geo_slices else set()
+            for f in (f for f in feats if f not in skip):
                 kind, r_all, c_all, k = values_of[f]
                 d = distance(kind, r_all[mr], c_all[mc], k)
                 draws = [

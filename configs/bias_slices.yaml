@@ -54,6 +54,8 @@ skew:
   null_draws: 20                  # random same-size samples of the whole population per slice x feature
   null_quantile: 0.95             # flag only above this quantile of those draws (time drift + sample noise)
   seed: 0
+  geo_slices: [state, cms_region]                 # these slices skip the state-level features below
+  state_level_features: [state_gplus_rate_12m, state_median_hprd_total]
 rater_bias:
   group_column: state
   # inspection frequency and backlog; complaint counts are not exposure (CMS lists only cited complaints)

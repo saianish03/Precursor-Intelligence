@@ -73,6 +73,10 @@ class SkewCfg(_Model):
     null_draws: int = Field(ge=1)
     null_quantile: float = Field(gt=0, lt=1)
     seed: int = 0
+    # features that are one value per state and month (a state's own mean or median): within a geographic
+    # slice their train and test values are a point or two, so their distance says nothing
+    geo_slices: list[str] = []
+    state_level_features: list[str] = []
 
 
 class RaterBiasCfg(_Model):
