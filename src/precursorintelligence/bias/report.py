@@ -510,9 +510,13 @@ def render_markdown(
     for label, s in summary["rater_bias"].items():
         rho = ", ".join(f"{k}: ρ = {_fmt(v['rho'])}" for k, v in s["spearman"].items())
         persist = ", ".join(f"{k}: ρ = {_fmt(v['rho'])}" for k, v in s["persistence"].items())
+        sev = "".join(
+            f" Against how severely the state cites ({k}, its G+ share of all citations): ρ = {_fmt(v['rho'])}."
+            for k, v in s.get("severity", {}).items()
+        )
         out.append(
             f"- **{label}** ({s['states_ranked']} states ranked): Spearman across states, label rate vs {rho}. "
-            f"Against the state's past rate ({persist}) this is **persistence only**, not rater bias. Flagged states "
+            f"Against the state's past rate ({persist}) this is **persistence only**, not rater bias.{sev} Flagged states "
             f"(label rate and exposure above the {s['quantile']:.0%} quantile): {', '.join(s['flagged_states']) or 'none'}."
         )
     out += [""]
@@ -527,6 +531,7 @@ def render_markdown(
                 "label_rate",
                 *[c for c in rater.columns if c.startswith("mean_")],
                 cfg.rater_bias.rate_column,
+                *[c for c in rater.columns if c == "gplus_share"],
                 "eligible",
                 "flag",
             ],
@@ -618,7 +623,8 @@ def render_markdown(
         "- Small slices are noisy: their rates are shown but never called problematic.",
         "- Label measurement bias (how hard a state inspects) cannot be fully separated from real differences in risk.",
         "- CMS changed the star-rating method in 2025-07, so `star_band` means a different thing before and after it; "
-        "labeled rows reach the new era only for the shorter windows (y_g6 from V = 2026-09). Read star-band rates by era.",
+        "labeled rows reach the new era only for the shorter windows (y_g6 from V = 2026-09). The `star_band x era` "
+        "crossing shows the bands per era.",
         "- Fisher's exact test (small cells) is on rows, not homes, so its p-values are optimistic; those slices are "
         "small and never problematic.",
         "- Data level only: no model has been trained. For an insurer, the harms to watch are opportunity denial "

@@ -19,6 +19,7 @@ SLICE_NAMES = (
     "ccrc",
     "sff_status",
     "star_band",
+    "era",
 )
 # their source columns are not model features (feature_registry model_use), so they never feed training
 NOT_WEIGHT_SLICES = ("star_band", "chain_status")
@@ -85,6 +86,9 @@ class RaterBiasCfg(_Model):
     rate_column: str
     quantile: float = Field(gt=0, lt=1)
     min_state_facilities: int = Field(ge=1)
+    # how severely a state cites: its G+ citations over all its citations (reported, never flagged)
+    severity_columns: list[str] = []
+    citation_total_column: str | None = None
 
 
 class MitigationCfg(_Model):

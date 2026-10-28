@@ -18,6 +18,7 @@ columns:                                         # spec name -> actual gold colu
   ccrc: ccrc
   sff_status: sff_status
   overall_rating: overall_rating               # slicing only; never a model feature
+  era: era                                     # star-rating era (CMS changed the method in 2025-07)
 slices:
   single: [state, cms_region, ownership_group, bed_band, chain_status, in_hospital, ccrc, sff_status, star_band]
   crossings:                                     # 2-way slices (SliceFinder lattice level 2)
@@ -25,6 +26,7 @@ slices:
     - [ownership_group, chain_status]
     - [cms_region, ownership_group]
     - [bed_band, star_band]
+    - [star_band, era]                           # a star band means a different thing in each era
   risk_tiers: [sff_status, star_band]            # built from past inspections: own section, never "problematic"
 bed_band_edges: [0, 50, 100, 150, 200, 100000]   # left-closed: [0, 50) -> "<50"
 bed_band_labels: ["<50", "50-99", "100-149", "150-199", "200+"]
@@ -63,6 +65,8 @@ rater_bias:
   rate_column: state_gplus_rate_12m             # the state's past G+ rate: persistence, not rater bias
   quantile: 0.9                   # flag states above this quantile on both label rate and exposure
   min_state_facilities: 30        # smaller states (territories) are reported but not ranked or flagged
+  severity_columns: [n_cit_GI_24m, n_cit_JL_24m]  # G+ citations, 24 months
+  citation_total_column: n_cit_24m                # all citations, 24 months
 mitigation:
   weights: inverse_frequency      # inverse_frequency | balance_label_rate | none
   weight_slice: ownership_group

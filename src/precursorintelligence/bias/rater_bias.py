@@ -7,7 +7,8 @@ frequency and backlog (``n_std_36m``, ``days_since_last_std``, ``std_overdue``),
 lists a complaint survey only when it led to a citation, so that count is conditioned on the outcome. The
 correlation with the state's past G+ rate (``rate_column``) measures persistence, not rater bias. States with
 fewer than ``min_state_facilities`` homes are reported but take no part in the quantiles, the correlation or
-the flags.
+the flags. When ``severity_columns`` and ``citation_total_column`` are set, ``gplus_share`` (the state's G+
+citations over all its citations) measures how severely the state cites; it is reported, never flagged.
 
 Flagged states (label rate and an exposure both above the configured quantile) are measurement context, a
 "possible inspection-intensity effect", not a judgement of facility quality.
@@ -41,6 +42,21 @@ def rater_bias_by_state(
     """(per-state table for every label, summary with Spearman rho per label and exposure)."""
     rb = cfg.rater_bias
     group, exposures = rb.group_column, rb.exposure_columns
+    severity = bool(
+        rb.severity_columns
+        and rb.citation_total_column
+        and all(c in df.columns for c in [*rb.severity_columns, rb.citation_total_column])
+    )
+    share = (
+        [
+            (
+                pl.sum_horizontal(pl.col(c).cast(pl.Float64) for c in rb.severity_columns).sum()
+                / pl.col(rb.citation_total_column).cast(pl.Float64).sum()
+            ).alias("gplus_share")
+        ]
+        if severity
+        else []
+    )
     frames, summary = [], {}
     for label in labels:
         lab = labeled(df, cfg, label)
@@ -53,6 +69,7 @@ def rater_bias_by_state(
                 *(pl.col(c).cast(pl.Float64).mean().alias(f"mean_{c}") for c in exposures),
                 *(pl.col(c).cast(pl.Float64).median().alias(f"median_{c}") for c in exposures),
                 pl.col(rb.rate_column).cast(pl.Float64).mean().alias(rb.rate_column),
+                *share,
             )
             .with_columns(
                 pl.col(group).cast(pl.String).fill_null("missing"),
@@ -75,6 +92,7 @@ def rater_bias_by_state(
         summary[label] = {
             "spearman": rho,
             "persistence": {rb.rate_column: _spearman(known, rb.rate_column)},
+            "severity": {"gplus_share": _spearman(known, "gplus_share")} if severity else {},
             "flagged_states": sorted(t.filter(pl.col("flag"))[group].to_list()),
             "quantile": rb.quantile,
             "states_ranked": known.height,
@@ -90,6 +108,7 @@ def rater_bias_by_state(
                 *(f"mean_{c}" for c in exposures),
                 *(f"median_{c}" for c in exposures),
                 rb.rate_column,
+                *(["gplus_share"] if severity else []),
                 "eligible",
                 "flag",
             ).sort("state")

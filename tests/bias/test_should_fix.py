@@ -12,6 +12,7 @@ from precursorintelligence.bias import BiasInputError
 from precursorintelligence.bias.disparity import censoring_by_slice, label_rates, status_totals
 from precursorintelligence.bias.io import load_gold_path
 from precursorintelligence.bias.skew import skew_by_slice
+from precursorintelligence.bias.slicefinder import find_problematic
 from precursorintelligence.bias.slices import build_slice_columns, enumerate_slices
 from precursorintelligence.gold import GoldCheckError
 
@@ -152,3 +153,49 @@ def test_censoring_by_slice(cfg):
     assert r["flag"] is True
     fp = out.filter((pl.col("slice") == "ownership_group") & (pl.col("value") == "for_profit"))
     assert fp.row(0, named=True)["censored_share"] == 0 and fp.row(0, named=True)["flag"] is False
+
+
+# --------------------------------------------------------------------------- the fake follows gold's contract
+
+
+def test_fake_chain_era_from_gold_contract(cfg):
+    from precursorintelligence.common.config import load_feature_registry
+
+    df = build_slice_columns(
+        make_gold(n_fac=30, start="2023-01", months=12), cfg, load_feature_registry()
+    )
+    by = dict(
+        df.group_by(pl.col("t") < "2023-06")
+        .agg(pl.col("slice__chain_status").unique().sort())
+        .iter_rows()
+    )
+    assert by[True] == ["missing"]
+    assert by[False] == ["chain", "independent"]
+
+
+def test_fake_persistent_labels_no_false_problematic(cfg):
+    """Labels fixed within a home, no state truly differs: the home-level test calls no state problematic."""
+    df = build_slice_columns(make_gold(n_fac=300, months=24, persistent=True), cfg)
+    assert df.group_by("ccn").agg(pl.col("y_g12").n_unique())["y_g12"].max() == 1
+    ranked = find_problematic(label_rates(df, enumerate_slices(df, cfg), cfg, ["y_g12"]), cfg)
+    assert not ranked.filter(pl.col("slice") == "state")["problematic"].any()
+
+
+# --------------------------------------------------------------------------- S7 star era, S2 severity
+
+
+def test_star_band_crossed_with_era(cfg):
+    df = build_slice_columns(make_gold(n_fac=30, start="2025-04", months=6), cfg)
+    values = {s.value for s in enumerate_slices(df, cfg) if s.name == "star_band x era"}
+    assert {"1 | pre_2025_07", "1 | 2025_07_plus"} <= values
+    ranked = find_problematic(label_rates(df, enumerate_slices(df, cfg), cfg, ["y_g12"]), cfg)
+    assert ranked.filter(pl.col("slice") == "star_band x era")["risk_tier"].all()
+
+
+def test_rater_severity_share(cfg):
+    from precursorintelligence.bias.rater_bias import rater_bias_by_state
+
+    table, summary = rater_bias_by_state(make_gold(n_fac=30, months=2), cfg, ["y_g12"])
+    # homes with an odd index have 1 G+ citation; totals 4 + i % 3
+    assert table["gplus_share"].is_between(0, 1).all()
+    assert "gplus_share" in summary["y_g12"]["severity"]

@@ -27,6 +27,7 @@ def _one_col(cfg, **cols):
         "ccrc": [False],
         "sff_status": ["NONE"],
         "overall_rating": [3.0],
+        "era": ["pre_2025_07"],
     }
     n = len(next(iter(cols.values())))
     data = {k: v * n for k, v in base.items()} | cols

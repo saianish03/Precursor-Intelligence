@@ -11,19 +11,31 @@ def make_gold(
     months: int = 12,
     rate: dict[str, float] | None = None,
     split: bool = True,
+    start: str = "2024-01",
+    persistent: bool = False,
 ) -> pl.DataFrame:
-    """``n_fac`` homes × ``months`` months, all labeled. Ownership cycles for_profit / non_profit / government
-    (so each has n_fac / 3 homes); ``rate`` gives each ownership group's exact y_g12 rate (default 0.2 for all).
-    Every other label equals y_g12. Months split 50% train, 25% calib, 25% test when ``split``."""
+    """``n_fac`` homes × ``months`` months from ``start``, all labeled. Ownership cycles for_profit / non_profit /
+    government (so each has n_fac / 3 homes); ``rate`` gives each ownership group's exact y_g12 rate (default 0.2
+    for all). Every other label equals y_g12. Months split 50% train, 25% calib, 25% test when ``split``.
+
+    Like gold: ``chain_id`` is null before 2023-06 (the column did not exist), footnotes without a reason are
+    ``"none"``, and ``era`` turns at 2025-07. With ``persistent`` a home keeps its label every month (gold's
+    labels are strongly correlated within a home); the group rate is then exact over its homes."""
     rate = rate or {}
-    ts = [f"2024-{m:02d}" if m <= 12 else f"2025-{m - 12:02d}" for m in range(1, months + 1)]
+    y0, m0 = int(start[:4]), int(start[5:7])
+    ts = [f"{y0 + (m0 - 1 + k) // 12}-{(m0 - 1 + k) % 12 + 1:02d}" for k in range(months)]
+    homes: dict[str, int] = {}
     rows = []
     counters: dict[str, int] = {}
     for i in range(n_fac):
         own = OWNERSHIP[i % 3]
+        home_k = homes.get(own, 0)
+        homes[own] = home_k + 1
         for j, t in enumerate(ts):
             k = counters.get(own, 0)
             counters[own] = k + 1
+            if persistent:
+                k = home_k
             r = rate.get(own, 0.2)
             y = int((k % 100) < round(r * 100))  # exact rate over every 100 rows of the group
             rows.append(
@@ -33,7 +45,7 @@ def make_gold(
                     "state": STATES[(i // 3) % len(STATES)],  # independent of ownership
                     "ownership_group": own,
                     "certified_beds": float(40 + (i % 5) * 40),  # 40, 80, 120, 160, 200
-                    "chain_id": None if i % 2 else f"C{i % 7}",
+                    "chain_id": None if i % 2 or t < "2023-06" else f"C{i % 7}",
                     "provider_in_hospital": i % 10 == 0,
                     "ccrc": i % 4 == 0,
                     "sff_status": "NONE",
@@ -43,6 +55,10 @@ def make_gold(
                     "state_gplus_rate_12m": 0.1 + 0.05 * ((i // 3) % len(STATES)),
                     "days_since_last_std": float(30 + (i * 7 + j) % 400),
                     "std_overdue": i % 6 == 0,
+                    "n_cit_24m": 4 + i % 3,
+                    "n_cit_GI_24m": i % 2,
+                    "n_cit_JL_24m": 0,
+                    "era": "pre_2025_07" if t < "2025-07" else "2025_07_plus",
                     "hprd_total": float(3 + (i % 10) / 10),
                     "turnover_total_fn": "none",  # gold writes "none" when CMS gives no footnote
                     "y_g12": y,

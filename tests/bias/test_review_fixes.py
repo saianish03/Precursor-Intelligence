@@ -203,6 +203,7 @@ def test_chain_status_missing_before_chain_id_exists(cfg, registry):
             "ccrc": [False] * 4,
             "sff_status": ["NONE"] * 4,
             "overall_rating": [3.0] * 4,
+            "era": ["pre_2025_07"] * 4,
         }
     )
     out = build_slice_columns(df, cfg, registry)[slice_col("chain_status")].to_list()

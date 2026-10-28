@@ -37,6 +37,7 @@ SOURCE = {
     "ccrc": "ccrc",
     "sff_status": "sff_status",
     "star_band": "overall_rating",
+    "era": "era",  # gold's star-rating era (pre_2025_07 / 2025_07_plus): the rating method changed
 }
 _FORBIDDEN_PREFIXES = ("y_", "status_", "split_")
 _FORBIDDEN_PART = "_fwd"
@@ -182,6 +183,8 @@ def expected_levels(name: str, cfg: BiasConfig) -> list[str]:
         return ["chain", "independent"]
     if name in ("in_hospital", "ccrc"):
         return ["false", "true"]
+    if name == "era":
+        return ["pre_2025_07", "2025_07_plus"]
     return []
 
 
