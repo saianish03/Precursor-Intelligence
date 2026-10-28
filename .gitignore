@@ -1,7 +1,8 @@
 # --- data & outputs (never commit data; local cache mirrors the GCS layout) ---
 data/*
 !data/README.md
-logs/
+logs/*
+!logs/.gitkeep
 mlruns/
 *.parquet
 *.zip
