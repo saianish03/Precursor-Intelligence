@@ -606,3 +606,11 @@ def test_a_failed_gate_leaves_the_published_merged_dataset_untouched(toy, monkey
     assert "required label g6" in capsys.readouterr().err
     assert _merged_sha(toy) == before
     assert read_current_gold(toy.store)["sha256"]["facility_month_dataset.parquet"] == before
+
+
+def test_read_current_gold_refuses_a_merged_dataset_changed_after_promotion(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    merged = toy.root / "gold" / "facility_month_dataset.parquet"
+    _merged(toy).head(1).write_parquet(merged)
+    with pytest.raises(GoldCheckError, match="facility_month_dataset.parquet does not match"):
+        read_current_gold(toy.store)
