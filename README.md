@@ -48,7 +48,7 @@ scores.
 | Orchestration | One Airflow 3 DAG, one Docker container per task, run lock with teardown, exit-code retries, email alerts | Built |
 | Cloud | Runs against `gs://precursor-intel-mlops-data`, one folder per layer; Terraform for GCP | Built |
 | Reproducibility | DVC toy pipeline, deterministic outputs, manifests with sha256s, CI on Python 3.11 and 3.12 | Built |
-| Release gate, metadata mirror, BigQuery publish | `check_release`, `mirror_metadata`, gold → BigQuery | Planned |
+| Release gate | `check_release`: run only when CMS publishes something new | Planned |
 | ML phase | Training, calibration, batch scoring, monitoring, agents, API and dashboard | Next |
 
 **Latest real run (gold V = 2026-08):** 578,975 home-months × 107 columns, 15,274 homes, 39 monthly partitions
@@ -58,6 +58,15 @@ gave gold byte-identical to the local-disk run of the same zips (PR #30).
 ---
 
 ## 2. Architecture
+
+![Data pipeline architecture](docs/img/data_pipeline_architecture.svg)
+
+*The data pipeline. Numbered steps: 1 new CMS releases are downloaded and inventoried · 2 raw files are stored as
+lossless Parquet · 3 tables are cleaned and aligned across years · 4 point-in-time features and labels are built ·
+5 gold is published only if the gate passes · 6 every stage records its run in metadata. Dashed parts are planned;
+the moving dashes show the direction of the data flow.*
+
+The same flow as a diagram GitHub draws from text:
 
 ```mermaid
 flowchart LR
@@ -170,6 +179,12 @@ label windows overlap.
 ## 5. The Airflow DAG
 
 One DAG, `cms_nh_pipeline` (Airflow 3, `max_active_runs=1`): manual on a laptop, daily on the GCP VM.
+
+![Airflow DAG cms_nh_pipeline](docs/img/dag_cms_nh_pipeline.svg)
+
+*Every task of the DAG, grouped by TaskGroup. Blue arrows hand an Airflow asset to the next group; the purple
+dotted line is `release_lock`, the teardown of `acquire_lock`. The status dots replay a simulated run in DAG order
+(they are not live Airflow state). Dashed tasks are planned.*
 
 ```
 acquire_lock → discover_download → pending_entries → extract_inventory[one per zip] → resolve_report
@@ -401,8 +416,6 @@ Each top-level folder has its own README describing what belongs there.
 ## 14. Known limitations and next steps
 
 - **Release gate:** `check_release` (run only when CMS publishes something new) is a TODO slot in the DAG.
-- **Metadata mirror and warehouse:** `mirror_metadata` (Postgres → BigQuery `meta`) and publishing gold to
-  BigQuery are planned.
 - **Gold is validated after promotion:** `validate_gold` holds back the `cms_nh_gold` asset, but a bad gold is
   already in `gold/`; validating `gold/_staging/` first is the top follow-up (`docs/VALIDATION.md`).
 - **Quality-measure features:** MDS and Claims are in silver; the family joins gold after the measure selection is
