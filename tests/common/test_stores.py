@@ -1,7 +1,10 @@
 """Port conformance: the same assertions run against every adapter, proving they are interchangeable."""
 
+import gc
+import hashlib
 import io
 import uuid
+from pathlib import Path
 
 import polars as pl
 import pytest
@@ -71,8 +74,10 @@ def test_failed_stream_leaves_nothing(store):
     assert not store.exists("landing/partial.zip")
 
 
-class _PublishOnCloseFS:
-    """Like gcsfs: an upload becomes visible only when the file is closed, and discard() cancels it."""
+class _GcsLikeFS:
+    """Behaves like gcsfs (checked on a real bucket): a write-mode file publishes what it holds when it is
+    closed, and also when it is garbage collected (IOBase closes on finalization); for a small write there is
+    no upload session yet, so discard() does nothing. put_file uploads a whole local file at once."""
 
     def __init__(self):
         self.objects: dict[str, bytes] = {}
@@ -88,25 +93,29 @@ class _PublishOnCloseFS:
     def rm(self, p):
         del self.objects[p]
 
+    def put_file(self, lpath, rpath):
+        self.objects[rpath] = Path(lpath).read_bytes()
+
     def open(self, p, mode):
         objects = self.objects
 
         class Upload(io.BytesIO):
             def close(self):
-                objects[p] = self.getvalue()
+                if not self.closed:
+                    objects[p] = self.getvalue()
                 super().close()
 
             def discard(self):
-                super().close()
+                pass
 
         return Upload()
 
 
 def test_a_failed_write_on_gcs_publishes_nothing_and_keeps_the_current_object():
     store = FsspecObjectStore(f"memory://gcs-like-{uuid.uuid4().hex}")
-    store.fs, store.base = _PublishOnCloseFS(), "bucket"
-    key = "silver/t/vintage=2026-09/part-0.parquet"
-    store.put_bytes(key, b"good")
+    store.fs, store.base = _GcsLikeFS(), "bucket"
+    key = "gold/_current.json"
+    assert store.put_bytes(key, b"good").sha256 == hashlib.sha256(b"good").hexdigest()
 
     def gen():
         yield b"half"
@@ -114,9 +123,9 @@ def test_a_failed_write_on_gcs_publishes_nothing_and_keeps_the_current_object():
 
     with pytest.raises(RuntimeError):
         store.put_stream(key, gen(), overwrite=True)
-    assert store.fs.objects == {f"bucket/{key}": b"good"}
     with pytest.raises(RuntimeError):
-        store.put_stream("silver/t/vintage=2026-10/part-0.parquet", gen())
+        store.put_stream("gold/dataset_manifest.json", gen())
+    gc.collect()  # a half-written file object left behind would publish itself here
     assert store.fs.objects == {f"bucket/{key}": b"good"}
 
 
