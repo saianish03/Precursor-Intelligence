@@ -84,7 +84,7 @@ and [`docs/AIRFLOW_PIPELINE.md`](docs/AIRFLOW_PIPELINE.md).
 ### 3.1 Source
 
 CMS Provider Data Catalog, nursing homes: the archive of monthly releases plus the current release and the
-metastore API. Vintages **2021-01 → 2026-08** (67 archive zips). The month a release describes is read from the
+metastore API. Vintages **2021-01 → 2026-08** (66 monthly archive zips, plus the current release). The month a release describes is read from the
 `Processing Date` inside each file, never from the zip name. CCN (the facility id) is always 6-character text.
 
 | CMS table | Grain | Used for |
@@ -190,6 +190,25 @@ release_lock = teardown of acquire_lock (runs after a failure too)
 | Params | `mode` (monthly / backfill), `calibrate`, `stop_after` (node by node), `entry_ids` (development) |
 | Run modes | Monthly: only new or changed inputs; gold rebuilds and recomputes every label. Backfill: everything plus calibration |
 
+### 5.1 Pipeline flow optimisation
+
+The Gantt chart above (a full backfill of 23 zips into the GCS bucket, 37 tasks, 26.5 min) shows where the time goes:
+
+| Task group | Time | Note |
+|---|---|---|
+| Download | 95 s | mapped, up to 3 zips in parallel |
+| Bronze | 396 s | **the bottleneck**: one task for every table and month; peak memory about 2.3 GB |
+| Silver | 270 s | one task, plus calibration in a backfill |
+| Gold | 262 s | rebuilt in full each run; peak memory about 2.2 GB on the subset |
+
+What already speeds a run up (measured in [`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md) §8.2, local disk):
+- **Only new or changed inputs are processed.** A monthly run skips every zip and file it already has: a rerun of 23
+  already-processed zips took 56 s, against 107 s for the first load of 14, and bronze and silver outputs are byte-identical.
+- **Parallel per-zip extraction** (`extract_inventory` is mapped, up to 3 at once).
+- **`stop_after`** runs a node at a time, and a monthly run validates only the latest silver month.
+
+The next step would be to split bronze by table so its tasks run in parallel; it is not built yet.
+
 Details and the metadata schema: [`docs/AIRFLOW_PIPELINE.md`](docs/AIRFLOW_PIPELINE.md). Running it:
 [`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md).
 
@@ -206,6 +225,11 @@ Details and the metadata schema: [`docs/AIRFLOW_PIPELINE.md`](docs/AIRFLOW_PIPEL
 - **In the DAG:** `validate_silver` runs before gold, so bad silver never reaches gold; `validate_gold` runs after
   `build_gold` and emits `cms_nh_gold`. A schema violation is exit 2; drift is a warning. Every anomaly is a row
   in `dq_results`.
+
+**Why Pandera, not Great Expectations or TFDV:** Pandera is already a dependency of the pipeline image and validates
+Polars frames natively, so there is no conversion and no extra service. The schema is one reviewable YAML file per
+table. Great Expectations and TFDV would each add a heavy dependency and their own store for expectations and
+statistics; here the statistics are plain JSON reports and `dq_results` rows next to the other nodes' outputs.
 
 Details: [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
@@ -266,28 +290,97 @@ zips), never the Airflow API or the Docker API.
 
 ## 9. Getting started
 
-**Requirements:** Python 3.11 or 3.12, [`uv`](https://docs.astral.sh/uv/) (never pip), Docker for Airflow.
+**Requirements:** Python 3.11 or 3.12, [`uv`](https://docs.astral.sh/uv/) (never pip), Docker for Airflow, and about 2 GB of
+free disk for the sample runs below (25 GB for a full-archive run). People who need pip can use `requirements.txt`, the same
+pinned versions as `uv.lock` (`pip install -r requirements.txt`); CI fails if the two drift apart.
 
 ```bash
 uv sync --all-extras                   # exact versions from uv.lock, every extra, dev tools
 uv run python --version                # must be 3.11.x or 3.12.x
 ```
 
-**Run the pipeline from the CLI** (local disk under `./data`; each step is one DAG task):
+> **Start with a sample.** With no filter, ingestion fetches every in-scope zip: 66 monthly archive zips plus the current
+> release, about 2.5 GB downloaded and 18 GB extracted, 20+ minutes. Select zips with `--zip-dates` or `--entry-ids`
+> (`uv run precursor-ingest step1 --help`); in Airflow, always pass `entry_ids`.
+
+### 9.1 Run the pipeline from the CLI
+
+Local disk under `./data` (git-ignored), process logs under `./logs/`; each step is one DAG task:
 
 ```bash
-uv run precursor-ingest step1 --steps discover,download        # find and download CMS releases
-uv run precursor-ingest step1 --steps extract,inventory,resolve,report
-uv run precursor-pipeline bronze                                # landing → bronze
-uv run precursor-pipeline silver                                # bronze → silver (--calibrate in a backfill)
-uv run precursor-pipeline gold                                  # silver → gold, behind the gate
-uv run precursor-pipeline validate --layer gold                 # schema + drift checks
-uv run precursor-pipeline bias-report                           # → reports/bias/
+uv run precursor-ingest step1 --zip-dates 2025-07-30,2025-09-24   # two releases: discover, download, extract, inventory, resolve, report
+uv run precursor-pipeline bronze                                    # landing → bronze
+uv run precursor-pipeline silver                                    # bronze → silver (--calibrate in a backfill)
+uv run precursor-pipeline validate --layer silver                   # schema + drift checks
+uv run precursor-pipeline gold                                      # silver → gold, behind the gate
+uv run precursor-pipeline validate --layer gold
+uv run precursor-pipeline bias-report                               # → reports/bias/
 ```
 
-**Run it in Airflow:** build the images and start the local stack as in
-[`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md) (UI on `127.0.0.1:8080`), then trigger
-`cms_nh_pipeline` with `mode=backfill` for the first run. The GCP VM: [`docs/runbooks/gcp-bootstrap.md`](docs/runbooks/gcp-bootstrap.md).
+Gold needs enough history for a training month, so with only two zips it stops at its gate (exit 2, nothing published, by
+design). The Airflow sample below (14, then 19 zips) reaches a published gold.
+
+### 9.2 Run it in Airflow (laptop, real CMS downloads, about 1 GB)
+
+Build the two images from the repo root (the pipeline image needs the commit it was built from), then create
+`docker/airflow-local/.env` with fresh secrets and start the stack:
+
+```bash
+docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) -t precursor-pipeline:latest .
+docker build -f docker/airflow.Dockerfile -t precursor-airflow:latest .
+cd docker/airflow-local
+cat > .env <<EOF
+AIRFLOW_DB_PASSWORD=$(openssl rand -hex 16)
+PI_META_DB_PASSWORD=$(openssl rand -hex 16)
+AIRFLOW_JWT_SECRET=$(openssl rand -hex 32)
+AIRFLOW_FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
+AIRFLOW_UID=$(id -u)
+PI_PIPELINE_ENV=dev
+PI_HOST_DATA_DIR=$HOME/pi-data
+PI_DAG_SCHEDULE=
+PI_TASK_MEM_LIMIT=
+PI_AUTO_REMOVE=success
+EOF
+chmod 600 .env && mkdir -p "$HOME/pi-data"
+docker compose up -d --wait --pull never
+docker compose exec airflow-scheduler airflow dags unpause cms_nh_pipeline
+```
+
+- `PI_PIPELINE_ENV=dev` keeps all data in the `PI_HOST_DATA_DIR` folder; no cloud credentials are needed.
+- `PI_DAG_SCHEDULE=` (empty) means manual runs only; the daily schedule would start a full-archive run when unpaused.
+- The UI is at http://localhost:8080, user `admin`; the password:
+  `docker compose exec airflow-apiserver cat /opt/airflow/config/simple_auth_manager_passwords.json`.
+
+Trigger the two sample runs (14 and then 19 zips):
+
+```bash
+A=""; for z in 2021-07-27 2021-10-27 2021-11-27 2022-01-27 2022-06-27 2023-01-02 2023-06-27 2023-09-02 2024-06-26 2024-09-26 2024-12-20 2025-02-26 2025-07-30 2025-09-24; do A="$A${A:+,}theme:$z:nursing-homes_$z.zip"; done
+B="$A"; for z in 2025-11-20 2026-01-14 2026-02-25 2026-06-24 2026-07-29; do B="$B,theme:$z:nursing-homes_$z.zip"; done
+
+# Run 1 (about 2 minutes): ends failed on purpose, see below
+docker compose exec airflow-scheduler airflow dags trigger cms_nh_pipeline --run-id sample-1 \
+  --conf "{\"mode\": \"backfill\", \"entry_ids\": \"$A\"}"
+# Run 2, once run 1 has finished: fully green, gold is published
+docker compose exec airflow-scheduler airflow dags trigger cms_nh_pipeline --run-id sample-2 \
+  --conf "{\"mode\": \"monthly\", \"entry_ids\": \"$B\"}"
+```
+
+Run 1 fails at `build_gold` with exit 2, which is the pipeline working as designed: its last month is a stale CMS refresh,
+so gold has no training month yet, nothing is published, the lock is released and the run is marked failed. Run 2 adds
+months and every task is green, including `validate_gold`. Stop the stack with `docker compose down -v`.
+More runs, checks and the GCP setup: [`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md); the GCP VM:
+[`docs/runbooks/gcp-bootstrap.md`](docs/runbooks/gcp-bootstrap.md).
+
+### 9.3 Reproducing it on another machine
+
+1. `git clone` the repo, then `uv sync --all-extras` (or `pip install -r requirements.txt` in a fresh virtual environment).
+2. `uv run pytest`: the offline tests pass, with no network or credentials.
+3. `uv run dvc repro`: the toy pipeline rebuilds with the hashes recorded in `dvc.lock` (byte-identical on macOS and Linux).
+4. Optional, with a Google account that can read the DVC bucket: `gcloud auth application-default login`, then `uv run dvc pull`.
+5. Airflow: section 9.2.
+
+Real runs download from the public CMS archive and need no credentials; cloud credentials are needed only for the two GCS
+buckets. The tests and the toy pipeline need nothing but the install.
 
 **Memory:** a full gold build peaks at about 4–5 GB; bronze at about 2.2 GB. On an 8 GB laptop, start with at least
 2.5 GB free.
@@ -302,7 +395,7 @@ Windows file names).
 
 ```bash
 uv run ruff check src tests && uv run mypy src
-uv run pytest                          # 935 offline tests; live CMS tests are skipped
+uv run pytest                          # 900+ offline tests; live CMS tests are skipped
 uv run pytest tests/leakage            # the leakage suite
 ```
 
@@ -356,10 +449,14 @@ Precursor-Intelligence/
 ├── dags/                       # Airflow DAGs
 ├── docker/                     # Dockerfiles and local Airflow compose
 ├── infra/terraform/            # GCP infrastructure as code
+├── scripts/                    # small helper scripts (e.g. the DVC metrics summary)
 ├── tests/                      # automated tests
+├── logs/                       # process logs of local runs (git-ignored)
 ├── notebooks/                  # exploration only
 ├── data/                       # local data cache (git-ignored)
-└── docs/                       # ADRs, data notes, runbooks
+├── docs/                       # ADRs, data notes, runbooks
+├── dvc.yaml  dvc.lock  metrics/   # DVC pipeline (toy), its lock file and metrics
+└── pyproject.toml  uv.lock  requirements.txt
 ```
 
 | Folder | What goes here |
@@ -372,12 +469,26 @@ Precursor-Intelligence/
 | `dags/` | Thin Airflow DAGs that only trigger jobs (no business logic) |
 | `docker/` | One Dockerfile per image, plus the local Airflow compose file |
 | `infra/terraform/` | GCP infrastructure: `envs/{dev,prod}` and reusable modules |
+| `scripts/` | Small helper scripts, e.g. `dvc_gold_summary.py`; the pipeline's commands are the two CLIs in `src/` |
 | `tests/` | Mirrors `src/`, plus `backend/`, `frontend/`, `contracts/` and `dags/`; tiny fixtures only |
+| `logs/` | JSON process logs of local runs (`<run id>.jsonl`); the folder is kept with a `.gitkeep`, its contents are git-ignored |
 | `notebooks/` | Exploration only; strip outputs before committing |
 | `data/` | Git-ignored local cache that mirrors the GCS layout |
 | `docs/` | Architecture decision records, data notes, runbooks |
 
 Each top-level folder has its own README describing what belongs there.
+
+The course's example structure maps onto this repository as follows:
+
+| Course example | Here |
+|---|---|
+| `dags/` | `dags/` |
+| `data/` | `data/` (git-ignored local cache that mirrors the GCS layout) |
+| `scripts/` | `scripts/`, and the two CLIs in `src/precursorintelligence/` |
+| `tests/` | `tests/` |
+| `logs/` | `logs/` |
+| `dvc.yaml` | `dvc.yaml`, `dvc.lock`, `.dvc/`, `metrics/` |
+| `README.md` | this file |
 
 ---
 
@@ -447,6 +558,8 @@ uv run pytest                             # offline tests must pass (live CMS te
 ```
 - **macOS only:** LightGBM needs OpenMP: `brew install libomp` once per laptop.
 - **Bring in the latest `dev`** (`git pull origin dev`, or rebase) and resolve conflicts locally before opening the PR.
+- **Changed `pyproject.toml` or `uv.lock`?** Re-export `requirements.txt` (CI fails when it is stale):
+  `uv export --frozen --no-hashes --no-header --extra pipeline --extra bias --extra dvc -o requirements.txt`.
 - **Changed anything listed under `deps:` in `dvc.yaml`** (the gold, harmonize, common and ingestion code, the configs it loads, or `uv.lock`)? Run `uv run dvc repro` and commit `dvc.lock` and `metrics/toy_gold.json` in the same PR.
 
 ### 3. Code and tests
