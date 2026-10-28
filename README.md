@@ -47,7 +47,7 @@ scores.
 | Bias slicing | Representation, label-rate disparity, home-level significance tests, inspector (state) effects, missingness, censoring and drift per slice; train-only sample weights | Built (CLI) |
 | Orchestration | One Airflow 3 DAG, one Docker container per task, run lock with teardown, exit-code retries, email alerts | Built |
 | Cloud | Runs against `gs://precursor-intel-mlops-data`, one folder per layer; Terraform for GCP | Built |
-| Reproducibility | DVC toy pipeline, deterministic outputs, manifests with sha256s, CI on Python 3.11 and 3.12 | Built |
+| Reproducibility | DVC test pipeline, deterministic outputs, manifests with sha256s, CI on Python 3.11 and 3.12 | Built |
 | Release gate | `check_release`: run only when CMS publishes something new | Planned |
 | ML phase | Training, calibration, batch scoring, monitoring, agents, API and dashboard | Next |
 
@@ -84,7 +84,7 @@ and [`docs/AIRFLOW_PIPELINE.md`](docs/AIRFLOW_PIPELINE.md).
 ### 3.1 Source
 
 CMS Provider Data Catalog, nursing homes: the archive of monthly releases plus the current release and the
-metastore API. Vintages **2021-01 → 2026-08** (67 archive zips). The month a release describes is read from the
+metastore API. Vintages **2021-01 → 2026-08** (66 monthly archive zips, plus the current release). The month a release describes is read from the
 `Processing Date` inside each file, never from the zip name. CCN (the facility id) is always 6-character text.
 
 | CMS table | Grain | Used for |
@@ -132,6 +132,11 @@ features), 1 `product_only` (`chain_id`). Splits for `y_g12` at V = 2026-08: tra
 purge 163,584 · test 29,621 · score 250,392 rows; a purge gap of H months separates train from test because the
 label windows overlap.
 
+Every gold run also writes the same rows, columns and dtypes as **one file**, `gold/facility_month_dataset.parquet`
+(sorted by `t`, then `ccn`), for readers that want a single file. It is rebuilt in full each run, never appended to
+(revised history, matured labels and moved splits change earlier months), promoted with the other outputs, and its sha256
+is in `gold/_current.json` and under `merged_file` in `dataset_manifest.json`.
+
 ---
 
 ## 4. The pipeline, layer by layer
@@ -141,7 +146,7 @@ label windows overlap.
 | **Ingestion** | `precursor-ingest step1 …` | CMS archive, current release, metastore | `landing/cms_nh/{catalog,zips,extracted}/`, `quarantine/` | catalog, source_datasets, download_log, extracted_files, inventory, anomalies |
 | **Bronze** | `precursor-pipeline bronze` | selected inventory rows, landing CSVs | `bronze/<table>/vintage=YYYY-MM/` (7 tables) | bronze_files, vintage_flags |
 | **Silver** | `precursor-pipeline silver [--calibrate]` | bronze; column map, keep-lists, value maps | 15 silver tables, ledgers, universe, `gold/dim_facility_latest` | silver_partitions |
-| **Gold** | `precursor-pipeline gold` | silver, ledgers; labels, splits, feature registry | `gold/` spine, features, labels, dataset, `_current.json`, manifest | run_log |
+| **Gold** | `precursor-pipeline gold` | silver, ledgers; labels, splits, feature registry | `gold/` spine, features, labels, dataset (per month and as one merged file), `_current.json`, manifest | run_log |
 
 - **Ingestion:** checksums and size checks; failed downloads go to `quarantine/`, never to landing; one file per
   table and month is selected; a Checkpoint 1 report and anomaly alerts.
@@ -152,6 +157,15 @@ label windows overlap.
 - **Gold:** builds in `gold/_staging/run=<id>/`, then runs a gate (structure, label logic, leakage, coverage).
   Any failed check is exit 2 and nothing is published; on a pass, gold is promoted and `gold/_current.json`
   records each file's sha256.
+
+**Gold is rebuilt, not appended.** Every run recomputes the whole table from silver, so a new month is never just added at
+the bottom: old rows change when new data arrives.
+- **Labels mature.** A row that is `immature` today (its 12-month window is still open) becomes positive or negative later;
+  appending would leave the old "unknown" in place for ever.
+- **Splits move.** Each new V shifts the train / calibration / purge / test windows, so many old rows change their split.
+- **CMS revises history.** Citations are corrected or removed, which changes older features.
+
+Rows that did not change come out byte-identical, so a full rebuild is cheap to check (the sha256s in `gold/_current.json`).
 
 ---
 
@@ -190,6 +204,25 @@ release_lock = teardown of acquire_lock (runs after a failure too)
 | Params | `mode` (monthly / backfill), `calibrate`, `stop_after` (node by node), `entry_ids` (development) |
 | Run modes | Monthly: only new or changed inputs; gold rebuilds and recomputes every label. Backfill: everything plus calibration |
 
+### 5.1 Pipeline flow optimisation
+
+The Gantt chart above (a full backfill of 23 zips into the GCS bucket, 37 tasks, 26.5 min) shows where the time goes:
+
+| Task group | Time | Note |
+|---|---|---|
+| Download | 95 s | mapped, up to 3 zips in parallel |
+| Bronze | 396 s | **the bottleneck**: one task for every table and month; peak memory about 2.3 GB |
+| Silver | 270 s | one task, plus calibration in a backfill |
+| Gold | 262 s | rebuilt in full each run; peak memory about 2.2 GB on the subset |
+
+What already speeds a run up (measured in [`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md) §8.2, local disk):
+- **Only new or changed inputs are processed.** A monthly run skips every zip and file it already has: a rerun of 23
+  already-processed zips took 56 s, against 107 s for the first load of 14, and bronze and silver outputs are byte-identical.
+- **Parallel per-zip extraction** (`extract_inventory` is mapped, up to 3 at once).
+- **`stop_after`** runs a node at a time, and a monthly run validates only the latest silver month.
+
+The next step would be to split bronze by table so its tasks run in parallel; it is not built yet.
+
 Details and the metadata schema: [`docs/AIRFLOW_PIPELINE.md`](docs/AIRFLOW_PIPELINE.md). Running it:
 [`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md).
 
@@ -206,6 +239,11 @@ Details and the metadata schema: [`docs/AIRFLOW_PIPELINE.md`](docs/AIRFLOW_PIPEL
 - **In the DAG:** `validate_silver` runs before gold, so bad silver never reaches gold; `validate_gold` runs after
   `build_gold` and emits `cms_nh_gold`. A schema violation is exit 2; drift is a warning. Every anomaly is a row
   in `dq_results`.
+
+**Why Pandera, not Great Expectations or TFDV:** Pandera is already a dependency of the pipeline image and validates
+Polars frames natively, so there is no conversion and no extra service. The schema is one reviewable YAML file per
+table. Great Expectations and TFDV would each add a heavy dependency and their own store for expectations and
+statistics; here the statistics are plain JSON reports and `dq_results` rows next to the other nodes' outputs.
 
 Details: [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
@@ -244,7 +282,7 @@ Write-up: [`docs/bias/findings.md`](docs/bias/findings.md); method and outputs: 
 ```
 landing/cms_nh/{catalog,zips,extracted}/   quarantine/cms_nh/<run_id>/
 bronze/<table>/vintage=YYYY-MM/            silver/<table>/…
-gold/<table>/t=YYYY-MM/  gold/_current.json  gold/dataset_manifest.json  gold/_staging/
+gold/<table>/t=YYYY-MM/  gold/facility_month_dataset.parquet  gold/_current.json  gold/dataset_manifest.json  gold/_staging/
 reports/<node>/run=<run_id>/  reports/<node>/latest/   metadata/<layer>/run_date=…/
 ```
 
@@ -266,28 +304,97 @@ zips), never the Airflow API or the Docker API.
 
 ## 9. Getting started
 
-**Requirements:** Python 3.11 or 3.12, [`uv`](https://docs.astral.sh/uv/) (never pip), Docker for Airflow.
+**Requirements:** Python 3.11 or 3.12, [`uv`](https://docs.astral.sh/uv/) (never pip), Docker for Airflow, and about 2 GB of
+free disk for the sample runs below (25 GB for a full-archive run). People who need pip can use `requirements.txt`, the same
+pinned versions as `uv.lock` (`pip install -r requirements.txt`); CI fails if the two drift apart.
 
 ```bash
 uv sync --all-extras                   # exact versions from uv.lock, every extra, dev tools
 uv run python --version                # must be 3.11.x or 3.12.x
 ```
 
-**Run the pipeline from the CLI** (local disk under `./data`; each step is one DAG task):
+> **Start with a sample.** With no filter, ingestion fetches every in-scope zip: 66 monthly archive zips plus the current
+> release, about 2.5 GB downloaded and 18 GB extracted, 20+ minutes. Select zips with `--zip-dates` or `--entry-ids`
+> (`uv run precursor-ingest step1 --help`); in Airflow, always pass `entry_ids`.
+
+### 9.1 Run the pipeline from the CLI
+
+Local disk under `./data` (git-ignored), process logs under `./logs/`; each step is one DAG task:
 
 ```bash
-uv run precursor-ingest step1 --steps discover,download        # find and download CMS releases
-uv run precursor-ingest step1 --steps extract,inventory,resolve,report
-uv run precursor-pipeline bronze                                # landing → bronze
-uv run precursor-pipeline silver                                # bronze → silver (--calibrate in a backfill)
-uv run precursor-pipeline gold                                  # silver → gold, behind the gate
-uv run precursor-pipeline validate --layer gold                 # schema + drift checks
-uv run precursor-pipeline bias-report                           # → reports/bias/
+uv run precursor-ingest step1 --zip-dates 2025-07-30,2025-09-24   # two releases: discover, download, extract, inventory, resolve, report
+uv run precursor-pipeline bronze                                    # landing → bronze
+uv run precursor-pipeline silver                                    # bronze → silver (--calibrate in a backfill)
+uv run precursor-pipeline validate --layer silver                   # schema + drift checks
+uv run precursor-pipeline gold                                      # silver → gold, behind the gate
+uv run precursor-pipeline validate --layer gold
+uv run precursor-pipeline bias-report                               # → reports/bias/
 ```
 
-**Run it in Airflow:** build the images and start the local stack as in
-[`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md) (UI on `127.0.0.1:8080`), then trigger
-`cms_nh_pipeline` with `mode=backfill` for the first run. The GCP VM: [`docs/runbooks/gcp-bootstrap.md`](docs/runbooks/gcp-bootstrap.md).
+Gold needs enough history for a training month, so with only two zips it stops at its gate (exit 2, nothing published, by
+design). The Airflow sample below (14, then 19 zips) reaches a published gold.
+
+### 9.2 Run it in Airflow (laptop, real CMS downloads, about 1 GB)
+
+Build the two images from the repo root (the pipeline image needs the commit it was built from), then create
+`docker/airflow-local/.env` with fresh secrets and start the stack:
+
+```bash
+docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) -t precursor-pipeline:latest .
+docker build -f docker/airflow.Dockerfile -t precursor-airflow:latest .
+cd docker/airflow-local
+cat > .env <<EOF
+AIRFLOW_DB_PASSWORD=$(openssl rand -hex 16)
+PI_META_DB_PASSWORD=$(openssl rand -hex 16)
+AIRFLOW_JWT_SECRET=$(openssl rand -hex 32)
+AIRFLOW_FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
+AIRFLOW_UID=$(id -u)
+PI_PIPELINE_ENV=dev
+PI_HOST_DATA_DIR=$HOME/pi-data
+PI_DAG_SCHEDULE=
+PI_TASK_MEM_LIMIT=
+PI_AUTO_REMOVE=success
+EOF
+chmod 600 .env && mkdir -p "$HOME/pi-data"
+docker compose up -d --wait --pull never
+docker compose exec airflow-scheduler airflow dags unpause cms_nh_pipeline
+```
+
+- `PI_PIPELINE_ENV=dev` keeps all data in the `PI_HOST_DATA_DIR` folder; no cloud credentials are needed.
+- `PI_DAG_SCHEDULE=` (empty) means manual runs only; the daily schedule would start a full-archive run when unpaused.
+- The UI is at http://localhost:8080, user `admin`; the password:
+  `docker compose exec airflow-apiserver cat /opt/airflow/config/simple_auth_manager_passwords.json`.
+
+Trigger the two sample runs (14 and then 19 zips):
+
+```bash
+A=""; for z in 2021-07-27 2021-10-27 2021-11-27 2022-01-27 2022-06-27 2023-01-02 2023-06-27 2023-09-02 2024-06-26 2024-09-26 2024-12-20 2025-02-26 2025-07-30 2025-09-24; do A="$A${A:+,}theme:$z:nursing-homes_$z.zip"; done
+B="$A"; for z in 2025-11-20 2026-01-14 2026-02-25 2026-06-24 2026-07-29; do B="$B,theme:$z:nursing-homes_$z.zip"; done
+
+# Run 1 (about 2 minutes): ends failed on purpose, see below
+docker compose exec airflow-scheduler airflow dags trigger cms_nh_pipeline --run-id sample-1 \
+  --conf "{\"mode\": \"backfill\", \"entry_ids\": \"$A\"}"
+# Run 2, once run 1 has finished: fully green, gold is published
+docker compose exec airflow-scheduler airflow dags trigger cms_nh_pipeline --run-id sample-2 \
+  --conf "{\"mode\": \"monthly\", \"entry_ids\": \"$B\"}"
+```
+
+Run 1 fails at `build_gold` with exit 2, which is the pipeline working as designed: its last month is a stale CMS refresh,
+so gold has no training month yet, nothing is published, the lock is released and the run is marked failed. Run 2 adds
+months and every task is green, including `validate_gold`. Stop the stack with `docker compose down -v`.
+More runs, checks and the GCP setup: [`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md); the GCP VM:
+[`docs/runbooks/gcp-bootstrap.md`](docs/runbooks/gcp-bootstrap.md).
+
+### 9.3 Reproducing it on another machine
+
+1. `git clone` the repo, then `uv sync --all-extras` (or `pip install -r requirements.txt` in a fresh virtual environment).
+2. `uv run pytest`: the offline tests pass, with no network or credentials.
+3. `uv run dvc repro`: the test pipeline rebuilds with the hashes recorded in `dvc.lock` (byte-identical on macOS and Linux).
+4. Optional, with a Google account that can read the DVC bucket: `gcloud auth application-default login`, then `uv run dvc pull`.
+5. Airflow: section 9.2.
+
+Real runs download from the public CMS archive and need no credentials; cloud credentials are needed only for the two GCS
+buckets. The tests and the test pipeline need nothing but the install.
 
 **Memory:** a full gold build peaks at about 4–5 GB; bronze at about 2.2 GB. On an 8 GB laptop, start with at least
 2.5 GB free.
@@ -302,11 +409,11 @@ Windows file names).
 
 ```bash
 uv run ruff check src tests && uv run mypy src
-uv run pytest                          # 935 offline tests; live CMS tests are skipped
+uv run pytest                          # 900+ offline tests; live CMS tests are skipped
 uv run pytest tests/leakage            # the leakage suite
 ```
 
-- **CI (GitHub Actions, `.github/workflows/ci.yml`):** ruff, the full offline suite and `dvc repro` of the toy
+- **CI (GitHub Actions, `.github/workflows/ci.yml`):** ruff, the full offline suite and `dvc repro` of the test
   pipeline, on Python 3.11 and 3.12. The `ci-ok` check is required to merge.
 - **DAG tests** (`tests/dags`) run inside the official Airflow 3 image: the chain, the only leaf, asset outlets
   and the commands each task runs.
@@ -318,7 +425,8 @@ uv run pytest tests/leakage            # the leakage suite
 
 [DVC](https://dvc.org) versions data the way Git versions code: Git tracks small pointer files (`dvc.yaml`, `dvc.lock`, `metrics/`), and the data itself lives in a DVC cache plus a remote, `gs://precursor-intel-mlops-dvc`, a bucket of its own so nobody needs write access to the production data bucket to share DVC data (created in `infra/terraform/envs/prod`).
 
-What DVC tracks here is the **toy pipeline**: a small silver world (`tests/gold/make_toy_silver.py`) is turned into gold by the real `precursor-pipeline gold` node, then summarised into `metrics/toy_gold.json` (`scripts/dvc_gold_summary.py`). It needs no network or credentials, so anyone can rebuild it:
+What DVC tracks here is the **test pipeline**: a small silver world (`tests/gold/make_toy_silver.py`) is turned into gold by the real `precursor-pipeline gold` node, then summarised into `metrics/toy_gold.json` (`scripts/dvc_gold_summary.py`). The stage's outputs include the merged gold
+file `data/toy/gold/facility_month_dataset.parquet`, and `uv.lock` is one of its inputs (parquet files record the writer's library version). It needs no network or credentials, so anyone can rebuild it. (The stage, folder and file names still say `toy`: `toy_gold`, `data/toy/`, `metrics/toy_gold.json`.)
 
 ```bash
 uv sync --all-extras        # includes dvc[gs]
@@ -337,9 +445,26 @@ git checkout <rev> -- dvc.lock && uv run dvc checkout   # restore the data of an
 uv run dvc metrics diff <rev>                           # compare the counts with that commit
 ```
 
-The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the toy pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result. On Windows, run `dvc repro` in a checkout with LF line endings (`git -c core.autocrlf=false worktree add …`): DVC hashes raw bytes, and CRLF files give hashes CI does not reproduce.
+The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the test pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR, then run `uv run dvc push` (it needs write access to the DVC bucket) so teammates' `dvc pull` finds the new data. CI only runs `dvc repro`, so a missing push is not caught there. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result. On Windows, run `dvc repro` in a checkout with LF line endings (`git -c core.autocrlf=false worktree add …`): DVC hashes raw bytes, and CRLF files give hashes CI does not reproduce.
 
-DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). Only the toy outputs are in DVC; `dvc.yaml` declares nothing outside `data/`.
+DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). Only the test outputs are in DVC; `dvc.yaml` declares nothing outside `data/`. A snapshot of the published real gold under DVC (one `.dvc` pointer per release, no `dvc.yaml` stage on the real data) is planned once the gold rework is done.
+
+### 11.1 Keeping versions of gold (planned)
+
+Because gold is rebuilt in full each run, every release produces a complete new table, and the history has to be kept
+on purpose. The plan, to start once the gold rework is done:
+- **One DVC snapshot per release.** The published merged file `gold/facility_month_dataset.parquet` is added to DVC as a
+  plain `.dvc` pointer (no `dvc.yaml` stage on the real data: it would go stale with every code PR). Each release is one
+  Git commit of that pointer. To restore a version: `git checkout <rev> -- <pointer>.dvc && uv run dvc pull`. DVC stores
+  files by content, so unchanged parts are not copied again.
+- **Tag the snapshot commit with the month and the content hash,** for example `gold-V2026-09-<first 8 characters of
+  dataset_version>`. The month alone is not a unique version: a rerun for the same V can change rows (a reload, a config
+  change, CMS revising history). The `dataset_version` in `gold/dataset_manifest.json` is the content hash.
+- **No month-named copies** such as `facility_month_dataset_2026-09.csv`. They duplicate data, say nothing about the code and
+  configs that produced them, and collide when the same month is rebuilt. The latest gold is already one file,
+  `gold/facility_month_dataset.parquet`, behind `gold/_current.json`.
+- **Parquet stays the stored format.** CSV drops column types (dates, integers with missing values) and would be several
+  hundred MB. A CSV export for people who open the data in a spreadsheet can be added as an extra.
 
 ---
 
@@ -356,10 +481,14 @@ Precursor-Intelligence/
 ├── dags/                       # Airflow DAGs
 ├── docker/                     # Dockerfiles and local Airflow compose
 ├── infra/terraform/            # GCP infrastructure as code
+├── scripts/                    # small helper scripts (e.g. the DVC metrics summary)
 ├── tests/                      # automated tests
+├── logs/                       # process logs of local runs (git-ignored)
 ├── notebooks/                  # exploration only
 ├── data/                       # local data cache (git-ignored)
-└── docs/                       # ADRs, data notes, runbooks
+├── docs/                       # ADRs, data notes, runbooks
+├── dvc.yaml  dvc.lock  metrics/   # DVC pipeline (test), its lock file and metrics
+└── pyproject.toml  uv.lock  requirements.txt
 ```
 
 | Folder | What goes here |
@@ -372,12 +501,26 @@ Precursor-Intelligence/
 | `dags/` | Thin Airflow DAGs that only trigger jobs (no business logic) |
 | `docker/` | One Dockerfile per image, plus the local Airflow compose file |
 | `infra/terraform/` | GCP infrastructure: `envs/{dev,prod}` and reusable modules |
+| `scripts/` | Small helper scripts, e.g. `dvc_gold_summary.py`; the pipeline's commands are the two CLIs in `src/` |
 | `tests/` | Mirrors `src/`, plus `backend/`, `frontend/`, `contracts/` and `dags/`; tiny fixtures only |
+| `logs/` | JSON process logs of local runs (`<run id>.jsonl`); the folder is kept with a `.gitkeep`, its contents are git-ignored |
 | `notebooks/` | Exploration only; strip outputs before committing |
 | `data/` | Git-ignored local cache that mirrors the GCS layout |
 | `docs/` | Architecture decision records, data notes, runbooks |
 
 Each top-level folder has its own README describing what belongs there.
+
+The course's example structure maps onto this repository as follows:
+
+| Course example | Here |
+|---|---|
+| `dags/` | `dags/` |
+| `data/` | `data/` (git-ignored local cache that mirrors the GCS layout) |
+| `scripts/` | `scripts/`, and the two CLIs in `src/precursorintelligence/` |
+| `tests/` | `tests/` |
+| `logs/` | `logs/` |
+| `dvc.yaml` | `dvc.yaml`, `dvc.lock`, `.dvc/`, `metrics/` |
+| `README.md` | this file |
 
 ---
 
@@ -406,9 +549,12 @@ Each top-level folder has its own README describing what belongs there.
   approved.
 - **Training window:** with the measured buffers, `y_g12` has 6 training months at V = 2026-08; starting training
   rows in 2022-01 is the recommendation under review (`docs/DATA_PIPELINE_SPEC.md` §9.5, §14).
-- **Gold memory:** a full-archive build peaks at about 4–5 GB on an 8 GB VM (`docs/AIRFLOW_PIPELINE.md` §9.1).
+- **Gold memory:** a full-archive build peaks at about 4–5 GB on an 8 GB VM, and the merged gold file adds about 16% (about
+  5.8 GB estimated, close to the 6 GB task limit); writing it from the staged partitions instead of holding a second sorted
+  copy is the planned fix, before the first full-archive run (`docs/AIRFLOW_PIPELINE.md` §9.1).
 - **Team decisions in #27:** which slices are fairness groups, whether state effects are risk or bias, whether
   sample weights are used by default.
+- **Versioning real gold:** one DVC snapshot per release, tagged with the month and content hash (section 11.1).
 - **Next:** the ML DAGs (`train_evaluate`, `batch_score`, `monitor`) on the `cms_nh_gold` asset, LightGBM with
   calibration and per-slice evaluation, the agents, the API and the dashboard.
 
@@ -447,7 +593,9 @@ uv run pytest                             # offline tests must pass (live CMS te
 ```
 - **macOS only:** LightGBM needs OpenMP: `brew install libomp` once per laptop.
 - **Bring in the latest `dev`** (`git pull origin dev`, or rebase) and resolve conflicts locally before opening the PR.
-- **Changed anything listed under `deps:` in `dvc.yaml`** (the gold, harmonize, common and ingestion code, the configs it loads, or `uv.lock`)? Run `uv run dvc repro` and commit `dvc.lock` and `metrics/toy_gold.json` in the same PR.
+- **Changed `pyproject.toml` or `uv.lock`?** Re-export `requirements.txt` (CI fails when it is stale):
+  `uv export --frozen --no-hashes --no-header --extra pipeline --extra bias --extra dvc -o requirements.txt`.
+- **Changed anything listed under `deps:` in `dvc.yaml`** (the gold, harmonize, common and ingestion code, the configs it loads, or `uv.lock`)? Run `uv run dvc repro`, commit `dvc.lock` and `metrics/toy_gold.json` in the same PR, and run `uv run dvc push` (a new output must be in the remote, or teammates' `dvc pull` fails).
 
 ### 3. Code and tests
 - **New or changed code comes with tests** in `tests/<stage>/`, mirroring `src/precursorintelligence/<stage>/`.

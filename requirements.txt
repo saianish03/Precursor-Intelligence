@@ -1,0 +1,622 @@
+-e .
+aiohappyeyeballs==2.7.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via aiohttp
+aiohttp==3.14.4 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   aiohttp-retry
+    #   fsspec
+    #   gcsfs
+aiohttp-retry==2.9.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc-http
+    #   scmrepo
+aiosignal==1.4.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via aiohttp
+amqp==5.4.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via kombu
+annotated-doc==0.0.5 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via typer
+annotated-types==0.8.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pydantic
+antlr4-python3-runtime==4.9.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   hydra-core
+    #   omegaconf
+anyio==4.15.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via httpx
+appdirs==1.4.4 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via iterative-telemetry
+ast-serialize==0.12.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via mypy
+asyncssh==2.24.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via scmrepo
+atpublic==9.0.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via flufl-lock
+attrs==26.1.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   aiohttp
+    #   dvc
+    #   dvc-data
+    #   sqltrie
+billiard==4.3.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via celery
+celery==5.6.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   dvc-task
+certifi==2026.7.22 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   httpcore
+    #   httpx
+    #   precursorintelligence
+    #   requests
+cffi==2.1.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   cryptography
+    #   pygit2
+cfgv==3.5.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pre-commit
+charset-normalizer==3.5.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via requests
+click==8.5.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   celery
+    #   click-didyoumean
+    #   click-plugins
+    #   click-repl
+    #   gto
+click-didyoumean==0.3.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via celery
+click-plugins==1.1.1.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via celery
+click-repl==0.4.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via celery
+cloudpickle==3.1.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via joblib
+colorama==0.4.6 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   pytest
+    #   tqdm
+    #   typer
+configobj==5.0.9 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+contourpy==1.3.3 ; (python_full_version < '3.12' and sys_platform == 'darwin') or (python_full_version < '3.12' and sys_platform == 'linux') or (python_full_version < '3.12' and sys_platform == 'win32')
+    # via matplotlib
+contourpy==1.4.0 ; (python_full_version >= '3.12' and sys_platform == 'darwin') or (python_full_version >= '3.12' and sys_platform == 'linux') or (python_full_version >= '3.12' and sys_platform == 'win32')
+    # via matplotlib
+coverage==7.16.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pytest-cov
+cryptography==50.0.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   asyncssh
+    #   google-auth
+cycler==0.12.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via matplotlib
+decorator==5.3.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via gcsfs
+dictdiffer==0.10.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc-data
+diskcache==5.6.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc-data
+distlib==0.4.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via virtualenv
+distro==1.9.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   iterative-telemetry
+dpath==2.2.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+duckdb==1.5.6 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+dulwich==1.2.20 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   dvc-studio-client
+    #   scmrepo
+dvc==3.67.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc-gs
+    #   precursorintelligence
+dvc-data==3.18.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+dvc-gs==3.1.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+dvc-http==2.32.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+dvc-objects==5.2.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   dvc-data
+dvc-render==1.0.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+dvc-studio-client==0.23.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+dvc-task==0.40.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+entrypoints==0.4.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via gto
+fairlearn==0.15.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+filelock==4.1.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   iterative-telemetry
+    #   python-discovery
+    #   virtualenv
+flatten-dict==0.5.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+flufl-lock==9.2.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+fonttools==4.66.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via matplotlib
+formulaic==1.2.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via statsmodels
+frozenlist==1.8.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   aiohttp
+    #   aiosignal
+fsspec==2026.9.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   dvc-data
+    #   dvc-http
+    #   dvc-objects
+    #   gcsfs
+    #   precursorintelligence
+    #   scmrepo
+funcy==2.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   dvc-data
+    #   dvc-objects
+    #   dvc-task
+    #   gto
+    #   scmrepo
+gcsfs==2026.10.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc-gs
+    #   precursorintelligence
+gitdb==4.0.12 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via gitpython
+gitpython==3.2.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via scmrepo
+google-api-core==2.42.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   google-cloud-bigquery
+    #   google-cloud-core
+    #   google-cloud-storage
+    #   google-cloud-storage-control
+google-auth==2.61.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   gcsfs
+    #   google-api-core
+    #   google-auth-oauthlib
+    #   google-cloud-bigquery
+    #   google-cloud-core
+    #   google-cloud-storage
+    #   google-cloud-storage-control
+google-auth-oauthlib==1.5.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via gcsfs
+google-cloud-bigquery==3.46.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+google-cloud-core==2.8.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   google-cloud-bigquery
+    #   google-cloud-storage
+google-cloud-storage==3.17.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   gcsfs
+    #   precursorintelligence
+google-cloud-storage-control==1.16.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via gcsfs
+google-crc32c==1.9.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   google-cloud-storage
+    #   google-resumable-media
+google-resumable-media==2.11.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   google-cloud-bigquery
+    #   google-cloud-storage
+googleapis-common-protos==1.75.5 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   google-api-core
+    #   grpc-google-iam-v1
+    #   grpcio-status
+grandalf==0.8 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+grpc-google-iam-v1==0.14.5 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via google-cloud-storage-control
+grpcio==1.84.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   google-api-core
+    #   google-cloud-storage-control
+    #   googleapis-common-protos
+    #   grpc-google-iam-v1
+    #   grpcio-status
+grpcio-status==1.84.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via google-api-core
+gto==1.10.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+h11==0.16.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via httpcore
+httpcore==1.0.9 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via httpx
+httpx==0.28.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+hydra-core==1.3.8 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+identify==2.6.20 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pre-commit
+idna==3.20 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   anyio
+    #   httpx
+    #   requests
+    #   yarl
+iniconfig==2.3.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pytest
+interface-meta==2.0.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via formulaic
+iterative-telemetry==0.0.10 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+joblib==1.6.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via scikit-learn
+kiwisolver==1.5.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via matplotlib
+kombu==5.6.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   celery
+    #   dvc
+    #   dvc-task
+librt==0.16.0 ; (platform_python_implementation != 'PyPy' and sys_platform == 'darwin') or (platform_python_implementation != 'PyPy' and sys_platform == 'linux') or (platform_python_implementation != 'PyPy' and sys_platform == 'win32')
+    # via mypy
+markdown-it-py==4.2.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via rich
+matplotlib==3.11.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+mdurl==0.1.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via markdown-it-py
+multidict==6.9.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   aiohttp
+    #   yarl
+mypy==2.4.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+mypy-extensions==1.1.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   mypy
+    #   typing-inspect
+narwhals==2.26.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   fairlearn
+    #   formulaic
+    #   scikit-learn
+networkx==3.6.1 ; (python_full_version < '3.12' and sys_platform == 'darwin') or (python_full_version < '3.12' and sys_platform == 'linux') or (python_full_version < '3.12' and sys_platform == 'win32')
+    # via dvc
+networkx==3.7 ; (python_full_version >= '3.12' and sys_platform == 'darwin') or (python_full_version >= '3.12' and sys_platform == 'linux') or (python_full_version >= '3.12' and sys_platform == 'win32')
+    # via dvc
+nodeenv==1.11.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pre-commit
+numpy==2.3.5 ; python_full_version < '3.12' and platform_machine == 'x86_64' and sys_platform == 'darwin'
+    # via
+    #   contourpy
+    #   fairlearn
+    #   formulaic
+    #   matplotlib
+    #   pandas
+    #   pandas-stubs
+    #   patsy
+    #   scikit-learn
+    #   scipy
+    #   statsmodels
+numpy==2.4.6 ; (python_full_version < '3.12' and platform_machine != 'x86_64' and sys_platform == 'darwin') or (python_full_version < '3.12' and sys_platform == 'linux') or (python_full_version < '3.12' and sys_platform == 'win32')
+    # via
+    #   contourpy
+    #   fairlearn
+    #   formulaic
+    #   matplotlib
+    #   pandas
+    #   pandas-stubs
+    #   patsy
+    #   scikit-learn
+    #   scipy
+    #   statsmodels
+numpy==2.5.3 ; (python_full_version >= '3.12' and sys_platform == 'darwin') or (python_full_version >= '3.12' and sys_platform == 'linux') or (python_full_version >= '3.12' and sys_platform == 'win32')
+    # via
+    #   contourpy
+    #   fairlearn
+    #   formulaic
+    #   matplotlib
+    #   pandas
+    #   pandas-stubs
+    #   patsy
+    #   scikit-learn
+    #   scipy
+    #   statsmodels
+oauthlib==4.0.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via requests-oauthlib
+omegaconf==2.3.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   hydra-core
+opentelemetry-api==1.45.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via google-api-core
+orjson==3.13.0 ; (implementation_name == 'cpython' and sys_platform == 'darwin') or (implementation_name == 'cpython' and sys_platform == 'linux') or (implementation_name == 'cpython' and sys_platform == 'win32')
+    # via
+    #   dvc-data
+    #   sqltrie
+packaging==26.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   google-cloud-bigquery
+    #   hydra-core
+    #   kombu
+    #   matplotlib
+    #   pandera
+    #   patsy
+    #   pytest
+    #   statsmodels
+    #   virtualenv
+pandas==3.0.6 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   fairlearn
+    #   formulaic
+    #   precursorintelligence
+    #   statsmodels
+pandas-stubs==3.0.5.260914 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+pandera==0.34.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+pathspec==1.1.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   mypy
+    #   scmrepo
+patsy==1.0.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via statsmodels
+pillow==12.3.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via matplotlib
+platformdirs==4.12.4 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   virtualenv
+pluggy==1.6.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   pytest
+    #   pytest-cov
+polars==2.0.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+polars-runtime-32==2.0.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via polars
+pre-commit==4.6.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+prompt-toolkit==3.0.53 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via click-repl
+propcache==0.5.4 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   aiohttp
+    #   yarl
+proto-plus==1.29.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   google-api-core
+    #   google-cloud-storage-control
+protobuf==6.33.6 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   google-api-core
+    #   google-cloud-storage-control
+    #   googleapis-common-protos
+    #   grpc-google-iam-v1
+    #   grpcio-status
+    #   proto-plus
+psutil==7.2.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   flufl-lock
+psycopg==3.3.6 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+psycopg-binary==3.3.6 ; (implementation_name != 'pypy' and sys_platform == 'darwin') or (implementation_name != 'pypy' and sys_platform == 'linux') or (implementation_name != 'pypy' and sys_platform == 'win32')
+    # via psycopg
+pyarrow==25.0.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+pyasn1==0.6.4 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pyasn1-modules
+pyasn1-modules==0.4.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via google-auth
+pycparser==3.11 ; (implementation_name != 'PyPy' and sys_platform == 'darwin') or (implementation_name != 'PyPy' and sys_platform == 'linux') or (implementation_name != 'PyPy' and sys_platform == 'win32')
+    # via cffi
+pydantic==2.14.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   gto
+    #   pandera
+    #   precursorintelligence
+    #   pydantic-settings
+pydantic-core==2.50.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pydantic
+pydantic-settings==2.15.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   gto
+    #   precursorintelligence
+pydot==4.0.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+pygit2==1.20.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via scmrepo
+pygments==2.21.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   pytest
+    #   rich
+pygtrie==2.6.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   dvc-data
+    #   scmrepo
+    #   sqltrie
+pyparsing==3.3.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   grandalf
+    #   matplotlib
+    #   pydot
+pytest==9.1.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pytest-cov
+pytest-cov==7.1.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+python-dateutil==2.9.0.post0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   celery
+    #   google-cloud-bigquery
+    #   matplotlib
+    #   pandas
+python-discovery==1.6.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via virtualenv
+python-dotenv==1.2.4 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pydantic-settings
+pywin32==312 ; sys_platform == 'win32'
+    # via dvc-task
+pyyaml==6.0.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   omegaconf
+    #   pre-commit
+    #   precursorintelligence
+requests==2.34.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   dvc-studio-client
+    #   gcsfs
+    #   google-api-core
+    #   google-cloud-bigquery
+    #   google-cloud-storage
+    #   iterative-telemetry
+    #   precursorintelligence
+    #   requests-oauthlib
+requests-oauthlib==2.0.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via google-auth-oauthlib
+rich==15.0.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   gto
+    #   typer
+ruamel-yaml==0.19.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   gto
+ruff==0.17.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+scikit-learn==1.9.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via fairlearn
+scipy==1.17.1 ; (python_full_version < '3.12' and sys_platform == 'darwin') or (python_full_version < '3.12' and sys_platform == 'linux') or (python_full_version < '3.12' and sys_platform == 'win32')
+    # via
+    #   fairlearn
+    #   formulaic
+    #   precursorintelligence
+    #   scikit-learn
+    #   statsmodels
+scipy==1.18.1 ; (python_full_version >= '3.12' and sys_platform == 'darwin') or (python_full_version >= '3.12' and sys_platform == 'linux') or (python_full_version >= '3.12' and sys_platform == 'win32')
+    # via
+    #   fairlearn
+    #   formulaic
+    #   precursorintelligence
+    #   scikit-learn
+    #   statsmodels
+scmrepo==3.6.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   gto
+semver==3.1.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via gto
+setuptools==84.0.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via zc-lockfile
+shellingham==1.5.4 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via typer
+shortuuid==1.0.13 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   dvc-task
+shtab==1.13.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+six==1.17.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via python-dateutil
+smmap==5.0.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via gitdb
+sqlalchemy==2.1.4 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+sqltrie==0.11.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc-data
+statsmodels==0.15.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+tabulate==0.10.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   gto
+tenacity==9.2.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+threadpoolctl==3.7.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via scikit-learn
+tomli==2.5.0 ; (python_full_version <= '3.11' and sys_platform == 'darwin') or (python_full_version <= '3.11' and sys_platform == 'linux') or (python_full_version <= '3.11' and sys_platform == 'win32')
+    # via coverage
+tomlkit==0.15.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc
+tqdm==4.70.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   dvc-data
+    #   fsspec
+    #   scmrepo
+typeguard==4.6.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pandera
+typer==0.27.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via precursorintelligence
+types-pyyaml==6.0.12.20260906 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+types-requests==2.33.0.20261006 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+typing-extensions==4.16.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   aiohttp
+    #   aiosignal
+    #   anyio
+    #   asyncssh
+    #   click-repl
+    #   dulwich
+    #   formulaic
+    #   grpcio
+    #   mypy
+    #   opentelemetry-api
+    #   pandera
+    #   psycopg
+    #   pydantic
+    #   pydantic-core
+    #   sqlalchemy
+    #   typeguard
+    #   typing-inspect
+    #   typing-inspection
+typing-inspect==0.9.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pandera
+typing-inspection==0.4.4 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   pydantic
+    #   pydantic-settings
+tzdata==2026.5 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   kombu
+    #   pandas
+    #   psycopg
+    #   tzlocal
+tzlocal==5.4.5 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via celery
+urllib3==2.8.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dulwich
+    #   requests
+    #   types-requests
+vine==5.1.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   amqp
+    #   celery
+    #   kombu
+virtualenv==21.14.6 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pre-commit
+voluptuous==0.16.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via
+    #   dvc
+    #   dvc-studio-client
+wcwidth==0.9.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via prompt-toolkit
+wrapt==2.5.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via formulaic
+yarl==1.25.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via aiohttp
+zc-lockfile==4.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via dvc

@@ -39,6 +39,13 @@ jobs:
       - name: Install the package, all extras and dev tools
         run: uv sync --frozen --all-extras
 
+      # requirements.txt is the pip route to the same versions as uv.lock (the course asks for one). It fails
+      # when stale: run the command in the error message and commit the file.
+      - name: requirements.txt matches uv.lock
+        run: |
+          uv export --frozen --no-hashes --no-header --extra pipeline --extra bias --extra dvc | diff - requirements.txt \
+            || { echo "::error::requirements.txt is stale: uv export --frozen --no-hashes --no-header --extra pipeline --extra bias --extra dvc -o requirements.txt"; exit 1; }
+
       - name: Lint (ruff)
         run: uv run ruff check src tests
 
