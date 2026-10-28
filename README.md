@@ -132,6 +132,11 @@ features), 1 `product_only` (`chain_id`). Splits for `y_g12` at V = 2026-08: tra
 purge 163,584 · test 29,621 · score 250,392 rows; a purge gap of H months separates train from test because the
 label windows overlap.
 
+Every gold run also writes the same rows, columns and dtypes as **one file**, `gold/facility_month_dataset.parquet`
+(sorted by `t`, then `ccn`), for readers that want a single file. It is rebuilt in full each run, never appended to
+(revised history, matured labels and moved splits change earlier months), promoted with the other outputs, and its sha256
+is in `gold/_current.json` and under `merged_file` in `dataset_manifest.json`.
+
 ---
 
 ## 4. The pipeline, layer by layer
@@ -141,7 +146,7 @@ label windows overlap.
 | **Ingestion** | `precursor-ingest step1 …` | CMS archive, current release, metastore | `landing/cms_nh/{catalog,zips,extracted}/`, `quarantine/` | catalog, source_datasets, download_log, extracted_files, inventory, anomalies |
 | **Bronze** | `precursor-pipeline bronze` | selected inventory rows, landing CSVs | `bronze/<table>/vintage=YYYY-MM/` (7 tables) | bronze_files, vintage_flags |
 | **Silver** | `precursor-pipeline silver [--calibrate]` | bronze; column map, keep-lists, value maps | 15 silver tables, ledgers, universe, `gold/dim_facility_latest` | silver_partitions |
-| **Gold** | `precursor-pipeline gold` | silver, ledgers; labels, splits, feature registry | `gold/` spine, features, labels, dataset, `_current.json`, manifest | run_log |
+| **Gold** | `precursor-pipeline gold` | silver, ledgers; labels, splits, feature registry | `gold/` spine, features, labels, dataset (per month and as one merged file), `_current.json`, manifest | run_log |
 
 - **Ingestion:** checksums and size checks; failed downloads go to `quarantine/`, never to landing; one file per
   table and month is selected; a Checkpoint 1 report and anomaly alerts.
@@ -268,7 +273,7 @@ Write-up: [`docs/bias/findings.md`](docs/bias/findings.md); method and outputs: 
 ```
 landing/cms_nh/{catalog,zips,extracted}/   quarantine/cms_nh/<run_id>/
 bronze/<table>/vintage=YYYY-MM/            silver/<table>/…
-gold/<table>/t=YYYY-MM/  gold/_current.json  gold/dataset_manifest.json  gold/_staging/
+gold/<table>/t=YYYY-MM/  gold/facility_month_dataset.parquet  gold/_current.json  gold/dataset_manifest.json  gold/_staging/
 reports/<node>/run=<run_id>/  reports/<node>/latest/   metadata/<layer>/run_date=…/
 ```
 
@@ -411,7 +416,8 @@ uv run pytest tests/leakage            # the leakage suite
 
 [DVC](https://dvc.org) versions data the way Git versions code: Git tracks small pointer files (`dvc.yaml`, `dvc.lock`, `metrics/`), and the data itself lives in a DVC cache plus a remote, `gs://precursor-intel-mlops-dvc`, a bucket of its own so nobody needs write access to the production data bucket to share DVC data (created in `infra/terraform/envs/prod`).
 
-What DVC tracks here is the **toy pipeline**: a small silver world (`tests/gold/make_toy_silver.py`) is turned into gold by the real `precursor-pipeline gold` node, then summarised into `metrics/toy_gold.json` (`scripts/dvc_gold_summary.py`). It needs no network or credentials, so anyone can rebuild it:
+What DVC tracks here is the **toy pipeline**: a small silver world (`tests/gold/make_toy_silver.py`) is turned into gold by the real `precursor-pipeline gold` node, then summarised into `metrics/toy_gold.json` (`scripts/dvc_gold_summary.py`). The stage's outputs include the merged gold
+file `data/toy/gold/facility_month_dataset.parquet`, and `uv.lock` is one of its inputs (parquet files record the writer's library version). It needs no network or credentials, so anyone can rebuild it:
 
 ```bash
 uv sync --all-extras        # includes dvc[gs]
@@ -430,9 +436,9 @@ git checkout <rev> -- dvc.lock && uv run dvc checkout   # restore the data of an
 uv run dvc metrics diff <rev>                           # compare the counts with that commit
 ```
 
-The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the toy pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result. On Windows, run `dvc repro` in a checkout with LF line endings (`git -c core.autocrlf=false worktree add …`): DVC hashes raw bytes, and CRLF files give hashes CI does not reproduce.
+The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the toy pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR, then run `uv run dvc push` (it needs write access to the DVC bucket) so teammates' `dvc pull` finds the new data. CI only runs `dvc repro`, so a missing push is not caught there. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result. On Windows, run `dvc repro` in a checkout with LF line endings (`git -c core.autocrlf=false worktree add …`): DVC hashes raw bytes, and CRLF files give hashes CI does not reproduce.
 
-DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). Only the toy outputs are in DVC; `dvc.yaml` declares nothing outside `data/`.
+DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). Only the toy outputs are in DVC; `dvc.yaml` declares nothing outside `data/`. A snapshot of the published real gold under DVC (one `.dvc` pointer per release, no `dvc.yaml` stage on the real data) is planned once the gold rework is done.
 
 ---
 
@@ -517,7 +523,9 @@ The course's example structure maps onto this repository as follows:
   approved.
 - **Training window:** with the measured buffers, `y_g12` has 6 training months at V = 2026-08; starting training
   rows in 2022-01 is the recommendation under review (`docs/DATA_PIPELINE_SPEC.md` §9.5, §14).
-- **Gold memory:** a full-archive build peaks at about 4–5 GB on an 8 GB VM (`docs/AIRFLOW_PIPELINE.md` §9.1).
+- **Gold memory:** a full-archive build peaks at about 4–5 GB on an 8 GB VM, and the merged gold file adds about 16% (about
+  5.8 GB estimated, close to the 6 GB task limit); writing it from the staged partitions instead of holding a second sorted
+  copy is the planned fix, before the first full-archive run (`docs/AIRFLOW_PIPELINE.md` §9.1).
 - **Team decisions in #27:** which slices are fairness groups, whether state effects are risk or bias, whether
   sample weights are used by default.
 - **Next:** the ML DAGs (`train_evaluate`, `batch_score`, `monitor`) on the `cms_nh_gold` asset, LightGBM with
@@ -560,7 +568,7 @@ uv run pytest                             # offline tests must pass (live CMS te
 - **Bring in the latest `dev`** (`git pull origin dev`, or rebase) and resolve conflicts locally before opening the PR.
 - **Changed `pyproject.toml` or `uv.lock`?** Re-export `requirements.txt` (CI fails when it is stale):
   `uv export --frozen --no-hashes --no-header --extra pipeline --extra bias --extra dvc -o requirements.txt`.
-- **Changed anything listed under `deps:` in `dvc.yaml`** (the gold, harmonize, common and ingestion code, the configs it loads, or `uv.lock`)? Run `uv run dvc repro` and commit `dvc.lock` and `metrics/toy_gold.json` in the same PR.
+- **Changed anything listed under `deps:` in `dvc.yaml`** (the gold, harmonize, common and ingestion code, the configs it loads, or `uv.lock`)? Run `uv run dvc repro`, commit `dvc.lock` and `metrics/toy_gold.json` in the same PR, and run `uv run dvc push` (a new output must be in the remote, or teammates' `dvc pull` fails).
 
 ### 3. Code and tests
 - **New or changed code comes with tests** in `tests/<stage>/`, mirroring `src/precursorintelligence/<stage>/`.
