@@ -47,7 +47,7 @@ scores.
 | Bias slicing | Representation, label-rate disparity, home-level significance tests, inspector (state) effects, missingness, censoring and drift per slice; train-only sample weights | Built (CLI) |
 | Orchestration | One Airflow 3 DAG, one Docker container per task, run lock with teardown, exit-code retries, email alerts | Built |
 | Cloud | Runs against `gs://precursor-intel-mlops-data`, one folder per layer; Terraform for GCP | Built |
-| Reproducibility | DVC toy pipeline, deterministic outputs, manifests with sha256s, CI on Python 3.11 and 3.12 | Built |
+| Reproducibility | DVC test pipeline, deterministic outputs, manifests with sha256s, CI on Python 3.11 and 3.12 | Built |
 | Release gate | `check_release`: run only when CMS publishes something new | Planned |
 | ML phase | Training, calibration, batch scoring, monitoring, agents, API and dashboard | Next |
 
@@ -389,12 +389,12 @@ More runs, checks and the GCP setup: [`docs/runbooks/airflow-local.md`](docs/run
 
 1. `git clone` the repo, then `uv sync --all-extras` (or `pip install -r requirements.txt` in a fresh virtual environment).
 2. `uv run pytest`: the offline tests pass, with no network or credentials.
-3. `uv run dvc repro`: the toy pipeline rebuilds with the hashes recorded in `dvc.lock` (byte-identical on macOS and Linux).
+3. `uv run dvc repro`: the test pipeline rebuilds with the hashes recorded in `dvc.lock` (byte-identical on macOS and Linux).
 4. Optional, with a Google account that can read the DVC bucket: `gcloud auth application-default login`, then `uv run dvc pull`.
 5. Airflow: section 9.2.
 
 Real runs download from the public CMS archive and need no credentials; cloud credentials are needed only for the two GCS
-buckets. The tests and the toy pipeline need nothing but the install.
+buckets. The tests and the test pipeline need nothing but the install.
 
 **Memory:** a full gold build peaks at about 4–5 GB; bronze at about 2.2 GB. On an 8 GB laptop, start with at least
 2.5 GB free.
@@ -413,7 +413,7 @@ uv run pytest                          # 900+ offline tests; live CMS tests are 
 uv run pytest tests/leakage            # the leakage suite
 ```
 
-- **CI (GitHub Actions, `.github/workflows/ci.yml`):** ruff, the full offline suite and `dvc repro` of the toy
+- **CI (GitHub Actions, `.github/workflows/ci.yml`):** ruff, the full offline suite and `dvc repro` of the test
   pipeline, on Python 3.11 and 3.12. The `ci-ok` check is required to merge.
 - **DAG tests** (`tests/dags`) run inside the official Airflow 3 image: the chain, the only leaf, asset outlets
   and the commands each task runs.
@@ -425,8 +425,8 @@ uv run pytest tests/leakage            # the leakage suite
 
 [DVC](https://dvc.org) versions data the way Git versions code: Git tracks small pointer files (`dvc.yaml`, `dvc.lock`, `metrics/`), and the data itself lives in a DVC cache plus a remote, `gs://precursor-intel-mlops-dvc`, a bucket of its own so nobody needs write access to the production data bucket to share DVC data (created in `infra/terraform/envs/prod`).
 
-What DVC tracks here is the **toy pipeline**: a small silver world (`tests/gold/make_toy_silver.py`) is turned into gold by the real `precursor-pipeline gold` node, then summarised into `metrics/toy_gold.json` (`scripts/dvc_gold_summary.py`). The stage's outputs include the merged gold
-file `data/toy/gold/facility_month_dataset.parquet`, and `uv.lock` is one of its inputs (parquet files record the writer's library version). It needs no network or credentials, so anyone can rebuild it:
+What DVC tracks here is the **test pipeline**: a small silver world (`tests/gold/make_toy_silver.py`) is turned into gold by the real `precursor-pipeline gold` node, then summarised into `metrics/toy_gold.json` (`scripts/dvc_gold_summary.py`). The stage's outputs include the merged gold
+file `data/toy/gold/facility_month_dataset.parquet`, and `uv.lock` is one of its inputs (parquet files record the writer's library version). It needs no network or credentials, so anyone can rebuild it. (The stage, folder and file names still say `toy`: `toy_gold`, `data/toy/`, `metrics/toy_gold.json`.)
 
 ```bash
 uv sync --all-extras        # includes dvc[gs]
@@ -445,9 +445,9 @@ git checkout <rev> -- dvc.lock && uv run dvc checkout   # restore the data of an
 uv run dvc metrics diff <rev>                           # compare the counts with that commit
 ```
 
-The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the toy pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR, then run `uv run dvc push` (it needs write access to the DVC bucket) so teammates' `dvc pull` finds the new data. CI only runs `dvc repro`, so a missing push is not caught there. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result. On Windows, run `dvc repro` in a checkout with LF line endings (`git -c core.autocrlf=false worktree add …`): DVC hashes raw bytes, and CRLF files give hashes CI does not reproduce.
+The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the test pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR, then run `uv run dvc push` (it needs write access to the DVC bucket) so teammates' `dvc pull` finds the new data. CI only runs `dvc repro`, so a missing push is not caught there. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result. On Windows, run `dvc repro` in a checkout with LF line endings (`git -c core.autocrlf=false worktree add …`): DVC hashes raw bytes, and CRLF files give hashes CI does not reproduce.
 
-DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). Only the toy outputs are in DVC; `dvc.yaml` declares nothing outside `data/`. A snapshot of the published real gold under DVC (one `.dvc` pointer per release, no `dvc.yaml` stage on the real data) is planned once the gold rework is done.
+DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). Only the test outputs are in DVC; `dvc.yaml` declares nothing outside `data/`. A snapshot of the published real gold under DVC (one `.dvc` pointer per release, no `dvc.yaml` stage on the real data) is planned once the gold rework is done.
 
 ### 11.1 Keeping versions of gold (planned)
 
@@ -487,7 +487,7 @@ Precursor-Intelligence/
 ├── notebooks/                  # exploration only
 ├── data/                       # local data cache (git-ignored)
 ├── docs/                       # ADRs, data notes, runbooks
-├── dvc.yaml  dvc.lock  metrics/   # DVC pipeline (toy), its lock file and metrics
+├── dvc.yaml  dvc.lock  metrics/   # DVC pipeline (test), its lock file and metrics
 └── pyproject.toml  uv.lock  requirements.txt
 ```
 
