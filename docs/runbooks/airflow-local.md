@@ -55,6 +55,13 @@ Each layer gets its own folder in one bucket: `gs://precursor-intel-mlops-data/{
    - `PI_GCP_CREDENTIALS_FILE=<absolute path of that ADC file>`
 
    Every task container then gets the file mounted read-only (`GOOGLE_APPLICATION_CREDENTIALS`). On the VM, leave it empty: the VM's own identity is used.
+
+   > **Warning:** this puts **your personal gcloud login** into containers that download and open untrusted zips from the internet.
+   > - It carries a refresh token with all your project permissions, far more than the VM's `sa-pipeline`.
+   > - Use it only for short laptop trials.
+   > - Afterwards, set `PI_GCP_CREDENTIALS_FILE=` (empty) again and run `gcloud auth application-default revoke`.
+   >
+   > The planned replacement is impersonating `sa-pipeline`. It needs `roles/iam.serviceAccountTokenCreator` on it in Terraform; then `gcloud auth application-default login --impersonate-service-account=sa-pipeline@precursor-intel-mlops.iam.gserviceaccount.com` limits the mounted login to the bucket.
 3. **Start the stack and trigger runs as in §2–§3.** The metadata database is the compose Postgres. A fresh database pointed at a bucket that already holds data adopts the zips there after validating them, then rebuilds bronze and silver.
 4. **Delete a trial prefix.** Versioning keeps every old version unless you delete them all:
    `gcloud storage rm -r --all-versions gs://precursor-intel-mlops-data/trial-<date>/`
