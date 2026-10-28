@@ -1,0 +1,228 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1020" viewBox="0 0 1800 1020" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .ttl { font-size: 20px; font-weight: 600; fill: #202124; }
+      .sub { font-size: 13px; fill: #5f6368; }
+      .lbl { font-size: 14px; font-weight: 600; fill: #202124; }
+      .cap { font-size: 12px; fill: #5f6368; }
+      .grp { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; fill: #5f6368; }
+      .frame { fill: none; stroke: #9aa0a6; stroke-width: 1; }
+      .frame-solid { fill: #fafbfc; stroke: #c4c9cf; stroke-width: 1; }
+      .frame-dash { fill: none; stroke: #9aa0a6; stroke-width: 1; stroke-dasharray: 5 4; }
+      .tile { fill: #ffffff; stroke: #c4c9cf; stroke-width: 1; }
+      .ic { fill: none; stroke: #3c4043; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .icf { fill: #3c4043; }
+      .acc { stroke: #1a73e8; }
+      .wire { fill: none; stroke: #5f6368; stroke-width: 1.5; marker-end: url(#ah); }
+      .wire-acc { fill: none; stroke: #1a73e8; stroke-width: 1.8; marker-end: url(#aha); }
+      .wire-dash { fill: none; stroke: #9aa0a6; stroke-width: 1.2; stroke-dasharray: 4 4; }
+      .wire-planned { fill: none; stroke: #5f6368; stroke-width: 1.5; stroke-dasharray: 5 4; marker-end: url(#ah); }
+      .badge { fill: #202124; }
+      .badge-t { font-size: 11px; font-weight: 700; fill: #ffffff; }
+      .key-n { font-size: 12px; font-weight: 700; fill: #202124; }
+      .key-t { font-size: 12.5px; fill: #3c4043; }
+    
+      .flowing { stroke-dasharray: 9 6; animation: pi-flow 0.9s linear infinite; }
+      @keyframes pi-flow { to { stroke-dashoffset: -15; } }
+      @media (prefers-reduced-motion: reduce) { .flowing { animation: none; stroke-dasharray: none; } }
+    </style>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1,1 L9,5 L1,9" fill="none" stroke="#5f6368" stroke-width="1.6"/></marker>
+    <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1,1 L9,5 L1,9" fill="none" stroke="#1a73e8" stroke-width="1.8"/></marker>
+
+    <!-- icons, drawn in a 48 x 48 box -->
+    <symbol id="i-gov" viewBox="0 0 48 48"><path class="ic" d="M6 18 L24 7 L42 18 Z M9 40 H39 M7 44 H41 M12 22 V37 M20 22 V37 M28 22 V37 M36 22 V37"/></symbol>
+    <symbol id="i-download" viewBox="0 0 48 48"><path class="ic" d="M24 6 V28 M15 20 L24 29 L33 20 M8 30 V40 H40 V30"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 48 48"><path class="ic" d="M24 8 L42 17 L24 26 L6 17 Z M6 25 L24 34 L42 25 M6 33 L24 42 L42 33"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 48 48"><path class="ic" d="M7 9 H41 L28 25 V39 L20 43 V25 Z"/></symbol>
+    <symbol id="i-table" viewBox="0 0 48 48"><path class="ic" d="M7 9 H41 V39 H7 Z M7 18 H41 M7 27 H41 M19 18 V39 M30 18 V39"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 48 48"><circle class="ic" cx="24" cy="24" r="16"/><path class="ic" d="M24 14 V24 L31 29"/></symbol>
+    <symbol id="i-dag" viewBox="0 0 48 48"><circle class="ic" cx="10" cy="24" r="4"/><circle class="ic" cx="26" cy="12" r="4"/><circle class="ic" cx="26" cy="36" r="4"/><circle class="ic" cx="40" cy="24" r="4"/><path class="ic" d="M13.5 22 L22.5 14 M13.5 26 L22.5 34 M29.5 14 L36.5 22 M29.5 34 L36.5 26"/></symbol>
+    <symbol id="i-container" viewBox="0 0 48 48"><path class="ic" d="M24 6 L40 15 V33 L24 42 L8 33 V15 Z M8 15 L24 24 L40 15 M24 24 V42"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 48 48"><path class="ic" d="M14 32 V22 C14 15 18 11 24 11 C30 11 34 15 34 22 V32 L37 35 H11 Z M21 39 C22 41 26 41 27 39 M24 7 V11"/></symbol>
+    <symbol id="i-db" viewBox="0 0 48 48"><ellipse class="ic" cx="24" cy="11" rx="14" ry="5"/><path class="ic" d="M10 11 V37 C10 40 16 42 24 42 C32 42 38 40 38 37 V11 M10 24 C10 27 16 29 24 29 C32 29 38 27 38 24"/></symbol>
+    <symbol id="i-bucket" viewBox="0 0 48 48"><path class="ic" d="M8 12 H40 L36 40 H12 Z M8 12 C8 9 40 9 40 12"/></symbol>
+    <symbol id="i-model" viewBox="0 0 48 48"><circle class="ic" cx="10" cy="14" r="3.5"/><circle class="ic" cx="10" cy="34" r="3.5"/><circle class="ic" cx="24" cy="10" r="3.5"/><circle class="ic" cx="24" cy="24" r="3.5"/><circle class="ic" cx="24" cy="38" r="3.5"/><circle class="ic" cx="38" cy="24" r="3.5"/><path class="ic" d="M13 15 L21 11 M13 16 L21 23 M13 32 L21 25 M13 33 L21 37 M27 11 L35 22 M27 24 H34.5 M27 37 L35 26"/></symbol>
+    <symbol id="i-warehouse" viewBox="0 0 48 48"><path class="ic" d="M6 20 L24 8 L42 20 V40 H6 Z M14 40 V28 H34 V40 M14 34 H34"/></symbol>
+    <symbol id="i-ci" viewBox="0 0 48 48"><circle class="ic" cx="24" cy="24" r="16"/><path class="ic" d="M20 16 L32 24 L20 32 Z"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 48 48"><circle class="ic" cx="14" cy="10" r="4"/><circle class="ic" cx="14" cy="38" r="4"/><circle class="ic" cx="34" cy="18" r="4"/><path class="ic" d="M14 14 V34 M34 22 C34 30 22 28 15 34"/></symbol>
+    <symbol id="i-iac" viewBox="0 0 48 48"><path class="ic" d="M8 8 H22 V22 H8 Z M26 14 H40 V28 H26 Z M8 26 H22 V40 H8 Z M26 32 H40 V40"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 48 48"><path class="ic" d="M24 6 L39 12 V23 C39 33 32 39 24 42 C16 39 9 33 9 23 V12 Z M17 24 L22 29 L31 19"/></symbol>
+    <symbol id="i-scale" viewBox="0 0 48 48"><path class="ic" d="M24 8 V40 M14 40 H34 M10 14 H38 M10 14 L4 28 H16 Z M38 14 L32 28 H44 Z"/></symbol>
+  </defs>
+
+  <rect width="1800" height="1020" fill="#ffffff"/>
+
+  <!-- header -->
+  <text x="40" y="40" class="ttl">Precursor Intelligence — Data Pipeline Architecture</text>
+  <text x="1760" y="40" class="sub" text-anchor="end">Version 2 · gold V = 2026-08</text>
+  <line x1="40" y1="58" x2="1760" y2="58" stroke="#dadce0"/>
+
+  <!-- external source -->
+  <rect x="40" y="96" width="180" height="300" class="frame"/>
+  <text x="52" y="114" class="grp">EXTERNAL</text>
+  <rect x="88" y="168" width="84" height="84" rx="4" class="tile"/>
+  <use href="#i-gov" x="106" y="186" width="48" height="48"/>
+  <text x="130" y="280" class="lbl" text-anchor="middle">CMS Provider</text>
+  <text x="130" y="298" class="lbl" text-anchor="middle">Data Catalog</text>
+  <text x="130" y="320" class="cap" text-anchor="middle">7 tables · monthly</text>
+
+  <!-- runtime environment -->
+  <rect x="260" y="80" width="1270" height="700" class="frame"/>
+  <rect x="260" y="80" width="372" height="22" fill="#f1f3f4" stroke="#9aa0a6"/>
+  <text x="272" y="96" class="grp">RUNTIME · LAPTOP (DOCKER COMPOSE) / GCP VM</text>
+
+  <!-- airflow group -->
+  <rect x="290" y="122" width="1210" height="104" class="frame-solid"/>
+  <text x="302" y="140" class="grp">ORCHESTRATION · APACHE AIRFLOW 3</text>
+  <g>
+    <rect x="320" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-clock" x="330" y="162" width="36" height="36"/>
+    <text x="390" y="176" class="lbl">Scheduler</text><text x="390" y="194" class="cap">daily / on demand</text>
+    <rect x="620" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-dag" x="630" y="162" width="36" height="36"/>
+    <text x="690" y="176" class="lbl">cms_nh_pipeline</text><text x="690" y="194" class="cap">one run at a time</text>
+    <rect x="920" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-container" x="930" y="162" width="36" height="36"/>
+    <text x="990" y="176" class="lbl">Task containers</text><text x="990" y="194" class="cap">one per task</text>
+    <rect x="1220" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-bell" x="1230" y="162" width="36" height="36"/>
+    <text x="1290" y="176" class="lbl">Alerts</text><text x="1290" y="194" class="cap">email on failure</text>
+  </g>
+
+  <!-- pipeline stages (clickable) -->
+  <g>
+    <g class="stage" data-stage="ingestion">
+      <rect x="345" y="284" width="150" height="96" rx="4" class="tile stage-tile"/>
+      <rect x="345" y="284" width="150" height="5" fill="#5f6368"/>
+      <use href="#i-download" x="396" y="306" width="48" height="48"/>
+      <text x="420" y="402" class="lbl" text-anchor="middle">Ingestion</text>
+      <text x="420" y="420" class="cap" text-anchor="middle">download · inventory</text>
+    </g>
+    <g class="stage" data-stage="bronze">
+      <rect x="645" y="284" width="150" height="96" rx="4" class="tile stage-tile"/>
+      <rect x="645" y="284" width="150" height="5" fill="#a0643c"/>
+      <use href="#i-layers" x="696" y="306" width="48" height="48"/>
+      <text x="720" y="402" class="lbl" text-anchor="middle">Bronze</text>
+      <text x="720" y="420" class="cap" text-anchor="middle">raw → Parquet</text>
+    </g>
+    <g class="stage" data-stage="silver">
+      <rect x="945" y="284" width="150" height="96" rx="4" class="tile stage-tile"/>
+      <rect x="945" y="284" width="150" height="5" fill="#80868b"/>
+      <use href="#i-filter" x="996" y="306" width="48" height="48"/>
+      <text x="1020" y="402" class="lbl" text-anchor="middle">Silver</text>
+      <text x="1020" y="420" class="cap" text-anchor="middle">clean · harmonise</text>
+    </g>
+    <g class="stage" data-stage="gold">
+      <rect x="1245" y="284" width="150" height="96" rx="4" class="tile stage-tile"/>
+      <rect x="1245" y="284" width="150" height="5" fill="#b8902c"/>
+      <use href="#i-table" x="1296" y="306" width="48" height="48"/>
+      <text x="1320" y="402" class="lbl" text-anchor="middle">Gold</text>
+      <text x="1320" y="420" class="cap" text-anchor="middle">features · labels · gate</text>
+    </g>
+  </g>
+
+  <!-- orchestration launches stages (thin vertical) -->
+  <path d="M420,226 V282" class="wire-dash"/>
+  <path d="M720,226 V282" class="wire-dash"/>
+  <path d="M1020,226 V282" class="wire-dash"/>
+  <path d="M1320,226 V282" class="wire-dash"/>
+
+  <!-- source -> ingestion -->
+  <path d="M172,210 H240 V332 H343" class="wire flowing"/>
+  <!-- stage to stage -->
+  <path d="M495,332 H643" class="wire-acc flowing"/>
+  <path d="M795,332 H943" class="wire-acc flowing"/>
+  <path d="M1095,332 H1243" class="wire-acc flowing"/>
+
+  <!-- object store -->
+  <rect x="290" y="462" width="1210" height="150" class="frame-solid"/>
+  <g>
+    <use href="#i-bucket" x="396" y="498" width="48" height="48"/>
+    <text x="420" y="568" class="lbl" text-anchor="middle">landing/</text><text x="420" y="586" class="cap" text-anchor="middle">raw zips · CSVs</text>
+    <use href="#i-bucket" x="696" y="498" width="48" height="48"/>
+    <text x="720" y="568" class="lbl" text-anchor="middle">bronze/</text><text x="720" y="586" class="cap" text-anchor="middle">7 tables × month</text>
+    <use href="#i-bucket" x="996" y="498" width="48" height="48"/>
+    <text x="1020" y="568" class="lbl" text-anchor="middle">silver/</text><text x="1020" y="586" class="cap" text-anchor="middle">15 tables</text>
+    <use href="#i-bucket" x="1296" y="498" width="48" height="48"/>
+    <text x="1320" y="568" class="lbl" text-anchor="middle">gold/</text><text x="1320" y="586" class="cap" text-anchor="middle">579k rows × 107 cols</text>
+  </g>
+  <path d="M420,426 V494" class="wire flowing"/>
+  <path d="M720,426 V494" class="wire flowing"/>
+  <path d="M1020,426 V494" class="wire flowing"/>
+  <path d="M1320,426 V494" class="wire flowing"/>
+
+  <!-- metadata -->
+  <rect x="290" y="650" width="1210" height="100" class="frame-solid"/>
+  <text x="302" y="668" class="grp">METADATA</text>
+  <use href="#i-db" x="330" y="680" width="48" height="48"/>
+  <text x="392" y="700" class="lbl">PostgreSQL · precursor_meta</text>
+  <text x="392" y="718" class="cap">run history · file inventory · data quality</text>
+  <path d="M640,706 H1320" class="wire-dash"/>
+  <path d="M720,612 V706 M1020,612 V706 M1320,612 V706" class="wire-dash"/>
+  <path d="M420,612 V676" class="wire-dash"/>
+
+  <!-- downstream (planned) -->
+  <rect x="1570" y="96" width="190" height="220" class="frame-dash"/>
+  <text x="1582" y="114" class="grp">DOWNSTREAM · PLANNED</text>
+  <rect x="1623" y="150" width="84" height="84" rx="4" class="tile" stroke-dasharray="4 3"/>
+  <use href="#i-model" x="1641" y="168" width="48" height="48"/>
+  <text x="1665" y="258" class="lbl" text-anchor="middle">ML pipeline</text>
+  <text x="1665" y="276" class="cap" text-anchor="middle">train · score · monitor</text>
+  <path d="M1395,332 H1460 V192 H1621" class="wire-planned"/>
+
+  <!-- quarantine -->
+  <path d="M345,360 H330 V530 H392" class="wire-planned" stroke="#c5221f" style="stroke:#c5221f"/>
+  <text x="304" y="452" class="cap" fill="#c5221f" style="fill:#c5221f" transform="rotate(-90 304 452)">quarantine</text>
+
+  <!-- step badges -->
+  <g>
+    <circle cx="240" cy="270" r="11" class="badge"/><text x="240" y="274" class="badge-t" text-anchor="middle">1</text>
+    <circle cx="569" cy="332" r="11" class="badge"/><text x="569" y="336" class="badge-t" text-anchor="middle">2</text>
+    <circle cx="869" cy="332" r="11" class="badge"/><text x="869" y="336" class="badge-t" text-anchor="middle">3</text>
+    <circle cx="1169" cy="332" r="11" class="badge"/><text x="1169" y="336" class="badge-t" text-anchor="middle">4</text>
+    <circle cx="1460" cy="262" r="11" class="badge"/><text x="1460" y="266" class="badge-t" text-anchor="middle">5</text>
+    <circle cx="1000" cy="706" r="11" class="badge"/><text x="1000" y="710" class="badge-t" text-anchor="middle">6</text>
+  </g>
+
+  <!-- below the frame: CI/CD, quality, key -->
+  <rect x="40" y="810" width="560" height="140" class="frame"/>
+  <text x="52" y="828" class="grp">BUILD · VERSIONING · INFRASTRUCTURE</text>
+  <rect x="70" y="846" width="52" height="52" rx="4" class="tile"/><use href="#i-ci" x="80" y="856" width="32" height="32"/>
+  <text x="96" y="920" class="lbl" text-anchor="middle">CI</text><text x="96" y="937" class="cap" text-anchor="middle">GitHub Actions</text>
+  <rect x="250" y="846" width="52" height="52" rx="4" class="tile"/><use href="#i-branch" x="260" y="856" width="32" height="32"/>
+  <text x="276" y="920" class="lbl" text-anchor="middle">DVC</text><text x="276" y="937" class="cap" text-anchor="middle">data versions</text>
+  <rect x="430" y="846" width="52" height="52" rx="4" class="tile"/><use href="#i-iac" x="440" y="856" width="32" height="32"/>
+  <text x="456" y="920" class="lbl" text-anchor="middle">Terraform</text><text x="456" y="937" class="cap" text-anchor="middle">GCP resources</text>
+
+  <rect x="630" y="810" width="380" height="140" class="frame"/>
+  <text x="642" y="828" class="grp">DATA QUALITY</text>
+  <rect x="680" y="846" width="52" height="52" rx="4" class="tile"/><use href="#i-shield" x="690" y="856" width="32" height="32"/>
+  <text x="706" y="920" class="lbl" text-anchor="middle">Validation</text><text x="706" y="937" class="cap" text-anchor="middle">schema · drift</text>
+  <rect x="880" y="846" width="52" height="52" rx="4" class="tile"/><use href="#i-scale" x="890" y="856" width="32" height="32"/>
+  <text x="906" y="920" class="lbl" text-anchor="middle">Bias report</text><text x="906" y="937" class="cap" text-anchor="middle">data slicing</text>
+
+  <rect x="1040" y="810" width="720" height="140" class="frame"/>
+  <text x="1052" y="828" class="grp">FLOW</text>
+  <g>
+    <circle cx="1066" cy="856" r="9" class="badge"/><text x="1066" y="860" class="badge-t" text-anchor="middle">1</text>
+    <text x="1084" y="860" class="key-t">New CMS releases are downloaded and inventoried</text>
+    <circle cx="1066" cy="884" r="9" class="badge"/><text x="1066" y="888" class="badge-t" text-anchor="middle">2</text>
+    <text x="1084" y="888" class="key-t">Raw files are stored as lossless Parquet</text>
+    <circle cx="1066" cy="912" r="9" class="badge"/><text x="1066" y="916" class="badge-t" text-anchor="middle">3</text>
+    <text x="1084" y="916" class="key-t">Tables are cleaned and aligned across years</text>
+    <circle cx="1416" cy="856" r="9" class="badge"/><text x="1416" y="860" class="badge-t" text-anchor="middle">4</text>
+    <text x="1434" y="860" class="key-t">Point-in-time features and labels are built</text>
+    <circle cx="1416" cy="884" r="9" class="badge"/><text x="1416" y="888" class="badge-t" text-anchor="middle">5</text>
+    <text x="1434" y="888" class="key-t">Gold is published only if the gate passes</text>
+    <circle cx="1416" cy="912" r="9" class="badge"/><text x="1416" y="916" class="badge-t" text-anchor="middle">6</text>
+    <text x="1434" y="916" class="key-t">Every stage records its run in metadata</text>
+  </g>
+
+  <!-- legend line -->
+  <g transform="translate(40,990)">
+    <path d="M0,0 H34" class="wire-acc"/><text x="44" y="4" class="cap">data hand-off</text>
+    <path d="M160,0 H194" class="wire"/><text x="204" y="4" class="cap">read / write</text>
+    <path d="M310,0 H344" class="wire-dash"/><text x="354" y="4" class="cap">control · metadata</text>
+    <path d="M490,0 H524" class="wire-planned"/><text x="534" y="4" class="cap">planned</text>
+    <path d="M620,0 H654" class="wire-planned" style="stroke:#c5221f"/><text x="664" y="4" class="cap">failure path</text>
+    <rect x="790" y="-6" width="34" height="4" fill="#a0643c"/><rect x="830" y="-6" width="34" height="4" fill="#80868b"/><rect x="870" y="-6" width="34" height="4" fill="#b8902c"/>
+    <text x="914" y="4" class="cap">bronze · silver · gold layers</text>
+  </g>
+  <text x="302" y="480" class="grp" style="paint-order:stroke;stroke:#fafbfc;stroke-width:7px;stroke-linejoin:round">OBJECT STORE · PARQUET FILES (GOOGLE CLOUD PLATFORM BUCKETS)</text>
+</svg>

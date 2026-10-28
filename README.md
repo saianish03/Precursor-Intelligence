@@ -1,44 +1,315 @@
 # Precursor Intelligence
 
-An end-to-end MLOps application - Nursing Homes Risk Assessment for the Insurance Industry
+An end-to-end MLOps application - Nursing Homes Risk Assessment for the Insurance Industry.
 
-## Repository layout
+Every month, Precursor Intelligence gives each U.S. nursing home (CMS-certified skilled nursing facility) a
+calibrated probability of a **serious health citation (scope/severity G–L) in the next 12 months**, for
+long-term-care liability insurers. An Airflow 3 pipeline turns the monthly CMS open-data releases into a
+point-in-time training table; LightGBM and four Pydantic AI agents turn that table into calibrated, explained
+scores.
+
+> **Status (branch `dev`, October 2026):** the **data pipeline is built and runs end to end**, locally and against
+> the GCS bucket: ingestion → bronze → silver → gold, with schema and drift validation, data bias slicing,
+> alerts, DVC and CI. The ML phase (training, scoring, serving, monitoring) is next.
+
+---
+
+## Contents
+
+1. [What is built](#1-what-is-built)
+2. [Architecture](#2-architecture)
+3. [The data](#3-the-data)
+4. [The pipeline, layer by layer](#4-the-pipeline-layer-by-layer)
+5. [The Airflow DAG](#5-the-airflow-dag)
+6. [Data validation](#6-data-validation)
+7. [Data bias detection and mitigation](#7-data-bias-detection-and-mitigation)
+8. [Storage, metadata and environments](#8-storage-metadata-and-environments)
+9. [Getting started](#9-getting-started)
+10. [Tests and CI](#10-tests-and-ci)
+11. [Data versioning with DVC](#11-data-versioning-with-dvc)
+12. [Repository layout](#12-repository-layout)
+13. [Documentation map](#13-documentation-map)
+14. [Known limitations and next steps](#14-known-limitations-and-next-steps)
+15. [Branching](#15-branching)
+16. [Rules before making a PR to `dev`](#16-rules-before-making-a-pr-to-dev)
+
+---
+
+## 1. What is built
+
+| Area | What it does | Status |
+|---|---|---|
+| Ingestion | Discovers and downloads the CMS archive and current release, extracts the 7 in-scope tables, inventories every file and picks one per table and month | Built |
+| Bronze | Every selected file as lossless, all-text Parquet per table and month, with lineage and content hashes | Built |
+| Silver | Harmonised column names and types across six years of CMS renames; event ledgers; facility universe; calibration of label buffers | Built |
+| Gold | Point-in-time spine, 5 feature families, labels, splits and the training table; a quality gate before promotion | Built |
+| Validation | Pandera schema contracts and month-over-month drift checks on silver and gold, inside the DAG | Built |
+| Bias slicing | Representation, label-rate disparity, home-level significance tests, inspector (state) effects, missingness, censoring and drift per slice; train-only sample weights | Built (CLI) |
+| Orchestration | One Airflow 3 DAG, one Docker container per task, run lock with teardown, exit-code retries, email alerts | Built |
+| Cloud | Runs against `gs://precursor-intel-mlops-data`, one folder per layer; Terraform for GCP | Built |
+| Reproducibility | DVC toy pipeline, deterministic outputs, manifests with sha256s, CI on Python 3.11 and 3.12 | Built |
+| Release gate | `check_release`: run only when CMS publishes something new | Planned |
+| ML phase | Training, calibration, batch scoring, monitoring, agents, API and dashboard | Next |
+
+**Latest real run (gold V = 2026-08):** 578,975 home-months × 107 columns, 15,274 homes, 39 monthly partitions
+(t = 2023-01 → 2026-08). A full backfill through Airflow into the GCS bucket ran 37/37 tasks green in 26.5 min and
+gave gold byte-identical to the local-disk run of the same zips (PR #30).
+
+---
+
+## 2. Architecture
+
+![Data pipeline architecture](docs/img/data_pipeline_architecture.svg)
+
+*The data pipeline. Numbered steps: 1 new CMS releases are downloaded and inventoried · 2 raw files are stored as
+lossless Parquet · 3 tables are cleaned and aligned across years · 4 point-in-time features and labels are built ·
+5 gold is published only if the gate passes · 6 every stage records its run in metadata. Dashed parts are planned;
+the moving dashes show the direction of the data flow.*
+
+- **Files stay files.** Every layer is Parquet on one object store: local disk in development, Google Cloud Storage
+  in test and production. All I/O goes through the `ObjectStore` / `TableSink` ports, so the same code runs on
+  both. No database for intermediate layers.
+- **DAGs are thin.** Every task runs exactly one CLI command (`precursor-ingest …` or `precursor-pipeline …`) in
+  the `precursor-pipeline` image. The same commands run by hand, in tests and in Airflow.
+- **Behaviour lives in `configs/`**, logic in `src/precursorintelligence/`, wiring in `dags/`.
+- **Laptop = GCP.** The compose file, images and DAG are identical; only `docker/airflow-local/.env` differs.
+
+The full write-up, with every component, path and table: [`docs/DATA_PIPELINE_SPEC.md`](docs/DATA_PIPELINE_SPEC.md)
+and [`docs/AIRFLOW_PIPELINE.md`](docs/AIRFLOW_PIPELINE.md).
+
+---
+
+## 3. The data
+
+### 3.1 Source
+
+CMS Provider Data Catalog, nursing homes: the archive of monthly releases plus the current release and the
+metastore API. Vintages **2021-01 → 2026-08** (67 archive zips). The month a release describes is read from the
+`Processing Date` inside each file, never from the zip name. CCN (the facility id) is always 6-character text.
+
+| CMS table | Grain | Used for |
+|---|---|---|
+| Provider Information | home × release | Facility universe; facility, staffing, turnover and status features |
+| Health Deficiencies | one citation | Citation-history features; the G–L labels |
+| Inspection Dates | one survey | When the next inspection is due |
+| Penalties | one penalty | Enforcement features; penalty labels |
+| MDS Quality Measures | home × measure × release | Clinical-risk features (family pending approval) |
+| Medicare Claims Quality Measures | home × measure × release | Hospitalisation and ED-visit features (pending) |
+| Citation Code Look-up | one F-tag | Tag → category and description |
+
+### 3.2 Targets
+
+| Label | Definition | Role |
+|---|---|---|
+| `y_g12` | Any health citation with scope/severity **G–L** on a survey in the next **12 months** | Primary model |
+| `y_g6` | The same over 6 months | Between-renewal early warning |
+| `y_pen12` | Any fine or payment denial in the next 12 months | Built for comparison; role open |
+
+### 3.3 The two leakage rules
+
+1. **Features** for month t use only what CMS had published in the release of month t (plus t−6 and t−12 for
+   change features), with `event_date <= cutoff_date`.
+2. **Labels** count only events strictly after `cutoff_date` and within the horizon, from **event ledgers** that
+   union every release (closed homes and old inspection cycles drop out of later files). A label is final only
+   after its maturity buffer: **8 months for citations, 12 for penalties**, measured on the archive.
+
+Both rules are enforced in gold and tested in `tests/leakage`.
+
+### 3.4 Gold training table (`gold/facility_month_dataset`, partitioned by t)
+
+| Column group | Columns | Notes |
+|---|---|---|
+| Keys and date | `ccn`, `t`, `cutoff_date` | One row per home and month |
+| Survey timing | 9 | Days since / until the standard survey, overdue flag, survey counts |
+| Citations | 26 | Counts by severity band and category, severity points, worst severity on recent surveys |
+| Enforcement | 7 | Fines and payment denials: counts, amounts, recency |
+| Facility and staffing | 47 | Beds, ownership, hours per resident day, turnover, CMS footnotes, 6- and 12-month changes |
+| Context | 6 | The state's G+ rate and median staffing, the home relative to its state, rating era |
+| Labels, status, splits | 9 | `y_*`, `status_*` (positive / negative / immature / censored), `split_*` |
+
+95 registered features (`configs/feature_registry.yaml`): 90 `model`, 4 `ablation_only` (star ratings, never
+features), 1 `product_only` (`chain_id`). Splits for `y_g12` at V = 2026-08: train 90,419 · calib 44,959 ·
+purge 163,584 · test 29,621 · score 250,392 rows; a purge gap of H months separates train from test because the
+label windows overlap.
+
+---
+
+## 4. The pipeline, layer by layer
+
+| Layer | Command | Reads | Writes | Metadata |
+|---|---|---|---|---|
+| **Ingestion** | `precursor-ingest step1 …` | CMS archive, current release, metastore | `landing/cms_nh/{catalog,zips,extracted}/`, `quarantine/` | catalog, source_datasets, download_log, extracted_files, inventory, anomalies |
+| **Bronze** | `precursor-pipeline bronze` | selected inventory rows, landing CSVs | `bronze/<table>/vintage=YYYY-MM/` (7 tables) | bronze_files, vintage_flags |
+| **Silver** | `precursor-pipeline silver [--calibrate]` | bronze; column map, keep-lists, value maps | 15 silver tables, ledgers, universe, `gold/dim_facility_latest` | silver_partitions |
+| **Gold** | `precursor-pipeline gold` | silver, ledgers; labels, splits, feature registry | `gold/` spine, features, labels, dataset, `_current.json`, manifest | run_log |
+
+- **Ingestion:** checksums and size checks; failed downloads go to `quarantine/`, never to landing; one file per
+  table and month is selected; a Checkpoint 1 report and anomaly alerts.
+- **Bronze:** refuses to start while any inventory row is pending; flags releases CMS republished without changes
+  (`stale_refresh`, e.g. 2025-09).
+- **Silver:** maps every raw header to one canonical name by vintage range (checked against all 427 selected
+  files); unions events into ledgers; in backfill, measures posting lag to set the maturity buffers.
+- **Gold:** builds in `gold/_staging/run=<id>/`, then runs a gate (structure, label logic, leakage, coverage).
+  Any failed check is exit 2 and nothing is published; on a pass, gold is promoted and `gold/_current.json`
+  records each file's sha256.
+
+---
+
+## 5. The Airflow DAG
+
+One DAG, `cms_nh_pipeline` (Airflow 3, `max_active_runs=1`): manual on a laptop, daily on the GCP VM.
+
+![Airflow DAG cms_nh_pipeline](docs/img/dag_cms_nh_pipeline.svg)
+
+*Every task of the DAG, grouped by TaskGroup. Blue arrows hand an Airflow asset to the next group; the purple
+dotted line is `release_lock`, the teardown of `acquire_lock`. The status dots replay a simulated run in DAG order
+(they are not live Airflow state). Dashed tasks are planned.*
 
 ```
-Precursor-Intelligence/
-├── .github/                    # CI/CD workflows, PR and issue templates, CODEOWNERS
-├── configs/                    # environment config, dataset registry, schema contracts, prompts
-├── src/
-│   └── precursorintelligence/  # shared Python package
-├── backend/                    # FastAPI service
-├── frontend/                   # Streamlit dashboard
-├── dags/                       # Airflow DAGs
-├── docker/                     # Dockerfiles and local Airflow compose
-├── infra/terraform/            # GCP infrastructure as code
-├── tests/                      # automated tests
-├── notebooks/                  # exploration only
-├── data/                       # local data cache (git-ignored)
-└── docs/                       # ADRs, data notes, runbooks
+acquire_lock → discover_download → pending_entries → extract_inventory[one per zip] → resolve_report
+  → check_anomalies → alert_anomalies                                    (asset cms_nh_landing)
+  → load_bronze                                                          (asset cms_nh_bronze)
+  → build_silver → validate_silver                                       (asset cms_nh_silver)
+  → build_gold → validate_gold                                           (asset cms_nh_gold)
+release_lock = teardown of acquire_lock (runs after a failure too)
 ```
 
-| Folder | What goes here |
+| Mechanism | How it works |
 |---|---|
-| `.github/` | CI/CD workflows, pull request and issue templates, CODEOWNERS |
-| `configs/` | base / dev / prod config, dataset registry, versioned schema contracts, LLM prompts |
-| `src/precursorintelligence/` | Shared Python package: `common`, `ingestion`, `validation`, `features`, `training`, `evaluation`, `serving`, `monitoring`, `agents` |
-| `backend/` | FastAPI service, using the agents in `src/precursorintelligence/agents`; deployed to Cloud Run |
-| `frontend/` | Streamlit dashboard; deployed to Cloud Run |
-| `dags/` | Thin Airflow DAGs that only trigger jobs (no business logic) |
-| `docker/` | One Dockerfile per image, plus the local Airflow compose file |
-| `infra/terraform/` | GCP infrastructure: `envs/{dev,prod}` and reusable modules |
-| `tests/` | Mirrors `src/`, plus `backend/`, `frontend/`, `contracts/` and `dags/`; tiny fixtures only |
-| `notebooks/` | Exploration only; strip outputs before committing |
-| `data/` | Git-ignored local cache that mirrors the GCS layout |
-| `docs/` | Architecture decision records, data notes, runbooks |
+| Run lock | `data_pipeline` lock in `run_lock`; one run at a time; stale after 12 h |
+| Teardown | `release_lock` is an Airflow teardown of `acquire_lock`, so a failed run still shows as failed |
+| Exit codes | 0 ok · 1 error (retried 2 × 5 min) · 2 bad data / validation · 3 bad config (2 and 3 fail at once) |
+| Mapping | `extract_inventory` is mapped, one copy per pending zip, up to 3 in parallel |
+| Assets | `cms_nh_landing` → `cms_nh_bronze` → `cms_nh_silver` → `cms_nh_gold` (only when gold publishes and validates) |
+| Alerts | Email (`PI_ALERT_EMAIL_TO`): every failed run, a failed `release_lock`, new error anomalies |
+| Params | `mode` (monthly / backfill), `calibrate`, `stop_after` (node by node), `entry_ids` (development) |
+| Run modes | Monthly: only new or changed inputs; gold rebuilds and recomputes every label. Backfill: everything plus calibration |
 
-Each top-level folder has its own README describing what belongs there.
+Details and the metadata schema: [`docs/AIRFLOW_PIPELINE.md`](docs/AIRFLOW_PIPELINE.md). Running it:
+[`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md).
 
-## Data versioning with DVC
+---
+
+## 6. Data validation
+
+`precursor-pipeline validate --layer silver|gold` checks a layer month by month and changes nothing.
+
+- **Schema (Pandera, `configs/contracts/<table>.yaml`):** missing or unexpected columns, types, nulls, ranges,
+  allowed values, the CCN pattern, unique keys, and label consistency (`y` null exactly when immature or
+  censored, `split = score` exactly when immature).
+- **Drift vs the previous month (`configs/validation.yaml`):** row-count change, null-rate jumps, mean shifts.
+- **In the DAG:** `validate_silver` runs before gold, so bad silver never reaches gold; `validate_gold` runs after
+  `build_gold` and emits `cms_nh_gold`. A schema violation is exit 2; drift is a warning. Every anomaly is a row
+  in `dq_results`.
+
+Details: [`docs/VALIDATION.md`](docs/VALIDATION.md).
+
+---
+
+## 7. Data bias detection and mitigation
+
+`precursor-pipeline bias-report` slices gold and checks whether some kinds of homes are represented, labelled or
+measured differently, before any model exists. Slices are facility attributes and state inspection practice
+(CMS facility data has no person-level demographics): state, CMS region, ownership, bed band, chain status,
+in-hospital, CCRC, SFF status and star band, plus crossings (including star band × rating era).
+
+| Check | Method |
+|---|---|
+| Representation | Rows and homes per slice; small slices (under 30 homes or 500 labelled rows) are reported, never ranked |
+| Label-rate disparity | Rate per slice against the rest, Wilson intervals, four-fifths ratio |
+| SliceFinder testing | Cohen's h and a z-test with **home-clustered variances** (a home's labels are correlated across months), Benjamini–Hochberg FDR; risk tiers (SFF, star band) are never "problematic" |
+| Inspector (rater) effects | Per state: label rate vs inspection frequency and backlog, citing severity, past rate (persistence) |
+| Missingness and censoring | Null-rate and closed-home gaps per slice |
+| Drift per slice | Flagged only beyond what random same-size samples of all homes show |
+| Mitigation | Sample weights fit on training rows only (`sample_weights.parquet`); gold is never changed |
+
+**Findings on real gold (V = 2026-08):** state is the strongest slice and partly a measurement effect (Illinois
+62.8% vs 25.3% elsewhere; its inspectors cite more often and more severely). Ownership, size and setting differ
+but below the effect-size threshold. With states shuffled between homes, the test finds 0 significant states in
+20 of 20 runs. Mitigation decisions are proposals for team sign-off (#27).
+
+Write-up: [`docs/bias/findings.md`](docs/bias/findings.md); method and outputs: [`docs/bias/README.md`](docs/bias/README.md).
+
+---
+
+## 8. Storage, metadata and environments
+
+**Object store layout** (`./data` locally, `gs://precursor-intel-mlops-data` in GCP; one folder per layer):
+
+```
+landing/cms_nh/{catalog,zips,extracted}/   quarantine/cms_nh/<run_id>/
+bronze/<table>/vintage=YYYY-MM/            silver/<table>/…
+gold/<table>/t=YYYY-MM/  gold/_current.json  gold/dataset_manifest.json  gold/_staging/
+reports/<node>/run=<run_id>/  reports/<node>/latest/   metadata/<layer>/run_date=…/
+```
+
+**Metadata:** Postgres database `precursor_meta` (SQLite only for single-process CLI runs and unit tests):
+catalog, source_datasets, download_log, extracted_files, inventory, anomalies, bronze_files, vintage_flags,
+silver_partitions, dq_results, run_log, run_lock. Airflow keeps its own state in a separate database.
+
+| Setting | Laptop | GCP VM |
+|---|---|---|
+| `PI_PIPELINE_ENV` | `dev` → `configs/dev.yaml` (local disk) | `prod` → `configs/prod.yaml` (GCS, object versioning) |
+| Credentials | none, or `PI_GCP_CREDENTIALS_FILE` to run against the bucket | the VM's service account `sa-pipeline` (no key files) |
+| Schedule | manual | daily |
+| Task memory | no limit | 6 GB per task container |
+
+Task containers sit on their own Docker network: they reach only Postgres and the internet (they open untrusted
+zips), never the Airflow API or the Docker API.
+
+---
+
+## 9. Getting started
+
+**Requirements:** Python 3.11 or 3.12, [`uv`](https://docs.astral.sh/uv/) (never pip), Docker for Airflow.
+
+```bash
+uv sync --all-extras                   # exact versions from uv.lock, every extra, dev tools
+uv run python --version                # must be 3.11.x or 3.12.x
+```
+
+**Run the pipeline from the CLI** (local disk under `./data`; each step is one DAG task):
+
+```bash
+uv run precursor-ingest step1 --steps discover,download        # find and download CMS releases
+uv run precursor-ingest step1 --steps extract,inventory,resolve,report
+uv run precursor-pipeline bronze                                # landing → bronze
+uv run precursor-pipeline silver                                # bronze → silver (--calibrate in a backfill)
+uv run precursor-pipeline gold                                  # silver → gold, behind the gate
+uv run precursor-pipeline validate --layer gold                 # schema + drift checks
+uv run precursor-pipeline bias-report                           # → reports/bias/
+```
+
+**Run it in Airflow:** build the images and start the local stack as in
+[`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md) (UI on `127.0.0.1:8080`), then trigger
+`cms_nh_pipeline` with `mode=backfill` for the first run. The GCP VM: [`docs/runbooks/gcp-bootstrap.md`](docs/runbooks/gcp-bootstrap.md).
+
+**Memory:** a full gold build peaks at about 4–5 GB; bronze at about 2.2 GB. On an 8 GB laptop, start with at least
+2.5 GB free.
+
+**Windows:** use Git Bash with POSIX commands, run tests with `uv run pytest -p no:cacheprovider --basetemp=C:/pt`
+(the default temp path exceeds the 260-character limit), and run the CLI without `--run-id` (`:` is illegal in
+Windows file names).
+
+---
+
+## 10. Tests and CI
+
+```bash
+uv run ruff check src tests && uv run mypy src
+uv run pytest                          # 935 offline tests; live CMS tests are skipped
+uv run pytest tests/leakage            # the leakage suite
+```
+
+- **CI (GitHub Actions, `.github/workflows/ci.yml`):** ruff, the full offline suite and `dvc repro` of the toy
+  pipeline, on Python 3.11 and 3.12. The `ci-ok` check is required to merge.
+- **DAG tests** (`tests/dags`) run inside the official Airflow 3 image: the chain, the only leaf, asset outlets
+  and the commands each task runs.
+- **Terraform** (`.github/workflows/terraform.yml`): `plan` on PRs, `apply` only in CI.
+
+---
+
+## 11. Data versioning with DVC
 
 [DVC](https://dvc.org) versions data the way Git versions code: Git tracks small pointer files (`dvc.yaml`, `dvc.lock`, `metrics/`), and the data itself lives in a DVC cache plus a remote, `gs://precursor-intel-mlops-dvc`, a bucket of its own so nobody needs write access to the production data bucket to share DVC data (created in `infra/terraform/envs/prod`).
 
@@ -61,11 +332,84 @@ git checkout <rev> -- dvc.lock && uv run dvc checkout   # restore the data of an
 uv run dvc metrics diff <rev>                           # compare the counts with that commit
 ```
 
-The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the toy pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result.
+The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the toy pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result. On Windows, run `dvc repro` in a checkout with LF line endings (`git -c core.autocrlf=false worktree add …`): DVC hashes raw bytes, and CRLF files give hashes CI does not reproduce.
 
 DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). Only the toy outputs are in DVC; `dvc.yaml` declares nothing outside `data/`.
 
-## Branching
+---
+
+## 12. Repository layout
+
+```
+Precursor-Intelligence/
+├── .github/                    # CI/CD workflows, PR and issue templates, CODEOWNERS
+├── configs/                    # environment config, dataset registry, schema contracts, prompts
+├── src/
+│   └── precursorintelligence/  # shared Python package
+├── backend/                    # FastAPI service
+├── frontend/                   # Streamlit dashboard
+├── dags/                       # Airflow DAGs
+├── docker/                     # Dockerfiles and local Airflow compose
+├── infra/terraform/            # GCP infrastructure as code
+├── tests/                      # automated tests
+├── notebooks/                  # exploration only
+├── data/                       # local data cache (git-ignored)
+└── docs/                       # ADRs, data notes, runbooks
+```
+
+| Folder | What goes here |
+|---|---|
+| `.github/` | CI/CD workflows, pull request and issue templates, CODEOWNERS |
+| `configs/` | base / dev / prod config, dataset registry, versioned schema contracts, LLM prompts |
+| `src/precursorintelligence/` | Shared Python package: `common`, `ingestion`, `harmonize` (bronze, silver), `gold`, `validation`, `bias`, `alerts`, `features`, `training`, `evaluation`, `serving`, `monitoring`, `agents` |
+| `backend/` | FastAPI service, using the agents in `src/precursorintelligence/agents`; deployed to Cloud Run |
+| `frontend/` | Streamlit dashboard; deployed to Cloud Run |
+| `dags/` | Thin Airflow DAGs that only trigger jobs (no business logic) |
+| `docker/` | One Dockerfile per image, plus the local Airflow compose file |
+| `infra/terraform/` | GCP infrastructure: `envs/{dev,prod}` and reusable modules |
+| `tests/` | Mirrors `src/`, plus `backend/`, `frontend/`, `contracts/` and `dags/`; tiny fixtures only |
+| `notebooks/` | Exploration only; strip outputs before committing |
+| `data/` | Git-ignored local cache that mirrors the GCS layout |
+| `docs/` | Architecture decision records, data notes, runbooks |
+
+Each top-level folder has its own README describing what belongs there.
+
+---
+
+## 13. Documentation map
+
+| Document | What it covers |
+|---|---|
+| [`docs/DATA_PIPELINE_SPEC.md`](docs/DATA_PIPELINE_SPEC.md) | The data pipeline specification: every step, table, rule and decision |
+| [`docs/AIRFLOW_PIPELINE.md`](docs/AIRFLOW_PIPELINE.md) | The DAG, run lock, exit codes, metadata database, logs, environments |
+| [`docs/STEP1_DATA_INGESTION_PIPELINE.md`](docs/STEP1_DATA_INGESTION_PIPELINE.md) | Ingestion in detail |
+| [`docs/BRONZE_CONTRACT.md`](docs/BRONZE_CONTRACT.md), [`docs/SILVER_CONTRACT.md`](docs/SILVER_CONTRACT.md) | Layer contracts |
+| [`docs/GOLD_HANDOFF.md`](docs/GOLD_HANDOFF.md) | Gold: build, gate, promotion, `_current.json` |
+| [`docs/VALIDATION.md`](docs/VALIDATION.md) | Schema and drift validation |
+| [`docs/bias/README.md`](docs/bias/README.md), [`docs/bias/findings.md`](docs/bias/findings.md) | Bias slicing: method, outputs, real-run findings |
+| [`docs/ALERTS_HANDOFF.md`](docs/ALERTS_HANDOFF.md) | Failure and anomaly alerts |
+| [`docs/runbooks/`](docs/runbooks/) | Local Airflow, end-to-end simulation, GCP bootstrap |
+
+---
+
+## 14. Known limitations and next steps
+
+- **Release gate:** `check_release` (run only when CMS publishes something new) is a TODO slot in the DAG.
+- **Gold is validated after promotion:** `validate_gold` holds back the `cms_nh_gold` asset, but a bad gold is
+  already in `gold/`; validating `gold/_staging/` first is the top follow-up (`docs/VALIDATION.md`).
+- **Quality-measure features:** MDS and Claims are in silver; the family joins gold after the measure selection is
+  approved.
+- **Training window:** with the measured buffers, `y_g12` has 6 training months at V = 2026-08; starting training
+  rows in 2022-01 is the recommendation under review (`docs/DATA_PIPELINE_SPEC.md` §9.5, §14).
+- **Gold memory:** a full-archive build peaks at about 4–5 GB on an 8 GB VM (`docs/AIRFLOW_PIPELINE.md` §9.1).
+- **Team decisions in #27:** which slices are fairness groups, whether state effects are risk or bias, whether
+  sample weights are used by default.
+- **Next:** the ML DAGs (`train_evaluate`, `batch_score`, `monitor`) on the `cms_nh_gold` asset, LightGBM with
+  calibration and per-slice evaluation, the agents, the API and the dashboard.
+
+---
+
+## 15. Branching
 
 | Branch | Purpose | Who pushes |
 |---|---|---|
@@ -80,7 +424,9 @@ DVC sits next to, not in place of, the production data versioning: real data is 
 3. Merge after review and green CI.
 4. Merge `dev` into `main` for each release.
 
-## Rules before making a PR to `dev`
+---
+
+## 16. Rules before making a PR to `dev`
 
 ### 1. Branch
 - **Branch from the latest `dev`:** `git checkout dev && git pull && git checkout -b <type>/<short-name>`.
@@ -103,7 +449,7 @@ uv run pytest                             # offline tests must pass (live CMS te
 - **Unit tests must not call the network or cloud services.** Mark live tests with `@pytest.mark.network`.
 - **Add only required code for the feature, or only tiny fixes** (a few rows). Never put real downloaded data in the repo.
 - **No hard-coded paths, buckets or credentials.** Read them from `configs/` and environment variables.
-- **New dependencies go into the right extra with `uv add --optional <extra> <package>`** (`pipeline`, `ml`, `agents`, `api`, `ui`, `mlflow-server`, `dvc`; tools: `uv add --group dev <package>`). Never type versions by hand; commit the updated `uv.lock`. Say why in the PR.
+- **New dependencies go into the right extra with `uv add --optional <extra> <package>`** (`pipeline`, `ml`, `agents`, `api`, `ui`, `mlflow-server`, `dvc`, `bias`; tools: `uv add --group dev <package>`). Never type versions by hand; commit the updated `uv.lock`. Say why in the PR.
 
 ### 4. Never commit
 - data files (`data/`, CSV / Parquet / zip downloads), logs, model artefacts;
