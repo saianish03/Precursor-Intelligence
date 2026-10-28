@@ -4,6 +4,8 @@ Before any model is trained, this checks whether the gold facility × month data
 kinds of nursing homes differently, writes a reproducible report, and proposes one mitigation decision per
 finding. It is the **data-level** half of bias work; model-level slice metrics come in the ML phase.
 
+What it found on our real gold, the proposed mitigation and the trade-offs: [`findings.md`](findings.md).
+
 Slices are **facility attributes and state inspection practice**, not protected classes: CMS facility data has
 no person-level demographics. The report describes differences between kinds of homes and inspection-intensity
 effects. It never claims discrimination.
