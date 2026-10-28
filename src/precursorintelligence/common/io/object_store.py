@@ -17,6 +17,7 @@ import logging
 import os
 import posixpath
 import stat as stat_mod
+import tempfile
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -209,8 +210,9 @@ class LocalObjectStore:
 class FsspecObjectStore:
     """An fsspec filesystem: ``memory://`` (tests) or ``gs://`` (gcsfs).
 
-    Object stores publish an object only when the upload completes (multipart/resumable upload), which
-    gives the same atomicity as a local rename. On GCS, landing objects are protected by the code's
+    ``put_stream`` stages the stream in a local temp file and uploads it only once it was read to the end;
+    an object store publishes an object only when its upload completes, which gives the same atomicity as a
+    local rename. On GCS, landing objects are protected by the code's
     never-overwrite rule plus bucket object versioning. There is no bucket retention policy: the one
     bucket also holds layers that are rewritten (bronze reloads, gold promotion, reports) and quarantine
     files that are deleted. ``make_immutable`` therefore only records the intent here.
@@ -276,16 +278,17 @@ class FsspecObjectStore:
         if parent:
             self.fs.makedirs(parent, exist_ok=True)
         h, size = hashlib.sha256(), 0
-        try:
-            with self.fs.open(p, "wb") as f:
+        # Read the whole stream into a local file first, then upload it in one call. A gcsfs write-mode file
+        # publishes whatever it holds when it is closed, also by its garbage collector, so writing the stream
+        # straight into one would publish half an object (or replace the current one) when the stream fails.
+        with tempfile.TemporaryDirectory(prefix="pi-put-") as tmp:
+            staged = Path(tmp) / "object"
+            with staged.open("wb") as f:
                 for chunk in chunks:
                     f.write(chunk)
                     h.update(chunk)
                     size += len(chunk)
-        except BaseException:
-            if self.fs.exists(p):
-                self.fs.rm(p)
-            raise
+            self.fs.put_file(staged.as_posix(), p)
         return PutResult(key, size, h.hexdigest(), self.uri_for(key))
 
     def put_bytes(self, key: str, data: bytes, *, overwrite: bool = False) -> PutResult:

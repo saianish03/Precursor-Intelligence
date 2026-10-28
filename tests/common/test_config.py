@@ -68,6 +68,26 @@ def test_env_placeholders(tmp_path, monkeypatch):
     assert s.env.metadata_store.url == "sqlite:///:memory:"
 
 
+def test_prod_writes_every_layer_into_the_gcs_bucket(monkeypatch):
+    monkeypatch.setenv("PI_DATABASE_URL", "postgresql+psycopg://u@h/db")
+    monkeypatch.delenv("PI_BUCKET_URI", raising=False)
+    store = load_settings("prod").env.object_store
+    assert (store.kind, store.root) == ("gcs", "gs://precursor-intel-mlops-data")
+    # google.auth.default() or an error: never gcsfs's silent anonymous fallback
+    assert store.storage_options == {"token": "google_default"}
+    monkeypatch.setenv("PI_BUCKET_URI", "gs://precursor-intel-mlops-data/trial-x")  # a trial prefix
+    assert load_settings("prod").env.object_store.root == "gs://precursor-intel-mlops-data/trial-x"
+
+
+@pytest.mark.parametrize("bucket", ["", "precursor-intel-mlops-data", "/tmp/data"])
+def test_a_gcs_root_without_gs_is_a_config_error(monkeypatch, bucket):
+    # fsspec would otherwise write every layer to the local disk without a word
+    monkeypatch.setenv("PI_DATABASE_URL", "postgresql+psycopg://u@h/db")
+    monkeypatch.setenv("PI_BUCKET_URI", bucket)
+    with pytest.raises(ConfigError, match="must start with gs://"):
+        load_settings("prod")
+
+
 def test_project_root_override(tmp_path, monkeypatch):
     (tmp_path / "configs" / "ingestion").mkdir(parents=True)
     (tmp_path / "configs" / "ingestion" / "sources.yaml").write_text(yaml.safe_dump(_sources()))

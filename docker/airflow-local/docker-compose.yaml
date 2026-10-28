@@ -39,6 +39,10 @@ x-airflow-common: &airflow-common
     PI_PIPELINE_ENV: ${PI_PIPELINE_ENV:-prod}
     PI_HOST_DATA_DIR: ${PI_HOST_DATA_DIR:-}
     PI_BUCKET_URI: ${PI_BUCKET_URI:-}
+    # Laptop against GCS: the host path of your gcloud ADC file, mounted read-only into task containers.
+    # Leave empty on the VM (the metadata server's identity) and for local-disk runs.
+    PI_GCP_CREDENTIALS_FILE: ${PI_GCP_CREDENTIALS_FILE:-}
+    PI_GCP_PROJECT: ${PI_GCP_PROJECT:-precursor-intel-mlops}
     PI_DAG_SCHEDULE: ${PI_DAG_SCHEDULE-@daily}
     PI_TASK_MEM_LIMIT: ${PI_TASK_MEM_LIMIT:-}
     PI_AUTO_REMOVE: ${PI_AUTO_REMOVE:-success}

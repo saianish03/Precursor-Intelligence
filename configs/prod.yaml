@@ -9,6 +9,10 @@ object_store:
   # gold promotion, reports) and quarantine files that are deleted. Landing is protected by the code's
   # never-overwrite rule plus bucket object versioning (spec §0.6; decided 2026-10-16).
   immutable: object_versioning
+  # gcsfs: google.auth.default() (the VM's identity, or a mounted gcloud ADC file on a laptop) or an error,
+  # never gcsfs's silent anonymous fallback, which only shows up later as 401s
+  storage_options:
+    token: google_default
 metadata_store:
   url: ${PI_DATABASE_URL}
 table_sink:

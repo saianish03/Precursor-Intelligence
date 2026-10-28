@@ -77,6 +77,9 @@ def test_docker_kwargs_from_environment(monkeypatch):
     monkeypatch.setenv("PI_PIPELINE_IMAGE", "precursor-pipeline:x")
     monkeypatch.setenv("PI_HOST_DATA_DIR", "/srv/pi/data")
     monkeypatch.delenv("PI_BUCKET_URI", raising=False)
+    monkeypatch.delenv(
+        "PI_GCP_CREDENTIALS_FILE", raising=False
+    )  # set in a stack that runs against GCS
     kw = docker_kwargs()
     assert kw["image"] == "precursor-pipeline:x"
     assert [(m["Source"], m["Target"]) for m in kw["mounts"]] == [("/srv/pi/data", "/app/data")]
@@ -91,6 +94,24 @@ def test_docker_kwargs_from_environment(monkeypatch):
     monkeypatch.setenv("PI_BUCKET_URI", "gs://bucket")
     kw = docker_kwargs()
     assert kw["mounts"] == [] and kw["environment"]["PI_BUCKET_URI"] == "gs://bucket"
+
+
+def test_a_laptop_against_gcs_mounts_the_gcloud_credentials_read_only(monkeypatch):
+    monkeypatch.delenv("PI_HOST_DATA_DIR", raising=False)
+    monkeypatch.delenv("PI_GCP_CREDENTIALS_FILE", raising=False)
+    kw = docker_kwargs()  # the VM: its metadata server identifies it, nothing is mounted
+    assert kw["mounts"] == [] and "GOOGLE_APPLICATION_CREDENTIALS" not in kw["environment"]
+
+    monkeypatch.setenv("PI_GCP_CREDENTIALS_FILE", "/Users/me/.config/gcloud/adc.json")
+    kw = docker_kwargs()
+    [mount] = kw["mounts"]
+    assert (mount["Source"], mount["Target"], mount["ReadOnly"]) == (
+        "/Users/me/.config/gcloud/adc.json",
+        "/var/run/gcp/adc.json",
+        True,
+    )
+    assert kw["environment"]["GOOGLE_APPLICATION_CREDENTIALS"] == "/var/run/gcp/adc.json"
+    assert kw["environment"]["GOOGLE_CLOUD_PROJECT"] == "precursor-intel-mlops"
 
 
 def test_the_result_list_survives_log_lines_after_it():

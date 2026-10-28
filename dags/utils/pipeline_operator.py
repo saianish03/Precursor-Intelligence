@@ -24,6 +24,7 @@ from precursorintelligence.alerts import EXIT_KINDS
 
 NO_RETRY_EXIT_CODES = (2, 3, 137)
 EXIT_CODE_XCOM = "pipeline_exit_code"
+GCP_CREDENTIALS_TARGET = "/var/run/gcp/adc.json"
 # apache-airflow-providers-docker 4.6.1 raises DockerContainerFailedException(f"Docker container failed:
 # {result!r}") with result = docker's wait() dict, e.g. {'Error': None, 'StatusCode': 2}. Checked against that
 # release's source; tests/dags/test_pipeline_operator.py fails if a provider upgrade changes it.
@@ -83,6 +84,18 @@ def docker_kwargs() -> dict[str, Any]:
     mounts = []
     if env.get("PI_HOST_DATA_DIR"):  # local only: a host folder plays the bucket
         mounts.append(Mount(source=env["PI_HOST_DATA_DIR"], target="/app/data", type="bind"))
+    # laptop against GCS: the host's gcloud ADC file, read-only; on the VM it is unset (metadata server)
+    if env.get("PI_GCP_CREDENTIALS_FILE"):
+        mounts.append(
+            Mount(
+                source=env["PI_GCP_CREDENTIALS_FILE"],
+                target=GCP_CREDENTIALS_TARGET,
+                type="bind",
+                read_only=True,
+            )
+        )
+        environment["GOOGLE_APPLICATION_CREDENTIALS"] = GCP_CREDENTIALS_TARGET
+        environment["GOOGLE_CLOUD_PROJECT"] = env.get("PI_GCP_PROJECT") or "precursor-intel-mlops"
     limits: dict[str, Any] = {}
     if env.get(
         "PI_TASK_MEM_LIMIT"
