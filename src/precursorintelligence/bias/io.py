@@ -31,7 +31,7 @@ class GoldData:
 
 
 def _pointer(current: dict[str, Any], table: str) -> dict[str, Any]:
-    shas = {k: v for k, v in sorted(current.get("sha256", {}).items()) if k.startswith(table)}
+    shas = {k: v for k, v in sorted(current.get("sha256", {}).items()) if k.startswith(f"{table}/")}
     return {
         "run_id": current.get("run_id"),
         "v": current.get("v"),

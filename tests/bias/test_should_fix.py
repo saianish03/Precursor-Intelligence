@@ -227,3 +227,18 @@ def test_one_home_slice_is_not_tested(cfg):
     ranked = find_problematic(label_rates(df, enumerate_slices(df, cfg), cfg, ["y_g12"]), cfg)
     gu = ranked.filter((pl.col("slice") == "state") & (pl.col("value") == "GU")).row(0, named=True)
     assert (gu["test_used"], gu["p_value"], gu["problematic"]) == ("too_few_homes", 1.0, False)
+
+
+def test_the_pointer_counts_only_partitions_not_the_merged_file(cfg, tmp_path):
+    df = make_gold(n_fac=30, months=3)
+    gold = _gold_with_pointer(tmp_path, df)
+    merged = gold / "facility_month_dataset.parquet"
+    df.write_parquet(merged)
+    current = json.loads((gold / "_current.json").read_text(encoding="utf-8"))
+    before = load_gold_path(gold, cfg).pointer["dataset_sha256"]
+    current["sha256"]["facility_month_dataset.parquet"] = hashlib.sha256(
+        merged.read_bytes()
+    ).hexdigest()
+    (gold / "_current.json").write_text(json.dumps(current), encoding="utf-8")
+    pointer = load_gold_path(gold, cfg).pointer
+    assert (pointer["partitions"], pointer["dataset_sha256"]) == (3, before)
