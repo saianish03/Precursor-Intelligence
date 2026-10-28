@@ -52,8 +52,8 @@ stages:
       nfiles: 11
     - path: src/precursorintelligence/gold
       hash: md5
-      md5: 2ba0c5e6c7b2ceade88bb07b0fa96378.dir
-      size: 73025
+      md5: 3c8438c8c12b8ec13023589e8a1ba3d0.dir
+      size: 73600
       nfiles: 15
     - path: src/precursorintelligence/harmonize
       hash: md5
@@ -88,6 +88,10 @@ stages:
       md5: 1feceac07ee6bdd6d9d8525cde3b0ae8.dir
       size: 995781
       nfiles: 26
+    - path: data/toy/gold/facility_month_dataset.parquet
+      hash: md5
+      md5: a6ea283edf40f796ebe98a48136de0b0
+      size: 42535
     - path: data/toy/gold/features_citations
       hash: md5
       md5: e6acc98b82984fd8831287a8c47f93d1.dir

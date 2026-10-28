@@ -27,6 +27,7 @@ from .splits import SPLITS
 
 DATASET = "facility_month_dataset"
 MANIFEST_NAME = "dataset_manifest.json"
+MERGED = f"{DATASET}.parquet"  # gold/facility_month_dataset.parquet: the t= partitions in one file
 KEYS = ["ccn", "t"]
 HASHED_CONFIGS = ("features.yaml", "feature_registry.yaml")
 GIT_COMMIT_ENV = "PI_GIT_COMMIT"  # set in images, which carry no .git
@@ -133,6 +134,7 @@ def dataset_manifest(
     v: str,
     v_labels: str,
     partition_sha256: Mapping[str, str],
+    merged_sha256: str,
     families: list[str],
     labels: pl.DataFrame,
     labels_cfg: LabelsConfig,
@@ -172,5 +174,6 @@ def dataset_manifest(
         "rows": {"total": labels.height, "months": labels["t"].n_unique()},
         "rows_per_split": _split_counts(labels, labels_cfg),
         "partitions_sha256": dict(sorted(partition_sha256.items())),
+        "merged_file": {"path": f"gold/{MERGED}", "sha256": merged_sha256},
         "built_at": built_at.isoformat(timespec="seconds"),
     }

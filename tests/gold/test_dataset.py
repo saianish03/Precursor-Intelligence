@@ -75,6 +75,7 @@ def test_the_manifest_is_the_same_for_the_same_inputs_but_the_timestamp(parts, t
     meta.ensure_schema()
     kwargs = dict(
         meta=meta, v=V, v_labels=V, partition_sha256={"facility_month_dataset/t=2025-03": "ab"},
+        merged_sha256="cd",
         families=list(features), labels=labels, labels_cfg=load_labels_config(),
         splits_cfg=load_splits_config(), verified=False,
     )  # fmt: skip

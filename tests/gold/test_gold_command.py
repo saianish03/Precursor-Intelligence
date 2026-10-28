@@ -65,9 +65,10 @@ class Toy:
         return pl.read_parquet(self.root / "gold" / name / "part-0.parquet")
 
     def sha(self, name):
-        return hashlib.sha256(
-            (self.root / "gold" / name / "part-0.parquet").read_bytes()
-        ).hexdigest()
+        path = self.root / "gold" / name
+        if not name.endswith(".parquet"):
+            path = path / "part-0.parquet"
+        return hashlib.sha256(path.read_bytes()).hexdigest()
 
     def manifests(self):
         return [json.loads((self.root / k).read_text()) for k in self.store.list("metadata/gold")]
@@ -548,3 +549,68 @@ def test_an_enabled_split_gate_is_recorded_without_a_warning(toy, monkeypatch):
     assert toy.gold(monkeypatch) == EXIT_OK
     assert toy.manifests()[0]["split_gate"] == {"required_labels": ["g6"], "enabled": True}
     assert not any("split gate disabled" in r.get("msg", "") for r in _shipped_log(toy))
+
+
+def _merged(toy):
+    return pl.read_parquet(toy.root / "gold" / "facility_month_dataset.parquet")
+
+
+def _merged_sha(toy):
+    return hashlib.sha256(
+        (toy.root / "gold" / "facility_month_dataset.parquet").read_bytes()
+    ).hexdigest()
+
+
+def test_the_merged_dataset_is_the_monthly_partitions_in_one_file(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    months = sorted(set(toy.read("spine")["t"]))
+    parts = pl.concat([toy.read(f"facility_month_dataset/t={t}") for t in months])
+    merged = _merged(toy)
+    assert merged.schema == parts.schema
+    assert merged.equals(parts.sort("t", "ccn"))
+    assert merged.select("t", "ccn").equals(merged.select("t", "ccn").sort("t", "ccn"))
+    current = read_current_gold(toy.store)  # sha256-checks every listed file, the merged one too
+    assert current["sha256"]["facility_month_dataset.parquet"] == _merged_sha(toy)
+    manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
+    assert manifest["merged_file"] == {
+        "path": "gold/facility_month_dataset.parquet",
+        "sha256": _merged_sha(toy),
+    }
+    assert "facility_month_dataset.parquet" not in manifest["partitions_sha256"]
+
+
+def test_a_later_run_with_a_new_month_replaces_the_merged_dataset(toy, monkeypatch):
+    toy.splits_file = str(no_gate_splits(toy.root))
+    assert toy.gold(monkeypatch, "--v", "2024-06") == EXIT_OK
+    assert _merged(toy)["t"].max() == "2024-06"
+    assert toy.gold(monkeypatch) == EXIT_OK
+    merged = _merged(toy)
+    assert merged["t"].max() == "2025-03"
+    assert merged.height == toy.read("spine").height  # rebuilt, not appended to
+    assert not merged.select("ccn", "t").is_duplicated().any()
+
+
+def test_a_failed_gate_leaves_the_published_merged_dataset_untouched(toy, monkeypatch, capsys):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    before = _merged_sha(toy)
+    real = build.build_labels
+
+    def no_g6(*args, **kwargs):  # every g6 training row censored: the gate refuses to publish
+        labels = real(*args, **kwargs)
+        return labels.with_columns(
+            pl.when(pl.col("t") == "2023-01").then(None).otherwise(pl.col("y_g6")).alias("y_g6")
+        )
+
+    monkeypatch.setattr(build, "build_labels", no_g6)
+    assert toy.gold(monkeypatch) == EXIT_VALIDATION
+    assert "required label g6" in capsys.readouterr().err
+    assert _merged_sha(toy) == before
+    assert read_current_gold(toy.store)["sha256"]["facility_month_dataset.parquet"] == before
+
+
+def test_read_current_gold_refuses_a_merged_dataset_changed_after_promotion(toy, monkeypatch):
+    assert toy.gold(monkeypatch) == EXIT_OK
+    merged = toy.root / "gold" / "facility_month_dataset.parquet"
+    _merged(toy).head(1).write_parquet(merged)
+    with pytest.raises(GoldCheckError, match="facility_month_dataset.parquet does not match"):
+        read_current_gold(toy.store)
