@@ -165,6 +165,11 @@ One DAG, `cms_nh_pipeline` (Airflow 3, `max_active_runs=1`): manual on a laptop,
 dotted line is `release_lock`, the teardown of `acquire_lock`. The status dots replay a simulated run in DAG order
 (they are not live Airflow state). Dashed tasks are planned.*
 
+![Airflow Gantt chart of a successful cms_nh_pipeline run on GCP](docs/img/airflow_gantt_chart.png)
+
+*The Airflow Gantt chart of a successful `cms_nh_pipeline` run on GCP: every task's start and duration, with all
+layers written to the GCS bucket.*
+
 ```
 acquire_lock → discover_download → pending_entries → extract_inventory[one per zip] → resolve_report
   → check_anomalies → alert_anomalies                                    (asset cms_nh_landing)
