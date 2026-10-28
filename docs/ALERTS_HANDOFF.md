@@ -14,6 +14,7 @@
 
 | Signal | Where | Fails the run today? | Notes |
 |---|---|---|---|
+| **Data validation** | `validate_silver`, `validate_gold` | yes (exit 2) | A schema violation (null, wrong type, out of range, bad format) fails the task and the run, so the run-failure email covers it; drift warnings are only in `anomalies.json` and `dq_results` (`docs/VALIDATION.md`) |
 | **DAG run state** | Airflow | — | Honest: `release_lock` is a teardown, so any failed task makes the run `failed` (verified: runs A and G in runbook §8.2). `tests/dags` asserts `gold.build_gold` is the only leaf, so a new node cannot silently break this |
 | **Task exit codes** | `dags/utils/pipeline_operator.py` | yes | **1** = error, retried 2 × 5 min; **2** = data or validation failure and **3** = config or usage error, both failed at once with `AirflowFailException`. The task log contains `pipeline exit <n> (<kind>), not retried` |
 | **`run_log`** (`precursor_meta`) | one row per step per run | — | `status` `ok` or `failed`; `detail` JSON with `n_failures` (non-zero = failed) and `error`; keyed by `run_id` = the Airflow run id |

@@ -19,7 +19,9 @@ CONTAINER_TASKS = {
     "ingestion.check_anomalies",
     "bronze.load_bronze",
     "silver.build_silver",
+    "silver.validate_silver",
     "gold.build_gold",
+    "gold.validate_gold",
     "release_lock",
 }
 
@@ -67,10 +69,13 @@ def test_node_order_and_lock(dag):
     assert upstream("ingestion.discover_download") == {"ingestion.acquire_lock"}
     assert upstream("bronze.load_bronze") == {"continue_after_ingestion"}
     assert upstream("silver.build_silver") == {"continue_after_bronze"}
-    assert upstream("continue_after_silver") == {"silver.build_silver"}
+    # bad silver never reaches gold, and bad gold fails the run
+    assert upstream("silver.validate_silver") == {"silver.build_silver"}
+    assert upstream("continue_after_silver") == {"silver.validate_silver"}
     assert upstream("gold.build_gold") == {"continue_after_silver"}
+    assert upstream("gold.validate_gold") == {"gold.build_gold"}
     assert upstream("release_lock") == {
-        "gold.build_gold",
+        "gold.validate_gold",
         "ingestion.acquire_lock",
         "ingestion.alert_anomalies",
     }
@@ -82,7 +87,7 @@ def test_node_order_and_lock(dag):
     # on_failure_fail_dagrun would make the teardown a leaf, and its success would hide a failed run
     assert not release.on_failure_fail_dagrun
     assert tasks["ingestion.resolve_report"].trigger_rule == TriggerRule.NONE_FAILED
-    # the run's state comes from its leaves (teardowns aside): gold, and the anomaly alert after resolve
+    # the run's state comes from its leaves (teardowns aside): gold validation, and the anomaly alert after resolve
     # (not behind continue_after, so it also runs on a stop_after run). Every other task is upstream of one,
     # so any failure fails the run.
     leaves = {
@@ -90,7 +95,7 @@ def test_node_order_and_lock(dag):
         for t in dag.tasks
         if not t.is_teardown and all(tasks[d].is_teardown for d in t.downstream_task_ids)
     }
-    assert leaves == {"gold.build_gold", "ingestion.alert_anomalies"}
+    assert leaves == {"gold.validate_gold", "ingestion.alert_anomalies"}
     assert upstream("ingestion.check_anomalies") == {"ingestion.resolve_report"}
     assert upstream("ingestion.alert_anomalies") == {"ingestion.check_anomalies"}
 
@@ -115,3 +120,17 @@ def test_alerts_are_wired(dag):
 
 def _callbacks(value):
     return value if isinstance(value, list) else [value]
+
+
+def test_validation_runs_after_silver_and_gold_and_gold_is_published_only_once_validated(dag):
+    tasks = {t.task_id: t for t in dag.tasks}
+    silver = tasks["silver.validate_silver"].command
+    assert " validate --layer silver " in silver
+    # a monthly run checks the latest month; a backfill checks every month against the one before
+    assert "{{ '--all-months' if params.mode == 'backfill' else '' }}" in silver
+    assert " validate --layer gold " in tasks["gold.validate_gold"].command
+    outlets = {t.task_id: [a.name for a in t.outlets] for t in dag.tasks if t.outlets}
+    assert outlets["gold.validate_gold"] == [
+        "cms_nh_gold"
+    ]  # emitted only when the gold passed validation
+    assert "gold.build_gold" not in outlets
