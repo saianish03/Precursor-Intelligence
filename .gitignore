@@ -1,6 +1,8 @@
 # --- data & outputs (never commit data; local cache mirrors the GCS layout) ---
 data/*
 !data/README.md
+# DVC pointer files are committed; the data they point to is not (docs/runbooks/gold-snapshot.md)
+!data/*.dvc
 logs/*
 !logs/.gitkeep
 mlruns/
