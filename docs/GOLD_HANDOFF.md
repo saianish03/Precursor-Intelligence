@@ -103,6 +103,10 @@ one file. Each run rebuilds it in full and never appends to it: gold recomputes 
 matured labels and moved splits are always right. It is staged and promoted with the other outputs, listed with
 its sha256 in `_current.json` and under `merged_file` in `dataset_manifest.json`. The `t=` partitions are unchanged.
 
+`precursor-pipeline snapshot-gold` copies the published merged file, the manifest and `_current.json` into `data/gold_real/` for
+`dvc add` (one DVC snapshot per release, `docs/runbooks/gold-snapshot.md`). It reads gold through `read_current_gold` and refuses
+while `verified` is false or the tree was dirty, unless `--allow-unverified`.
+
 | Table | Columns (type) |
 |---|---|
 | `gold/spine` | `ccn` (str, 6 characters), `t` (str `YYYY-MM`), `cutoff_date` (date, the 1st of t) |

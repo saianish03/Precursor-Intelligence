@@ -447,24 +447,27 @@ uv run dvc metrics diff <rev>                           # compare the counts wit
 
 The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the test pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock` and `metrics/toy_gold.json` in the same PR, then run `uv run dvc push` (it needs write access to the DVC bucket) so teammates' `dvc pull` finds the new data. CI only runs `dvc repro`, so a missing push is not caught there. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result. On Windows, run `dvc repro` in a checkout with LF line endings (`git -c core.autocrlf=false worktree add …`): DVC hashes raw bytes, and CRLF files give hashes CI does not reproduce.
 
-DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). Only the test outputs are in DVC; `dvc.yaml` declares nothing outside `data/`. A snapshot of the published real gold under DVC (one `.dvc` pointer per release, no `dvc.yaml` stage on the real data) is planned once the gold rework is done.
+DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). The `dvc.yaml` stages are the test pipeline only and declare nothing outside `data/`; the published real gold is versioned separately, as one DVC snapshot per release (section 11.1).
 
-### 11.1 Keeping versions of gold (planned)
+### 11.1 Keeping versions of gold
 
-Because gold is rebuilt in full each run, every release produces a complete new table, and the history has to be kept
-on purpose. The plan, to start once the gold rework is done:
-- **One DVC snapshot per release.** The published merged file `gold/facility_month_dataset.parquet` is added to DVC as a
-  plain `.dvc` pointer (no `dvc.yaml` stage on the real data: it would go stale with every code PR). Each release is one
-  Git commit of that pointer. To restore a version: `git checkout <rev> -- <pointer>.dvc && uv run dvc pull`. DVC stores
-  files by content, so unchanged parts are not copied again.
-- **Tag the snapshot commit with the month and the content hash,** for example `gold-V2026-09-<first 8 characters of
+Because gold is rebuilt in full each run, every release produces a complete new table, and the history has to be kept on
+purpose. One DVC snapshot per release does it:
+- **What is snapshotted:** the published merged file `gold/facility_month_dataset.parquet` with its `dataset_manifest.json` and
+  `_current.json`, copied by `precursor-pipeline snapshot-gold` (sha256-checked, and it refuses an unverified gold unless
+  `--allow-unverified`). `dvc add data/gold_real` makes the pointer `data/gold_real.dvc`, which Git tracks; the data goes to the
+  DVC bucket. There is no `dvc.yaml` stage on the real data: it would go stale with every code PR.
+- **Restore a version:** `git checkout <tag> -- data/gold_real.dvc && uv run dvc pull data/gold_real.dvc`. DVC stores files by
+  content, so unchanged parts are not copied again.
+- **Tags:** the squash-merge commit on `dev` is tagged with the month and the content hash, `gold-V<V>-<first 8 characters of
   dataset_version>`. The month alone is not a unique version: a rerun for the same V can change rows (a reload, a config
-  change, CMS revising history). The `dataset_version` in `gold/dataset_manifest.json` is the content hash.
-- **No month-named copies** such as `facility_month_dataset_2026-09.csv`. They duplicate data, say nothing about the code and
-  configs that produced them, and collide when the same month is rebuilt. The latest gold is already one file,
-  `gold/facility_month_dataset.parquet`, behind `gold/_current.json`.
-- **Parquet stays the stored format.** CSV drops column types (dates, integers with missing values) and would be several
-  hundred MB. A CSV export for people who open the data in a spreadsheet can be added as an extra.
+  change, CMS revising history); `dataset_version` in the manifest is the content hash.
+- **No month-named copies** such as `facility_month_dataset_2026-09.csv`: they duplicate data, say nothing about the code and
+  configs that produced them, and collide when the same month is rebuilt. The latest gold is already one file behind `_current.json`.
+- **Parquet stays the stored format.** CSV drops column types and would be several hundred MB; a CSV export for spreadsheet users
+  can be added as an extra.
+- **A person does it, per release, after a green run.** Airflow never calls DVC or commits to Git. Steps, the checks and the
+  restore commands: [`docs/runbooks/gold-snapshot.md`](docs/runbooks/gold-snapshot.md).
 
 ---
 
@@ -554,7 +557,7 @@ The course's example structure maps onto this repository as follows:
   copy is the planned fix, before the first full-archive run (`docs/AIRFLOW_PIPELINE.md` §9.1).
 - **Team decisions in #27:** which slices are fairness groups, whether state effects are risk or bias, whether
   sample weights are used by default.
-- **Versioning real gold:** one DVC snapshot per release, tagged with the month and content hash (section 11.1).
+- **Snapshots of real gold:** `snapshot-gold` and the pointer exist (section 11.1); the first snapshots are of an unverified gold until the spec §11 verification gate is built.
 - **Next:** the ML DAGs (`train_evaluate`, `batch_score`, `monitor`) on the `cms_nh_gold` asset, LightGBM with
   calibration and per-slice evaluation, the agents, the API and the dashboard.
 
