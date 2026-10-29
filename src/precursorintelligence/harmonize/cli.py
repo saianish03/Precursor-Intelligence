@@ -20,7 +20,7 @@ import typer
 from ..bias.cli import bias_report
 from ..common.config import ConfigError
 from ..common.io.run_lock import RunLockHeldError, RunLockNotHeldError
-from ..gold.cli import gold
+from ..gold.cli import gold, snapshot_gold_command
 from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init, _ship_log
 from ..ingestion.context import build_context
 from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR, EXIT_OK, EXIT_VALIDATION
@@ -35,6 +35,8 @@ app = typer.Typer(
     help="Precursor Intelligence pipeline nodes after ingestion (bronze, then silver and gold)",
 )
 app.command()(gold)  # the gold node; its code lives in src/precursorintelligence/gold/
+# copy the published gold out for DVC (docs/runbooks/gold-snapshot.md)
+app.command("snapshot-gold")(snapshot_gold_command)
 # data bias slicing on gold (src/precursorintelligence/bias/)
 app.command("bias-report")(bias_report)
 # schema and drift checks of silver or gold; src/precursorintelligence/validation/
