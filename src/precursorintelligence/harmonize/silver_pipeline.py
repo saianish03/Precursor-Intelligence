@@ -25,7 +25,7 @@ from .columns import SilverConfig, load_silver_config
 from .ledgers import published_vintages
 from .pipeline import files_without_valid_partition
 from .silver import FAILED, SKIPPED, PartitionResult, build_partition, is_current, latest_bronze
-from .silver_report import write_reports
+from .silver_report import new_headers, write_reports
 from .silver_steps import build_ledgers_and_universe, run_calibration
 
 log = logging.getLogger(__name__)
@@ -47,6 +47,9 @@ class SilverResult:
     )  # all-vintage tables (Steps 3-5): rows written
     manifest_key: str = ""
     report_keys: list[str] = field(default_factory=list)
+    # `<table> <vintage>: <headers>` of the partitions this DAG run built without new CMS headers, in any
+    # try (spec §3.2); the CLI prints them for the DAG's alert
+    new_headers: list[str] = field(default_factory=list)
 
     @property
     def exit_code(self) -> int:
@@ -127,6 +130,9 @@ def _run(ctx: Context, cfg: SilverConfig, now: datetime, calibrate: bool) -> Sil
                 with task_scope(ctx, "silver_calibrate"):
                     result.report_keys += run_calibration(ctx, vintages, built, cfg.calibration)
 
+    result.new_headers = [
+        f"{t} {v}: {', '.join(h)}" for (t, v), h in new_headers(ctx, ctx.run_id).items()
+    ]
     result.report_keys = (
         write_reports(ctx, cfg, result.partitions, result.lookup_versions) + result.report_keys
     )
@@ -216,6 +222,7 @@ def _write_manifest(ctx: Context, cfg: SilverConfig, result: SilverResult, now: 
         CHECK_NAME: {"passed": not result.missing, "missing": result.missing},
         "reports": result.report_keys,
         "failures": result.failures,
+        "new_headers": result.new_headers,
     }
     stamp = datetime.now(UTC)  # the real clock: a retry in the same second cannot collide
     key = f"metadata/silver/run_date={stamp:%Y-%m-%d}/silver_run_{ctx.run_id}_{stamp:%Y%m%dT%H%M%S%fZ}.json"
