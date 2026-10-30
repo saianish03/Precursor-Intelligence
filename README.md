@@ -619,7 +619,7 @@ uv run pytest                             # offline tests must pass (live CMS te
 - **Docs:** update the relevant README or `docs/` page when behaviour, configuration or commands change.
 
 ### 6. Review and merge
-- **CI must be green.** The `ci-ok` check (ruff + tests on Python 3.11 and 3.12) is required.
+- **CI must be green.** The `ci-ok` check (ruff + tests on Python 3.11 and 3.12) is required. When a PR touches `docker/`, `dags/`, `tests/dags/`, `src/`, `configs/` or the lock files, it also covers building both images and the DAG tests inside the Airflow image (job `images`).
 - **At least 1 approval from a teammate.** Don't merge your own PR without one.
 - **Resolve every review conversation** before merging.
 - **Merge with "Squash and merge"** so `dev` keeps one commit per PR, and delete the branch after merging.

@@ -274,7 +274,7 @@ It would work on a demo day. The table lists what this implementation does inste
 | **Reproducibility** | Pinned base images and tools; `uv.lock --frozen`; Airflow installed under its own constraints; provider pinned, with a test that fails if its error format changes; `PI_GIT_SHA` in manifests | The same commit builds the same images. An Airflow or provider upgrade cannot silently break the exit-code handling | Dockerfiles, `tests/dags` |
 | **Environment parity** | The laptop and the VM use identical compose, images and DAG; only `.env` differs. On a laptop, manual runs only, so unpausing cannot start a full-archive run | What was tested locally is what runs in production | `.env.example` |
 | **Operability** | Params `mode` (backfill or monthly), `calibrate`, `stop_after` (node-by-node first backfill), `entry_ids` (development subsets); a runbook for build, run, inspect and clean up | Operators control the pipeline from the UI without code changes | DAG, runbook |
-| **Tested** | DAG integrity and operator tests in the Airflow image; repo unit tests; real end-to-end runs on CMS data (runbook §8) | Wiring mistakes are caught before deploy, not at 3 a.m. | `tests/dags`, runbook |
+| **Tested** | DAG integrity and operator tests in the Airflow image, which CI builds and tests on every PR that touches an image or a DAG; repo unit tests; real end-to-end runs on CMS data (runbook §8) | Wiring mistakes are caught before deploy, not at 3 a.m. | `tests/dags`, runbook |
 
 ## 8. Files
 

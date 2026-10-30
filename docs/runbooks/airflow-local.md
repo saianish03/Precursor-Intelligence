@@ -174,6 +174,7 @@ uv run pytest      # repo tests, incl. tests/alerts; tests/dags is skipped (Airf
 docker compose run --rm --no-deps --entrypoint "" airflow-scheduler \
   python -m pytest -p no:cacheprovider /opt/airflow/tests/dags     # DAG integrity, exit codes, alert callbacks
 ```
+CI (job `images` in `.github/workflows/ci.yml`) builds both images on every PR that touches them or the DAGs, and runs the same DAG tests in the fresh Airflow image with `docker run` and these mounts.
 
 ## 7. Stop and clean up
 ```bash
