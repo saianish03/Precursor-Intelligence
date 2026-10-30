@@ -71,6 +71,26 @@ def test_dvc_lock_covers_every_stage_so_the_data_versions_are_committed(stages):
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
 def test_git_does_not_ignore_the_files_dvc_needs_committed():
-    for path in ("dvc.yaml", "dvc.lock", ".dvc/config", ".dvcignore", "metrics/toy_gold.json"):
+    # snapshots/, not data/: DVC does not look for .dvc files inside git-ignored folders, so a pointer under data/
+    # would be skipped by a bare `dvc push`, `dvc pull` and `dvc status`
+    for path in (
+        "dvc.yaml",
+        "dvc.lock",
+        ".dvc/config",
+        ".dvcignore",
+        "metrics/toy_gold.json",
+        "snapshots/gold_real.dvc",
+        "snapshots/.gitignore",
+    ):
         ignored = subprocess.run(["git", "check-ignore", "-q", path], cwd=ROOT).returncode == 0
         assert not ignored, f"{path} is git-ignored"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+def test_the_data_of_the_real_gold_snapshot_stays_git_ignored():
+    for path in (
+        "snapshots/gold_real/facility_month_dataset.parquet",
+        "snapshots/gold_real/_current.json",
+    ):
+        ignored = subprocess.run(["git", "check-ignore", "-q", path], cwd=ROOT).returncode == 0
+        assert ignored, f"{path} must stay git-ignored: only the .dvc pointer is committed"
