@@ -154,10 +154,11 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
   - `PI_PIPELINE_ENV=prod`;
   - `PI_HOST_DATA_DIR=` (empty);
   - `PI_BUCKET_URI=gs://precursor-intel-mlops-data`;
-  - `PI_DAG_SCHEDULE="0 15 * * *"` (inside the VM's up-window);
-  - `PI_TASK_MEM_LIMIT=6g`, `PI_AUTO_REMOVE=force`;
+  - `PI_DAG_SCHEDULE=` (empty: releases start runs through the `cms_nh_release_check` DAG, spec §14 #24);
+  - `PI_TASK_MEM_LIMIT=10g` (e2-standard-4, 16 GB), `PI_AUTO_REMOVE=force`;
   - git-SHA image tags.
   - Render the secrets from Secret Manager at deploy time.
+- **Metadata DB:** Postgres stays on the VM. Both databases are dumped to GCS at every VM shutdown (spec §14 #27). The VM is started and stopped by hand and stops itself after 60 idle minutes.
 - **Credentials:** the VM runs as `sa-pipeline` (`storage.objectAdmin` on the data bucket only). Task containers reach the GCE metadata server, so gcsfs gets its tokens and no key file is needed.
 - **Images:** push to Artifact Registry, then pre-pull on deploy (`gcloud auth configure-docker …`, `docker pull`). The Docker proxy sends no registry credentials, and `force_pull` is off.
 - **Access:** no firewall rule for 8080. Reach the UI with `gcloud compute ssh <vm> --tunnel-through-iap -- -L 8080:127.0.0.1:8080`.

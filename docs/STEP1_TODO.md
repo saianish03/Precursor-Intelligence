@@ -6,10 +6,10 @@ These are improvements to the built Step 1 pipeline, borrowed from an earlier pe
 
 | Item | Status | What the spec changed |
 |---|---|---|
-| T1 release sensor | **Moved** to the `check_release` node (spec §2.0), outside Step 1 | Decisions READY / RESUME / CHANGED / PARTIAL / NO_CHANGE; it gates the one DAG `cms_nh_pipeline` and can be skipped (`run_check_release=false`). Step 1 provides `inventory.landing_backlog()` for its CHANGED / RESUME inputs. |
+| T1 release sensor | **Moved** to the `check_release` node (spec §2.0), outside Step 1 | Decisions READY / RESUME / CHANGED / PARTIAL / BUSY / NO_CHANGE. It runs in its own DAG, `cms_nh_release_check`, which starts `cms_nh_pipeline` through the asset `cms_nh_release`; manual pipeline runs skip it (spec §14 #24). Step 1 provides `inventory.landing_backlog()` for its CHANGED / RESUME inputs. |
 | T2 metastore CSV fallback | Parked | The spec keeps one zip code path for history and new months (§0.8). Revisit only if the archive endpoints break. |
-| T3 `--dry-run` | Exit codes **done**; `--dry-run` **dropped** | Development runs use `run_check_release=false`, and every node is idempotent, so a dry run adds little. |
-| T4 drift check at ingest | **Narrowed** | The spec fails on unmapped headers in silver (fail closed, exit 2). At most, add a report-only header-set check to Checkpoint 1, which already lists the header sets. |
+| T3 `--dry-run` | Exit codes **done**; `--dry-run` **dropped** | Development runs are manual runs of `cms_nh_pipeline` (no release check), and every node is idempotent, so a dry run adds little. |
+| T4 drift check at ingest | **Narrowed** | Silver handles header drift (spec §3.2, amended 2026-10-29): new headers only warn and email, a missing or renamed expected header fails closed (exit 2). At most, add a report-only header-set check to Checkpoint 1, which already lists the header sets. |
 | T5 GCS | Retention part **decided**; race open | No bucket retention policy (spec §0.6 single root; `STEP1_DATA_INGESTION_PIPELINE.md` §9.9). The `if_generation_match=0` precondition is still open, and low-risk under the run lock. |
 | T6 | Lock expiry **done**; `resolve` write-back **moot**; run ids with `:`/`+` kept as a nit | The one-DAG lock leaves no concurrent `resolve`. |
 

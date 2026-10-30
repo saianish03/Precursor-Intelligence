@@ -109,7 +109,7 @@ release_lock      teardown of acquire_lock: runs whenever the lock was taken (§
 | `stop_after` | `null` | `ingestion`, `bronze` or `silver`: run up to that node (the first backfill, checked node by node) |
 | `entry_ids` | `""` | development only: ingest just these catalog entries (comma-separated). Empty = every in-scope zip |
 
-**Schedule:** `PI_DAG_SCHEDULE`. Production polls CMS once a day (CMS sends no notification); a laptop uses manual runs only. `max_active_runs=1`, `catchup=False`.
+**Schedule:** `PI_DAG_SCHEDULE` for now; a laptop uses manual runs only (empty). `max_active_runs=1`, `catchup=False`. **Decided for production** (spec §14 #24, not built yet): a separate DAG `cms_nh_release_check` polls CMS hourly while the VM is on and starts this DAG through the asset `cms_nh_release`; it stays paused during development, so runs are manual. `PI_DAG_SCHEDULE` then goes away.
 
 **Idempotency:** every task can be re-run with the same run id.
 - Unchanged zips, files and partitions are skipped.
@@ -237,8 +237,8 @@ Every key is relative to one root, the local folder or `gs://precursor-intel-mlo
 | `PI_HOST_DATA_DIR` | a host folder, bind-mounted at `/app/data` | empty | empty |
 | `PI_BUCKET_URI` | — | empty (the bucket root) or `gs://precursor-intel-mlops-data/trial-<date>` | `gs://precursor-intel-mlops-data` |
 | `PI_GCP_CREDENTIALS_FILE` | — | host path of your gcloud ADC file, mounted read-only into task containers. **Short trials only:** it puts your personal login into containers that open untrusted zips (runbook §2.1) | empty |
-| `PI_DAG_SCHEDULE` | empty (manual) | empty (manual) | a daily cron inside the VM's up-window |
-| `PI_TASK_MEM_LIMIT`, `PI_AUTO_REMOVE` | empty, `success` | empty, `success` | `6g`, `force` |
+| `PI_DAG_SCHEDULE` | empty (manual) | empty (manual) | empty: releases start runs through `cms_nh_release_check` (spec §14 #24) |
+| `PI_TASK_MEM_LIMIT`, `PI_AUTO_REMOVE` | empty, `success` | empty, `success` | `10g` (e2-standard-4, 16 GB; spec §14 #26), `force` |
 | credentials | none | you (`gcloud auth application-default login`) | the VM's service account `sa-pipeline` (no key files) |
 
 With `--env prod`, gcsfs uses `token: google_default`: missing credentials fail at once instead of turning into anonymous 401s later. A `gcs` root that doesn't start with `gs://` is a config error (exit 3), so an empty or bare `PI_BUCKET_URI` can't make the tasks write to the container's disk instead.
@@ -299,6 +299,7 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
   - the staged Parquet bytes;
   - a re-read of every staged file for its checks (`gold/build.py`, `_run` and `_stage`).
 - **Why it matters:** on the full archive (spine 2023-01 → 2026-09, ≈ 590k rows; ≈ 755k with a 2022-01 start, spec §14 #10) the review estimates a 4–5 GB peak. The VM has 8 GB, the Airflow services and Postgres use about 2–2.5 GB, and `PI_TASK_MEM_LIMIT` is 6g. The VM itself could run out of memory before the container limit stops the task.
+- **Update 2026-10-29:** the VM is now an e2-standard-4 with 16 GB (spec §14 #26) and `PI_TASK_MEM_LIMIT=10g`, which covers the ≈ 5.8 GB estimate below. The fix is needed only to go back to an 8 GB VM.
 - **Measured locally (runbook §8.2):** gold peaked at **1.95–2.17 GB** for 207k–237k rows (sampled every 2 s, so short spikes can be missed). Scaled linearly to the full archive's ≈ 590k rows, that is **≈ 5 GB**, above the ~4 GB comfort line, so this fix is needed before the first full-archive run on the VM.
 - **Merged dataset file (PR #32):** writing `gold/facility_month_dataset.parquet` adds about 16% to the peak (2.55–2.57 → 2.95–2.99 GiB on the 237k-row subset, sampled every 0.1 s), so the full-archive estimate goes from ≈ 5 GB to **≈ 5.8 GB**, close to the 6g limit. Before the first full-archive run, write that file by streaming the staged partitions instead of holding a second sorted copy.
 - **Fix, if the full-archive peak is above ~4 GB:**
