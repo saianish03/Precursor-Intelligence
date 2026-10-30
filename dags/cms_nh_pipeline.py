@@ -14,7 +14,7 @@ Validation (`precursor-pipeline validate`, docs/VALIDATION.md) runs as `validate
 `validate_gold` after it. A schema violation exits 2, fails the run and alerts like any failed task.
 
 Implemented nodes: ingestion → bronze → silver → gold. Not built yet, slots marked TODO: `check_release`
-(spec §2.0, gates the DAG) and `mirror_metadata` (spec §15.3).
+(spec §2.0; its own DAG that starts this one through an asset) and `mirror_metadata` (spec §15.3).
 
 Params:
   mode        monthly | backfill (backfill implies the silver calibration tasks)
@@ -90,8 +90,8 @@ def run(task_id: str, command: str, **kwargs) -> PipelineDockerOperator:
     doc_md=__doc__,
 )
 def cms_nh_pipeline():
-    # TODO(check_release): spec §2.0 / §15.5: gate (@task.branch on params.run_check_release) →
-    # check_release (`precursor-pipeline check-release`) → @task.short_circuit on its JSON `proceed`.
+    # TODO(check_release): spec §2.0 / §15 (decision 24): a separate DAG, cms_nh_release_check, runs
+    # `precursor-pipeline check-release` and emits the asset cms_nh_release; this DAG is then scheduled on it.
 
     # stop_after: skip the next node only; the later nodes skip through their default trigger rule, and the
     # release_lock teardown still runs.
@@ -177,7 +177,7 @@ def cms_nh_pipeline():
     @task_group(group_id="gold")
     def gold():
         # exit 2 (a failed gate or check: nothing published) fails the task.
-        # execution_timeout: a hung gold run would hold the lock and queue the next daily runs
+        # execution_timeout: a hung gold run would hold the lock and queue the next runs
         build = run("build_gold", f"{PIPELINE} gold", execution_timeout=GOLD_TIMEOUT)
         # Every gold month against its schema. It runs after the publish, so a failure fails the run and holds
         # back cms_nh_gold (which starts the ML DAGs) but cannot unpublish: cms_nh_gold means published and valid.

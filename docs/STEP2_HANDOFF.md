@@ -105,7 +105,7 @@ The 36 `duplicate_vintage` files are **not** loaded. 35 of them are byte-identic
 ## 2. What Step 2 must produce (guide §3, unchanged)
 
 1. **Bronze (2a):** every selected CSV, all columns as **strings**, written to `bronze/<table>/vintage=<YYYY-MM>/` with lineage columns (§2.1).
-2. **Column map (2b):** `configs/column_map.yaml`, canonical name → raw aliases with month ranges and dtype. **Hard rule:** zero unmapped headers. Start from `data/step2_reference/column_map.draft.yaml`.
+2. **Column map (2b):** `configs/column_map.yaml`, canonical name → raw aliases with month ranges and dtype. **Rule** *(corrected 2026-10-29, spec §3.2)*: zero header problems (a missing expected header, an alias out of range, two aliases); a new header the map doesn't know only warns, and the partition builds without it. Start from `data/step2_reference/column_map.draft.yaml`.
 3. **Keep-lists (2c):** `configs/keep_columns.yaml`.
 4. **Normalisation (2d):** CCN, dates, severity, tags, Y/N, numerics, enums (§5).
 5. **Silver stacked tables (2e):** `silver/{provider,citations,surveys,penalties,mds_qm,claims_qm}_by_vintage` plus `silver/citation_lookup`, each with `vintage_month` and `cutoff_date`. Also `reports/02_column_availability.csv`, and the within-vintage uniqueness checks (§6).

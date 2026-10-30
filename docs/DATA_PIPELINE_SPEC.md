@@ -75,7 +75,7 @@ Auxiliary label columns exist for analysis only (§9.4). **No label column may e
 - **Only the final gold dataset goes to a warehouse:** BigQuery in GCP, Postgres locally. Gold Parquet stays the source of truth.
 
 **Pipeline metadata** (D4–D8):
-- **Where:** a metadata store, **Postgres** locally and, in GCP, the `precursor_meta` database on the Airflow VM (next to the `airflow` and `mlflow` databases), dumped to GCS at every VM shutdown (§14 #27); SQLite only in unit tests. Never Cloud SQL. **There is no BigQuery metadata adapter** (amended 2026-10-16 to follow `PI_Metadata_Storage_Plan`, 2026-10-09; this replaces D4's `precursorintelligence_ops`). BigQuery only holds a **read-only mirror** in the dataset `meta`, copied from Postgres by one task at the end of each DAG run (§15.3). The API and dashboard read a status snapshot, `status/latest.json` in GCS, written by the last task of the monitor DAG, so they never reach the VM.
+- **Where:** a metadata store, **Postgres** locally and, in GCP, the `precursor_meta` database on the Airflow VM (next to the `airflow` and `mlflow` databases), dumped to GCS before every VM stop (§14 #27); SQLite only in unit tests. Never Cloud SQL. **There is no BigQuery metadata adapter** (amended 2026-10-16 to follow `PI_Metadata_Storage_Plan`, 2026-10-09; this replaces D4's `precursorintelligence_ops`). BigQuery only holds a **read-only mirror** in the dataset `meta`, copied from Postgres by one task at the end of each DAG run (§15.3). The API and dashboard read a status snapshot, `status/latest.json` in GCS, written by the last task of the monitor DAG, so they never reach the VM.
 - **How it is written:** append-only rows plus "latest" views (D5); each task reads once and writes once; the BigQuery mirror is a batch load job, never streaming (D6). State that is a current value rather than an event (`vintage_flags`, `run_lock`) is one row per key and is upserted.
 - **Concurrency:** one run at a time (the `data_pipeline` run lock).
 
@@ -120,7 +120,7 @@ Every step in this file belongs to exactly one node. A node is an Airflow `TaskG
 
 | # | Node | Steps | Reads | Writes | Emits asset |
 |---|---|---|---|---|---|
-| 1 | `check_release` | Release sensor (§2.0): READY / RESUME / CHANGED / PARTIAL / BUSY / NO_CHANGE | CMS metastore API (7 dataset IDs); the archive catalog; `inventory`, `catalog`, `gold_builds`, `run_lock` | decision row in `vintage_registry` | `cms_nh_release`, only on READY, RESUME or CHANGED; it starts `cms_nh_pipeline` |
+| 1 | `check_release` | Release sensor (§2.0): READY / RESUME / CHANGED / PARTIAL / BUSY / BLOCKED / NO_CHANGE | CMS metastore API (7 dataset IDs); the archive catalog; `inventory`, `catalog`, `gold_builds`, `run_lock` | decision row in `vintage_registry` | `cms_nh_release`, only on READY, RESUME or CHANGED; it starts `cms_nh_pipeline` |
 | 2 | `ingestion` | Step 1 (§2) | archive/current/metastore endpoints; landing | landing zips + extracted CSVs; `catalog`, `download_log`, `inventory`, `anomalies`; Checkpoint 1 report | `cms_nh_landing` |
 | 3 | `bronze` | Step 2a (§3.1) + content hash, `stale_refresh`, `revised_after_publication` | `inventory where status='selected'`; landing CSVs | `bronze/<table>/vintage=…`; `bronze_files`, `vintage_flags` | `cms_nh_bronze` |
 | 4 | `silver` | Steps 2b–2e (§3.2–3.5), Step 3 (§4), §6 items 1–2 and the QM inventory. **Calibration tasks**, backfill or on demand only: Step 4 (§5) and the §6 item 3 QM proposal. | bronze; configs | silver tables, ledgers, universe, QM inventory, `gold/dim_facility_latest`; `silver_partitions`; Checkpoint 2–4 reports | `cms_nh_silver` |
@@ -165,7 +165,7 @@ The task list per node, run modes, exit codes and the DAG sketch are in **§15**
 
 | Team documents | This spec | Why |
 |---|---|---|
-| Separate asset-chained DAGs (`pdc_release_sensor`, `ingest_vintage`, `build_silver`, `build_gold`, `backfill_archive`) | One pipeline DAG with 4 TaskGroups (ingestion → gold), started by a small release-check DAG through the asset `cms_nh_release`; backfill and development runs = manual runs of the pipeline DAG with params | One run id and one lock end to end; assets are still emitted per node for downstream DAGs. **Decided 2026-10-15** (§14 #19), release check split out **2026-10-29** (§14 #24); the team plan is being updated. |
+| Separate asset-chained DAGs (`pdc_release_sensor`, `ingest_vintage`, `build_silver`, `build_gold`, `backfill_archive`) | One pipeline DAG with 4 TaskGroups (ingestion → gold), started by a small release-check DAG through the asset `cms_nh_release`; backfill and development runs = manual runs of the pipeline DAG with params | One run id and one lock end to end within a pipeline run; assets are still emitted per node for downstream DAGs. The release-check run has its own run id: it passes its decision, vintage and run id in the `cms_nh_release` asset event's `extra`, and the pipeline run records them, which links the two (§2.0). **Decided 2026-10-15** (§14 #19), release check split out **2026-10-29** (§14 #24); the team plan is being updated. |
 | Per-table CSVs via the metastore `downloadURL`; annual zips uploaded by hand | Monthly zips through the archive JSON endpoints (Step 1) | One code path for history and new months |
 | Bronze = raw files, never overwritten | Raw files in `landing/` are never overwritten (republished copies sit side by side); a bronze partition is **reloaded** when its source changes (D10) | Bronze is derived from landing |
 | Pandera checks | Named checks recorded in `dq_results` (the sample run); Pandera schemas can implement the same rules in the repo | — |
@@ -176,7 +176,7 @@ The task list per node, run modes, exit codes and the DAG sketch are in **§15**
 | DuckDB / Polars | Polars only (D2) | — |
 | Buffers 6 / 18; prediction months from 2023-01 | 8 / 12 measured; spine 2023-01, which leaves very little training data (§9.5) | Measured |
 | Airflow VM e2-standard-2 (8 GB) | **e2-standard-4** (4 vCPU, 16 GB); the machine type is a Terraform variable | Gold holds the whole dataset in memory, and every monthly run rebuilds all of gold, so monthly runs need the backfill's RAM. Full-archive gold is estimated at ≈ 5.8 GB (`AIRFLOW_PIPELINE.md` §9.1), next to ≈ 2–2.5 GB for Airflow and Postgres. **Decided 2026-10-29** (§14 #26) |
-| Nightly `pg_dump` to GCS; an instance schedule stops the VM overnight and on weekends | Postgres stays on the VM (as planned). It is dumped to GCS **at every VM shutdown**. The VM is started and stopped by hand, with an idle auto-shutdown | The VM is off most of the time, so a nightly job would rarely run. A fixed stop could cut a long backfill short, but the idle shutdown never stops a running DAG run. **Decided 2026-10-29** (§14 #27) |
+| Nightly `pg_dump` to GCS; an instance schedule stops the VM overnight and on weekends | Postgres stays on the VM (as planned). It is dumped to GCS **before every VM stop**: the stop scripts dump first and don't stop the VM if the dump fails. The VM is started and stopped by hand, with an idle auto-shutdown that ignores release-check runs | The VM is off most of the time, so a nightly job would rarely run. A fixed stop could cut a long backfill short, but the idle shutdown never stops a running DAG run. **Decided 2026-10-29** (§14 #27) |
 
 ---
 
@@ -211,7 +211,8 @@ CMS publishes no notification, so the DAG `cms_nh_release_check` polls (releases
    |---|---|---|
    | A pipeline run holds the `data_pipeline` lock | `BUSY` | Skip this check; the next one decides again. *(Without this, a check during a run would see the run's own unpublished vintage as RESUME and queue a second run.)* |
    | All 7 `modified` equal one month that is newer than the latest ingested vintage | `READY` | Continue the DAG for that month |
-   | Nothing new at CMS, but the latest ingested vintage was never published to gold (a run failed after ingestion, e.g. at the gold gate) | `RESUME` | Continue the DAG: every node is idempotent, so ingestion and bronze are no-ops and silver and gold run again. *(Sample-run finding: without this, a gold failure is never retried automatically, because the next day's check sees nothing new.)* |
+   | Nothing new at CMS, but the latest ingested vintage was never published to gold (a run failed after ingestion, e.g. at the gold gate), **and** something may have changed since the last attempt: the deployed commit (`PI_GIT_SHA`; code and configs are baked into the images) differs from the one of the last `RESUME` for this vintage, or that `RESUME` is more than 24 h old, or there was none | `RESUME` | Continue the DAG: every node is idempotent, so ingestion and bronze are no-ops and silver and gold run again. *(Sample-run finding: without this, a gold failure is never retried automatically, because the next check sees nothing new.)* |
+   | As above, but nothing changed since the last `RESUME` (same commit, less than 24 h ago) | `BLOCKED` | Skip. *(Review finding: with hourly checks, an exit-2 failure would otherwise rerun and email every hour.)* The failed run already alerted. A deployed fix (a new commit) resumes at the next check; a manual run always works. |
    | No new month, but the archive catalog has a new or re-sized zip (CMS re-published an old archive, or posted a corrective partial zip such as 2026-08-06) | `CHANGED` | Continue: Step 1 stores the new bytes side by side; bronze reloads the affected partitions (D10). *(Sample-run finding: a republish does not change the metastore.)* |
    | Some datasets changed in the metastore, but not all 7 to the same new month, and no new zip yet | `PARTIAL` | Skip; alert if still partial after `checks.yaml: partial_alert_days` (default 3) |
    | Nothing is newer than the latest ingested vintage, and gold is published for it | `NO_CHANGE` | Skip |
@@ -219,6 +220,7 @@ CMS publishes no notification, so the DAG `cms_nh_release_check` polls (releases
 
 5. Append the decision (time, the 7 `modified` values, the latest ingested and published months, the catalog changes) to `vintage_registry`. Re-running the same day gives the same decision.
 6. Print the decision as JSON on the last stdout line, with `proceed = decision ∈ {READY, RESUME, CHANGED}`.
+7. On proceed, the release-check DAG puts the decision, the vintage and its own run id in the `cms_nh_release` asset event's `extra`. The pipeline run it starts records them, so every pipeline run can be traced to the check that started it.
 
 ### 2.1 Ingestion (node `ingestion`): implemented in `src/precursorintelligence/ingestion/`
 Details: `docs/STEP1_DATA_INGESTION_PIPELINE.md`. Summary of the rules:
@@ -863,10 +865,10 @@ The dataset counts as **frozen** only after a human approves this checkpoint. Th
 
 | # | Topic | Decision | Rule in this spec |
 |---|---|---|---|
-| 24 | Release check in its own DAG | **Decided:** `cms_nh_release_check` (hourly, `catchup=False`, created paused) runs `check_release` and, on READY, RESUME or CHANGED, emits the asset `cms_nh_release`. `cms_nh_pipeline` is scheduled on that asset and can always be triggered by hand. During development and testing, the release check stays paused and the pipeline runs only when triggered manually. | §0.7, §2.0, §15. A check while a run holds the lock decides `BUSY` (skip). |
+| 24 | Release check in its own DAG | **Decided:** `cms_nh_release_check` (hourly, `catchup=False`, created paused) runs `check_release` and, on READY, RESUME or CHANGED, emits the asset `cms_nh_release`. `cms_nh_pipeline` is scheduled on that asset and can always be triggered by hand. During development and testing, the release check stays paused and the pipeline runs only when triggered manually. | §0.7, §2.0, §15. A check while a run holds the lock decides `BUSY` (skip). A failed run is resumed once per deployed commit, or again after 24 h; otherwise `BLOCKED` (skip). |
 | 25 | Schema drift | **Decided:** additive drift is handled automatically. New headers, with every expected column present, mean the partition builds without them, with a warning and an email. A missing expected column (often a rename), an alias out of range, or two aliases still fail closed (exit 2). | §3.2; silver code (issue #10 follow-up) |
 | 26 | VM size | **Decided:** e2-standard-4 (16 GB); the machine type is a Terraform variable. The team documents say e2-standard-2. | §0.8; `AIRFLOW_PIPELINE.md` §9.1 (gold's peak memory) |
-| 27 | Metadata DB and VM uptime | **Decided:** Postgres (databases `airflow`, `precursor_meta`, later `mlflow`) stays on the VM; Cloud SQL was considered and rejected. Both databases are dumped (`pg_dump`) to GCS at every VM shutdown; a restore is tested before the first full run. The VM is started and stopped by hand and shuts itself down after 60 idle minutes (no DAG run, no SSH session); there is no instance schedule. | §0.6, §0.8 |
+| 27 | Metadata DB and VM uptime | **Decided:** Postgres (databases `airflow`, `precursor_meta`, later `mlflow`) stays on the VM; Cloud SQL was considered and rejected. Every database is dumped (`pg_dump`) to GCS **before every VM stop**: the idle shutdown and `pi-down` dump first, check the upload, and only then stop the VM; if the dump fails, they alert and don't stop. A dump at OS shutdown stays as a best-effort backstop for a stop from the console or `gcloud` (GCE gives a stopping VM about 90 s). A restore is tested before the first full run. The VM is started and stopped by hand and shuts itself down after 60 idle minutes: no `cms_nh_pipeline` run running or queued and no SSH session (release-check runs don't count). There is no instance schedule. | §0.6, §0.8 |
 
 **Measured or changed by the sample run:**
 
@@ -950,8 +952,8 @@ cms_nh_pipeline (on cms_nh_release, or manual):
 ### 15.3 Tasks
 | Node | Task | Command (`precursor-pipeline …` in the repo; `./pi.sh …` in the sample) | Notes |
 |---|---|---|---|
-| check_release (DAG `cms_nh_release_check`) | `check_release` | `check-release --run-id R` | Then `@task.short_circuit` on the JSON's `proceed`. Decisions: READY, RESUME, CHANGED → proceed; PARTIAL, BUSY, NO_CHANGE → skip. |
-| | `emit_release` | (Python, no container) | `outlets=[cms_nh_release]`: starts a `cms_nh_pipeline` run |
+| check_release (DAG `cms_nh_release_check`) | `check_release` | `check-release --run-id R` | Then `@task.short_circuit` on the JSON's `proceed`. Decisions: READY, RESUME, CHANGED → proceed; PARTIAL, BUSY, BLOCKED, NO_CHANGE → skip. |
+| | `emit_release` | (Python, no container) | `outlets=[cms_nh_release]`: starts a `cms_nh_pipeline` run; the event's `extra` carries the decision, the vintage and the check's run id |
 | ingestion | `acquire_lock` | `precursor-ingest lock acquire --run-id R` | Exit 1 while another run holds the lock (retried) |
 | | `discover_download` | `precursor-ingest step1 --steps discover,download --run-id R` | |
 | | `pending_entries` | `precursor-ingest entries --pending --run-id R` | Last stdout line = JSON list → XCom |
@@ -970,11 +972,11 @@ cms_nh_pipeline (on cms_nh_release, or manual):
 |---|---|---|---|---|---|
 | **Backfill** (manual run, `mode=backfill`) | not run | all in-scope zips | every selected file | every partition + ledgers + calibration | every t |
 | **Development / test rerun** (manual run; `cms_nh_release_check` paused) | not run | only new or changed zips (no-op if none) | no-op if unchanged | no-op if unchanged | rebuilt; byte-identical if inputs are unchanged |
-| **Bad input** (missing or renamed header, reconciliation) | — | — | failed file not written; exit 2 | failed partition not written; exit 2 | not reached; RESUME after the fix |
+| **Bad input** (missing or renamed header, reconciliation) | — | — | failed file not written; exit 2 | failed partition not written; exit 2 | not reached; RESUME once the fix is deployed |
 | **New CMS columns only** (additive, §3.2) | — | — | loaded as text, like every column | built without them; warning email; exit 0 | runs as usual |
-| **Gate failure** | — | — | — | — | staging kept; `gold/` and the warehouse unchanged; exit 2; RESUME after the fix |
+| **Gate failure** | — | — | — | — | staging kept; `gold/` and the warehouse unchanged; exit 2; RESUME once the fix is deployed |
 | **New complete release** | READY | only the new zips (sample: 2 downloaded, 65 skipped) | only the new vintage (7) | only the new partitions (7) + ledgers | features for every t (unchanged months are byte-identical) + **all labels recomputed** |
-| **Previous run failed after ingestion** | RESUME | no-op | no-op | no-op (ledgers rebuilt identically) | builds and publishes |
+| **Previous run failed after ingestion** | RESUME (once per deployed commit, or after 24 h; else BLOCKED) | no-op | no-op | no-op (ledgers rebuilt identically) | builds and publishes |
 | **CMS republished an old zip** | CHANGED (catalog size or new entry) | stored side by side as `<stem>__<sha8>.zip`; selected | reloads that vintage's 7 partitions (D10) | rebuilds them (unchanged content gives identical bytes) | only the affected months change (sample: t, t+6, t+12 staffing; t context) |
 | **Partial re-post** (one dataset only) | PARTIAL | — | — | — | — |
 | **Nothing new** | NO_CHANGE | — | — | — | — |
@@ -986,7 +988,7 @@ cms_nh_pipeline (on cms_nh_release, or manual):
 |---|---|---|
 | 0 | ok | — |
 | 1 | error | Airflow retries (2 × 5 min); `lock_release` still runs |
-| 2 | data or validation failure (missing or renamed header, reconciliation, gate) | **Fail without retry** (decision §14 #21): every task uses `PipelineDockerOperator`, a thin `DockerOperator` subclass that raises `AirflowFailException` on exit 2 or 3. Alert. After the fix, the next release check resumes (RESUME), or trigger `cms_nh_pipeline` by hand. |
+| 2 | data or validation failure (missing or renamed header, reconciliation, gate) | **Fail without retry** (decision §14 #21): every task uses `PipelineDockerOperator`, a thin `DockerOperator` subclass that raises `AirflowFailException` on exit 2 or 3. Alert. After the fix is deployed, the next release check resumes (RESUME), or trigger `cms_nh_pipeline` by hand. |
 | 3 | config | Fail without retry (same subclass); fix the config |
 
 ### 15.5 Reference DAG (sketch; same pattern as the parse-checked `ingest_vintage` in `STEP1_DATA_INGESTION_PIPELINE.md` §12.6)
@@ -998,6 +1000,7 @@ from airflow.sdk import Asset, dag, task, get_current_context
 from datetime import datetime, timedelta
 import json
 import re
+from utils.alerts import on_dag_failure
 
 RELEASE, LANDING, BRONZE, SILVER, GOLD = (Asset(n) for n in (
     "cms_nh_release", "cms_nh_landing", "cms_nh_bronze", "cms_nh_silver", "cms_nh_gold"))
@@ -1020,18 +1023,22 @@ def run(task_id, *cmd, **kw):  # one CLI command per task; docker_kwargs as in �
 
 # The release check is its own DAG (decision §14 #24); paused while the project is being developed.
 @dag(schedule="@hourly", start_date=datetime(2026, 10, 1), max_active_runs=1, catchup=False,
-     is_paused_upon_creation=True)
+     is_paused_upon_creation=True,
+     on_failure_callback=on_dag_failure,      # utils/alerts.py: a check that still fails after its retries alerts
+     default_args={"retries": 2, "retry_delay": timedelta(minutes=5)})   # exit 1 (CMS API down) is retried
 def cms_nh_release_check():
     check = run("check_release", "precursor-pipeline", "check-release", do_xcom_push=True)
 
-    @task.short_circuit                        # NO_CHANGE / PARTIAL / BUSY: nothing to do
+    @task.short_circuit                        # NO_CHANGE / PARTIAL / BUSY / BLOCKED: nothing to do
     def proceed(raw: str) -> bool:
         return json.loads(raw)["proceed"]
 
     @task(outlets=[RELEASE])                   # the asset event starts cms_nh_pipeline
-    def emit_release() -> None: ...
+    def emit_release(raw: str, **context) -> None:
+        # links the pipeline run to this decision (§2.0 step 7)
+        context["outlet_events"][RELEASE].extra = json.loads(raw) | {"check_run_id": context["run_id"]}
 
-    proceed(check.output) >> emit_release()
+    proceed(check.output) >> emit_release(check.output)
 
 # Runs on a release (the asset) or by hand: a manual run is a backfill or development run.
 @dag(schedule=[RELEASE], start_date=datetime(2026, 10, 1), max_active_runs=1, catchup=False,

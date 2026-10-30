@@ -549,9 +549,8 @@ The course's example structure maps onto this repository as follows:
   approved.
 - **Training window:** with the measured buffers, `y_g12` has 6 training months at V = 2026-08; starting training
   rows in 2022-01 is the recommendation under review (`docs/DATA_PIPELINE_SPEC.md` §9.5, §14).
-- **Gold memory:** a full-archive build peaks at about 4–5 GB on an 8 GB VM, and the merged gold file adds about 16% (about
-  5.8 GB estimated, close to the 6 GB task limit); writing it from the staged partitions instead of holding a second sorted
-  copy is the planned fix, before the first full-archive run (`docs/AIRFLOW_PIPELINE.md` §9.1).
+- **Gold memory:** a full-archive build is estimated at about 5.8 GB with the merged gold file. The VM is an e2-standard-4
+  (16 GB, 10 GB task limit), so it fits; the streaming fix in `docs/AIRFLOW_PIPELINE.md` §9.1 is needed only on an 8 GB VM.
 - **Team decisions in #27:** which slices are fairness groups, whether state effects are risk or bias, whether
   sample weights are used by default.
 - **Versioning real gold:** one DVC snapshot per release, tagged with the month and content hash (section 11.1).
