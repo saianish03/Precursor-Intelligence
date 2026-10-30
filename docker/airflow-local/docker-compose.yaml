@@ -28,7 +28,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_JWT_SECRET:?set it in .env}
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?set it in .env}
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
-    # Sized for one e2-standard-2 (2 vCPU, 8 GB): the pipeline tasks are the heavy part.
+    # Kept small (designed for 2 vCPU / 8 GB; the VM is an e2-standard-4): the pipeline tasks are the heavy part.
     AIRFLOW__API__WORKERS: "1"
     AIRFLOW__CORE__PARALLELISM: "4"
     # Pipeline task containers (read by dags/utils/pipeline_operator.py at parse and run time)

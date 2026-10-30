@@ -894,7 +894,7 @@ Run: `uv run pytest` (offline: 149 passed, 6 Postgres variants skipped; `tests/i
 | First run | `precursor-ingest step1`. It downloads about 3.1 GB of zips and extracts about 18 GB of in-scope CSVs into `data/`. Review `data/reports/step1/latest/01_inventory_summary.md` (Checkpoint 1). |
 | Monthly refresh | In production, the `cms_nh_pipeline` DAG runs it when `check_release` proceeds (spec §15). By hand: `precursor-ingest step1`. Unchanged zips are `skipped`; only new zips (and a new `current` entry) are downloaded. A catalog diff shows what changed. |
 | Run lock held (`lock status`) | A DAG run is active, or one was killed. A lock older than 12 h is taken over automatically; otherwise `lock release --run-id x --force` once you are sure no run is active. |
-| Exit 2 in Airflow | Not retried (data problem). Read the stderr list and `anomalies`, fix the cause (e.g. a quarantined zip), then let the next scheduled run proceed (the landing backlog keeps it pending) or trigger a run with `run_check_release=false`. |
+| Exit 2 in Airflow | Not retried (data problem). Read the stderr list and `anomalies`, fix the cause (e.g. a quarantined zip), then let the next release check resume it once the fix is deployed (the landing backlog keeps it pending), or trigger `cms_nh_pipeline` by hand. |
 | `republished` warning | Compare the two zips' inventories (`header_hash`, `row_count`). The newest copy is what downstream uses, and the original is kept for audit. |
 | `quarantined` / `failed` | Inspect `quarantine/cms_nh/<run_id>/…` and the `download_log.detail`. Re-run; transient network failures resolve on their own. |
 | `rejected` | The catalog advertised a URL outside the allow-list. **Do not widen the regex without review.** |

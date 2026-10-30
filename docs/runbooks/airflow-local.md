@@ -106,7 +106,7 @@ Empty `PI_ALERT_EMAIL_TO` = nothing is sent; each alert is then only logged (`al
 | `release_lock` fails (the run may still be green) | `release_lock`'s `on_failure_callback` | the error and the command that frees the lock |
 | Error anomalies the previous successful resolve did not have (e.g. `no_vintage`) | `ingestion.check_anomalies` (`precursor-ingest anomalies --severity error --new-only`) → `ingestion.alert_anomalies` | one line per anomaly (up to 20) |
 
-A `stop_after` run and a clean run send nothing. An unfixed anomaly alerts once, not on every daily run.
+A `stop_after` run and a clean run send nothing. An unfixed anomaly alerts once, not on every run.
 
 **Lost anomaly alerts are not re-sent.** "New" means new since the previous successful resolve, so if that one email fails to send, or `PI_ALERT_EMAIL_TO` is unset at the time, later runs do not alert on the same anomaly again. Look for `alert not sent` in the `ingestion.alert_anomalies` log, or query the anomalies table (`precursor-ingest anomalies --severity error`, without `--new-only`).
 
@@ -154,10 +154,11 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
   - `PI_PIPELINE_ENV=prod`;
   - `PI_HOST_DATA_DIR=` (empty);
   - `PI_BUCKET_URI=gs://precursor-intel-mlops-data`;
-  - `PI_DAG_SCHEDULE="0 15 * * *"` (inside the VM's up-window);
-  - `PI_TASK_MEM_LIMIT=6g`, `PI_AUTO_REMOVE=force`;
+  - `PI_DAG_SCHEDULE=` (empty: releases start runs through the `cms_nh_release_check` DAG, spec §14 #24);
+  - `PI_TASK_MEM_LIMIT=10g` (e2-standard-4, 16 GB), `PI_AUTO_REMOVE=force`;
   - git-SHA image tags.
   - Render the secrets from Secret Manager at deploy time.
+- **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` run or an SSH session.
 - **Credentials:** the VM runs as `sa-pipeline` (`storage.objectAdmin` on the data bucket only). Task containers reach the GCE metadata server, so gcsfs gets its tokens and no key file is needed.
 - **Images:** push to Artifact Registry, then pre-pull on deploy (`gcloud auth configure-docker …`, `docker pull`). The Docker proxy sends no registry credentials, and `force_pull` is off.
 - **Access:** no firewall rule for 8080. Reach the UI with `gcloud compute ssh <vm> --tunnel-through-iap -- -L 8080:127.0.0.1:8080`.
