@@ -4,11 +4,14 @@ One DVC snapshot per release of the real gold, so any past dataset can be restor
 good run; Airflow never calls DVC or commits to Git.
 
 ## What it versions, and what not
-- **Versioned:** `data/gold_real/` = `facility_month_dataset.parquet` (every month, one file), `dataset_manifest.json`
+- **Versioned:** `snapshots/gold_real/` = `facility_month_dataset.parquet` (every month, one file), `dataset_manifest.json`
   (sources, config hashes, git commit, `dataset_version`) and `_current.json` (run id, V, sha256 of every gold file).
-  `data/gold_real.dvc` is the pointer that Git tracks; the data lives in the DVC bucket `gs://precursor-intel-mlops-dvc`.
+  `snapshots/gold_real.dvc` is the pointer that Git tracks; the data lives in the DVC bucket `gs://precursor-intel-mlops-dvc`.
 - **Not versioned:** landing, bronze and silver (the bucket's object versioning and the run manifests cover them; Airflow
   rebuilds them) and the per-month gold partitions (the merged file holds the same rows).
+- **Why `snapshots/` and not `data/`:** DVC does not look for `.dvc` files inside git-ignored folders. A pointer under `data/` is
+  skipped by a bare `dvc push`, `dvc pull` and `dvc status` (the first snapshot said "Everything is up to date" while nothing
+  was uploaded). `snapshots/` is not ignored; DVC adds a `snapshots/.gitignore` that ignores only the data folder.
 - **No `dvc.yaml` stage** on the real data. It would go stale with every code PR, and CI cannot rerun the CMS downloads. The
   offline test pipeline in `dvc.yaml` stays as it is.
 
@@ -23,14 +26,15 @@ good run; Airflow never calls DVC or commits to Git.
 # store; any value works, for example a throwaway sqlite file
 export PI_DATABASE_URL=sqlite:////tmp/unused_meta.db
 uv run precursor-pipeline snapshot-gold --env prod --allow-unverified   # until the §11 gate exists; prints the tag and next commands
-uv run dvc add data/gold_real                           # makes data/gold_real.dvc
+uv run dvc add snapshots/gold_real                           # makes snapshots/gold_real.dvc
 git checkout -b chore/gold-snapshot-<V>
-git add data/gold_real.dvc
+git add snapshots/gold_real.dvc snapshots/.gitignore
 git commit -m "Snapshot gold V<V> (<tag>)"
 uv run dvc push                                         # BEFORE the PR is merged
 ```
-Then check it the way a teammate would: a fresh clone of the branch, `uv run dvc pull data/gold_real.dvc`, and
-`shasum -a 256 data/gold_real/facility_month_dataset.parquet` must equal the merged file's entry in `_current.json`.
+Then check it the way a teammate would: a fresh clone of the branch, `uv run dvc pull snapshots/gold_real.dvc`, and
+`shasum -a 256 snapshots/gold_real/facility_month_dataset.parquet` must equal the merged file's entry in `_current.json`.
+Also run `uv run dvc status -c`: it must say "Cache and remote 'gcs' are in sync" **after** the push (and list the snapshot as new before it).
 CI only runs `dvc repro`, so a missing `dvc push` is not caught there (it broke `dvc pull` once, in #32).
 
 After the PR is **squash-merged**, tag the merge commit on `dev` (a tag on the PR branch would disappear with the squash):
@@ -55,8 +59,8 @@ the content hash. A snapshot taken with `--allow-unverified` gets the suffix `-u
 
 ## Restore or compare a version
 ```bash
-git checkout <tag> -- data/gold_real.dvc && uv run dvc pull data/gold_real.dvc     # into data/gold_real/
-uv run dvc get . data/gold_real --rev <tag> -o /tmp/gold_<tag>                     # a copy, without touching the checkout
+git checkout <tag> -- snapshots/gold_real.dvc && uv run dvc pull snapshots/gold_real.dvc     # into snapshots/gold_real/
+uv run dvc get . snapshots/gold_real --rev <tag> -o /tmp/gold_<tag>                     # a copy, without touching the checkout
 uv run dvc diff <tag-a> <tag-b>                                                    # which files changed between two versions
 ```
 Models should record the tag and `dataset_version` (MLflow tags in the ML phase); the manifest and MLflow stay the production

@@ -455,9 +455,9 @@ Because gold is rebuilt in full each run, every release produces a complete new 
 purpose. One DVC snapshot per release does it:
 - **What is snapshotted:** the published merged file `gold/facility_month_dataset.parquet` with its `dataset_manifest.json` and
   `_current.json`, copied by `precursor-pipeline snapshot-gold` (sha256-checked, and it refuses an unverified gold unless
-  `--allow-unverified`). `dvc add data/gold_real` makes the pointer `data/gold_real.dvc`, which Git tracks; the data goes to the
+  `--allow-unverified`). `dvc add snapshots/gold_real` makes the pointer `snapshots/gold_real.dvc`, which Git tracks; the data goes to the
   DVC bucket. There is no `dvc.yaml` stage on the real data: it would go stale with every code PR.
-- **Restore a version:** `git checkout <tag> -- data/gold_real.dvc && uv run dvc pull data/gold_real.dvc`. DVC stores files by
+- **Restore a version:** `git checkout <tag> -- snapshots/gold_real.dvc && uv run dvc pull snapshots/gold_real.dvc`. DVC stores files by
   content, so unchanged parts are not copied again.
 - **Tags:** the squash-merge commit on `dev` is tagged with the month and the content hash, `gold-V<V>-<first 8 characters of
   dataset_version>`. The month alone is not a unique version: a rerun for the same V can change rows (a reload, a config

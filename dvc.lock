@@ -52,8 +52,8 @@ stages:
       nfiles: 11
     - path: src/precursorintelligence/gold
       hash: md5
-      md5: cb762c0a30c3a2c4401465cf8ce505eb.dir
-      size: 81088
+      md5: 25135292dd138a240b9213372cb2f993.dir
+      size: 81126
       nfiles: 16
     - path: src/precursorintelligence/harmonize
       hash: md5

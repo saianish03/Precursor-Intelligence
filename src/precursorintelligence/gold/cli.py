@@ -4,7 +4,7 @@
   precursor-pipeline gold                   # local run: takes and releases the lock itself
   precursor-pipeline gold --v 2025-07       # an earlier published V (events first seen after it are ignored)
   precursor-pipeline gold --splits-config data/toy/splits.yaml   # split settings from another file
-  precursor-pipeline snapshot-gold          # copy the published gold to data/gold_real for `dvc add`
+  precursor-pipeline snapshot-gold          # copy the published gold to snapshots/gold_real for `dvc add`
 
 Exit codes: 0 ok, 1 error (retried, e.g. another run holds the lock), 2 data or gate failure (gold/ not promoted),
 3 config or usage error (e.g. a bad --v).
@@ -84,7 +84,7 @@ def gold(
 
 def snapshot_gold_command(
     out: Path = typer.Option(
-        Path("data/gold_real"),
+        Path("snapshots/gold_real"),
         "--out",
         help="folder to write; replaced if it holds an earlier snapshot",
     ),
@@ -128,7 +128,7 @@ def snapshot_gold_command(
     typer.echo(f"  tag: {snap.tag}")
     typer.echo("next, from the repo root:")
     typer.echo(f"  uv run dvc add {out}")
-    typer.echo(f"  git add {out}.dvc")
+    typer.echo(f"  git add {out}.dvc {out.parent / '.gitignore'}")
     typer.echo(f'  git commit -m "Snapshot gold V{snap.v} ({snap.tag})"')
     typer.echo(
         "  uv run dvc push        # before the PR is merged, then check `dvc pull` on a fresh clone"
