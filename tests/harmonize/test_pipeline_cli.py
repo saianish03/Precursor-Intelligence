@@ -10,8 +10,11 @@ from bronze_fakes import csv_text
 from precursorintelligence.common.io.metadata_store import SqlAlchemyMetadataStore
 from precursorintelligence.common.io.object_store import LocalObjectStore
 from precursorintelligence.common.io.run_lock import RunLock
+from precursorintelligence.harmonize import cli
 from precursorintelligence.harmonize.cli import main
 from precursorintelligence.harmonize.reader import decode_csv, parse_csv_text
+from precursorintelligence.harmonize.silver import PartitionResult
+from precursorintelligence.harmonize.silver_pipeline import SilverResult
 from precursorintelligence.ingestion.layout import header_hash, normalize_header
 from precursorintelligence.ingestion.pipeline import (
     EXIT_CONFIG,
@@ -143,6 +146,23 @@ def test_the_manifest_path_is_printed_and_the_file_exists(env, monkeypatch, caps
     line = next(ln for ln in capsys.readouterr().out.splitlines() if "manifest:" in ln)
     key = line.split("manifest:", 1)[1].strip()
     assert json.loads(env.store.open_read(key).read())["exit_code"] == EXIT_OK
+
+
+def test_silver_prints_the_partitions_built_without_new_headers_as_its_last_line(
+    env, monkeypatch, capsys
+):
+    """The DAG's alert_new_headers reads this JSON list (spec §3.2: additive schema drift)."""
+    result = SilverResult(
+        run_id="r1",
+        partitions=[PartitionResult("provider_info", "2026-10", "built")],
+        new_headers=["provider_info 2026-10: Icon, Footnote"],
+    )
+    monkeypatch.setattr(cli, "load_silver_config", lambda: None)
+    monkeypatch.setattr(cli, "run_silver", lambda ctx, **kw: result)
+
+    assert run(monkeypatch, "silver", "--env-file", env.file) == EXIT_OK
+    last = capsys.readouterr().out.splitlines()[-1]
+    assert json.loads(last) == ["provider_info 2026-10: Icon, Footnote"]
 
 
 def test_a_dag_task_needs_its_run_to_hold_the_lock(env, monkeypatch):

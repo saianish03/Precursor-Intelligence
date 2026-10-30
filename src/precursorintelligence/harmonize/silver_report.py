@@ -22,6 +22,7 @@ from .silver import BUILT, PartitionResult, latest_bronze
 AVAILABLE = (
     0.5  # a column counts as available in a vintage when more than half its rows are non-null
 )
+NEW_HEADER = "new header, not in the column map: dropped (warning)"
 
 
 def _current_stats(ctx: Context) -> dict[tuple[str, str], dict[str, Any]]:
@@ -31,7 +32,21 @@ def _current_stats(ctx: Context) -> dict[tuple[str, str], dict[str, Any]]:
         k = (r["table_name"], r["vintage_month"])
         if k not in latest or r["id"] > latest[k]["id"]:
             latest[k] = r
-    return {k: json.loads(r["stats"]) | {"row_count": r["row_count"]} for k, r in latest.items()}
+    return {
+        k: json.loads(r["stats"])
+        | {"row_count": r["row_count"], "run_id": r["run_id"], "source_table": r["source_table"]}
+        for k, r in latest.items()
+    }
+
+
+def new_headers(ctx: Context, run_id: str | None = None) -> dict[tuple[str, str], list[str]]:
+    """(bronze table, vintage) -> the new CMS headers its current silver partitions were built without
+    (spec §3.2). With run_id, only the partitions that DAG run built, in any of its tries."""
+    return {
+        (s["source_table"], vintage): s["new_headers"]
+        for (_, vintage), s in sorted(_current_stats(ctx).items())
+        if s.get("new_headers") and (run_id is None or s["run_id"] == run_id)
+    }
 
 
 def availability(stats: dict[tuple[str, str], dict[str, Any]]) -> pl.DataFrame:
@@ -71,12 +86,17 @@ def write_reports(
         for p in partitions
         for h, why in p.problems
     ]
-    md = render(ctx, cfg, partitions, stats, avail, problems, lookup_versions)
+    new = [
+        {"table": t, "vintage": v, "header": h, "problem": NEW_HEADER}
+        for (t, v), headers in new_headers(ctx).items()
+        for h in headers
+    ]
+    md = render(ctx, cfg, partitions, stats, avail, problems, len(new), lookup_versions)
     files = {
         "02_harmonization.md": md.encode("utf-8"),
         "02_column_availability.csv": avail.write_csv().encode("utf-8") if avail.height else b"",
         "02_unmapped_headers.csv": pl.DataFrame(
-            problems, schema=["table", "vintage", "header", "problem"], orient="row"
+            problems + new, schema=["table", "vintage", "header", "problem"], orient="row"
         )
         .write_csv()
         .encode("utf-8"),
@@ -97,6 +117,7 @@ def render(
     stats: dict[tuple[str, str], dict[str, Any]],
     avail: pl.DataFrame,
     problems: list[dict[str, str]],
+    n_new: int,
     lookup_versions: int,
 ) -> str:
     counts = Counter(p.status for p in partitions)
@@ -126,8 +147,10 @@ def render(
             ],
         ),
         "",
-        f"**Header problems (unmapped, out-of-range, missing): {len(problems)}** (must be 0)."
-        + (" See `02_unmapped_headers.csv`." if problems else ""),
+        f"**Header problems (missing, out-of-range, or unmapped in a failed partition): {len(problems)}**"
+        " (must be 0). "
+        f"**New headers dropped with a warning: {n_new}** (map them or add them to `ignored:`)."
+        + (" See `02_unmapped_headers.csv`." if problems or n_new else ""),
         "",
         "## 2. Bronze inputs: encodings and blank rows",
         "",

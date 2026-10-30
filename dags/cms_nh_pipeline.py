@@ -7,8 +7,9 @@ hides a failed run), so all nodes run under one lock. No business logic here.
 
 Alerts (precursorintelligence.alerts; the callbacks in utils/alerts.py; email; nothing is sent when
 PI_ALERT_EMAIL_TO is unset): one per failed run (the DAG's on_failure_callback), one when release_lock fails
-(that leaves the run green), and one per run with new error anomalies (`check_anomalies` → `alert_anomalies`,
-after resolve_report).
+(that leaves the run green), one per run with new error anomalies (`check_anomalies` → `alert_anomalies`,
+after resolve_report), and one per run whose silver dropped new CMS columns (`alert_new_headers`, from
+build_silver's last output line; spec §3.2).
 
 Validation (`precursor-pipeline validate`, docs/VALIDATION.md) runs as `validate_silver` before gold and
 `validate_gold` after it. A schema violation exits 2, fails the run and alerts like any failed task.
@@ -38,7 +39,7 @@ from utils.pipeline_operator import (
     pipeline_env,
 )
 
-from precursorintelligence.alerts import anomalies_alert, send
+from precursorintelligence.alerts import anomalies_alert, new_headers_alert, send
 
 LANDING, BRONZE, SILVER, GOLD = (
     Asset(name) for name in ("cms_nh_landing", "cms_nh_bronze", "cms_nh_silver", "cms_nh_gold")
@@ -120,6 +121,14 @@ def cms_nh_pipeline():
         ):
             send(*alert)
 
+    @task
+    def alert_new_headers(output: str | list[str] | None) -> None:
+        context = get_current_context()
+        if alert := new_headers_alert(
+            context["dag"].dag_id, context["run_id"], last_json_list(output)
+        ):
+            send(*alert)
+
     @task_group(group_id="ingestion")
     def ingestion():
         acquire = run("acquire_lock", f"{INGEST} lock acquire")
@@ -164,7 +173,10 @@ def cms_nh_pipeline():
             f"{PIPELINE} silver"
             " {{ '--calibrate' if params.calibrate or params.mode == 'backfill' else '--no-calibrate' }}",
             outlets=[SILVER],
+            do_xcom_push=True,  # its last line lists the partitions built without new CMS columns
+            xcom_all=True,
         )
+        alert_new_headers(build.output)  # additive schema drift: a warning, the run continues
         # Schema, null and range checks plus drift against the previous month (docs/VALIDATION.md). A schema
         # violation is exit 2: the task fails without a retry, and bad silver never reaches gold.
         validate = run(

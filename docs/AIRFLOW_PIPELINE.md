@@ -67,6 +67,7 @@ you / @daily -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080     
        v
 ┌─ silver ─────────────────────────────────────────────────────┐
 │ build_silver                         => asset cms_nh_silver  │
+│ alert_new_headers (email: new CMS columns dropped, §3.2)     │
 │ validate_silver   (schema + drift; exit 2 stops before gold) │
 └──────────────────────────────────────────────────────────────┘
        |  continue_after_silver      (skips gold if stop_after=silver)
@@ -94,6 +95,7 @@ release_lock      teardown of acquire_lock: runs whenever the lock was taken (§
 | `ingestion.resolve_report` | `precursor-ingest step1 --steps resolve,report` | Picks one file per (table, month), lists gaps and anomalies, writes the Checkpoint 1 report and the run manifest. `none_failed`, so it also runs when nothing was pending |
 | `bronze.load_bronze` | `precursor-pipeline bronze` | Lossless all-text Parquet per selected file; reconciles against the inventory; content hash, `stale_refresh`, `revised_after_publication` |
 | `silver.build_silver` | `precursor-pipeline silver --calibrate\|--no-calibrate` | Typed per-vintage tables, ledgers, universe, QM inventory; Checkpoint 2 report (with calibration also Checkpoints 3–4) |
+| `silver.alert_new_headers` | (Python, no container) | Emails the partitions that `build_silver` built without new CMS columns, from its last output line (additive schema drift, spec §3.2). Sends nothing when there are none. Sending never raises, so data can't fail it |
 | `gold.build_gold` | `precursor-pipeline gold` | Spine, labels and splits, 5 feature families and `facility_month_dataset`, built in `gold/_staging/run=<id>/`, checked, then promoted to `gold/` with `_current.json` and `dataset_manifest.json`. A failed check or the training gate (`configs/splits.yaml: required_labels`) exits 2: nothing is published and the run fails without a retry |
 | `silver.validate_silver` | `precursor-pipeline validate --layer silver` (`--all-months` in a backfill) | Pandera schema checks, per-month statistics and drift against the previous month (`docs/VALIDATION.md`). A schema violation is exit 2: no retry, gold does not run |
 | `gold.validate_gold` | `precursor-pipeline validate --layer gold` | The same checks on every gold month, plus the label rules. Emits `cms_nh_gold`; it runs after the publish, so a failure holds back the asset but cannot unpublish |
@@ -146,7 +148,7 @@ Every CLI command uses the same codes. `dags/utils/pipeline_operator.py` (`Pipel
 |---|---|---|
 | 0 | ok, or nothing new | success |
 | 1 | error (network, storage, bug) | retried, 2 × 5 min |
-| 2 | data or validation failure (quarantined zip, unmapped header, reconciliation) | **failed at once, no retry**; the data or config must be fixed first |
+| 2 | data or validation failure (quarantined zip, missing or renamed header, reconciliation) | **failed at once, no retry**; the data or config must be fixed first |
 | 3 | config or wiring (bad env, a stale task list, the lock not held) | **failed at once, no retry** |
 | 137 | killed (SIGKILL), usually out of memory (`PI_TASK_MEM_LIMIT`) | **failed at once, no retry**: a retry rarely helps |
 
@@ -262,8 +264,8 @@ It would work on a demo day. The table lists what this implementation does inste
 | **Least-privilege data access** | Separate login `pi_meta` that owns only `precursor_meta` (no CONNECT on `airflow` or `postgres`); containers run as non-root (uid 10001 / 50000) | A pipeline bug or compromise cannot touch Airflow's own state | `init-db.sh`, Dockerfiles |
 | **Secrets handling** | The stack refuses to start without its secrets (`${VAR:?}`); none in images, DAGs or logs; the DB URL is passed as `private_environment` (hidden in the UI); Fernet key set; ports bound to 127.0.0.1 | No default passwords in production; nothing secret lands in Git, image layers or the UI | `.env.example`, `pipeline_operator.py` |
 | **Input hardening** | The `entry_ids` param is pattern-checked; ids from `entries --pending` are validated before becoming commands; downloads go through an HTTPS allow-list with zip-safety limits | A trigger parameter cannot inject CLI arguments; a tampered catalog cannot make the pipeline fetch or unpack something dangerous | DAG, `ingestion/http.py`, `zipsafe.py` |
-| **Failure semantics** | Exit-code contract: **1** = transient, retried (2 × 5 min); **2** = bad data and **3** = config, failed at once (`AirflowFailException`) | Retrying a quarantined zip or an unmapped header only wastes ten minutes and hides the alert. Transient network or DB errors heal themselves | `PipelineDockerOperator` (tested against the pinned provider) |
-| **Fail-closed data checks** | Bronze and silver write nothing for a file or partition that fails a check, record it as `failed`, and retry it next run | Bad data never reaches gold silently. Run B proved it: 5 new CMS columns stopped silver for that month only | bronze and silver nodes |
+| **Failure semantics** | Exit-code contract: **1** = transient, retried (2 × 5 min); **2** = bad data and **3** = config, failed at once (`AirflowFailException`) | Retrying a quarantined zip or a renamed header only wastes ten minutes and hides the alert. Transient network or DB errors heal themselves | `PipelineDockerOperator` (tested against the pinned provider) |
+| **Fail-closed data checks** | Bronze and silver write nothing for a file or partition that fails a check, record it as `failed`, and retry it next run | Bad data never reaches gold silently. Run B proved it: a header problem stopped silver for that month only. Since spec §14 #25, new CMS columns alone no longer stop it (silver drops them and emails a warning); a missing or renamed column still does | bronze and silver nodes |
 | **Concurrency control** | One `data_pipeline` lock row for the whole DAG run (re-entrant for the same run id, owner-checked release, stale takeover after 12 h) plus `max_active_runs=1` | A manual run and a scheduled run never write the same metadata at once. A run killed by the VM's nightly stop does not block the pipeline forever | `common/io/run_lock.py`, DAG |
 | **Honest run state** | `release_lock` is a **teardown** of `acquire_lock`: it always runs once the lock was taken, but does not decide the run's state | With an `all_done` cleanup leaf, every failed run shows green and no alert fires (verified, §3) | DAG |
 | **Safe retries and idempotency** | One run id per DAG run; every task skips work already done (HEAD-checked zips, sha-keyed bronze, content- and config-keyed silver) | Retrying a task, clearing it in the UI or re-running a day is always safe. A rerun with nothing new is a byte-identical no-op (verified) | all nodes |
