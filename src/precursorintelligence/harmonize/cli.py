@@ -2,7 +2,7 @@
 
 One command per DAG task (docs/DATA_PIPELINE_SPEC.md §15.3), all sharing the DAG run's --run-id:
   precursor-pipeline bronze --run-id R
-  precursor-pipeline silver --run-id R
+  precursor-pipeline silver --run-id R     (last stdout line: JSON list of new headers, for the alert)
   precursor-pipeline validate --layer silver --run-id R   (read-only data checks; validation/cli.py)
 
 Exit codes follow the pipeline contract: 0 ok, 1 error (retried), 2 data or validation failure,
@@ -11,6 +11,7 @@ Exit codes follow the pipeline contract: 0 ok, 1 error (retried), 2 data or vali
 
 from __future__ import annotations
 
+import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -131,6 +132,8 @@ def silver(
         f"  report: {', '.join(k for k in res.report_keys if '/latest/' in k and k.endswith('.md'))}"
     )
     typer.echo(f"  manifest: {res.manifest_key}")
+    # partitions this run built without headers the column map doesn't know (spec §3.2); the DAG emails them
+    typer.echo(json.dumps(res.new_headers))
     if res.failures:
         typer.echo(f"{len(res.failures)} failures:", err=True)
         for f in res.failures[:20]:

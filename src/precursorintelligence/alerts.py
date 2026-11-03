@@ -1,6 +1,6 @@
 """Pipeline alerts by email (docs/ALERTS_HANDOFF.md): a failed DAG run, a failed release_lock (which leaves
-the run green), and new error anomalies on a run. The Airflow callbacks that call this live in
-dags/utils/alerts.py.
+the run green), new error anomalies on a run, and new CMS columns that silver dropped. The Airflow callbacks
+that call this live in dags/utils/alerts.py.
 
 SMTP settings come from the environment (docker/airflow-local/.env, never committed): PI_ALERT_EMAIL_TO
 (comma-separated), PI_ALERT_SMTP_HOST, PI_ALERT_SMTP_PORT (587 = STARTTLS, 465 = TLS), PI_ALERT_SMTP_USER,
@@ -56,11 +56,11 @@ def send(subject: str, body: str) -> bool:
     if not host:
         log.warning("alert not sent: PI_ALERT_SMTP_HOST unset: %s", subject)
         return False
-    msg = EmailMessage()
-    msg["Subject"], msg["To"] = subject, ", ".join(to)
-    msg["From"] = env.get("PI_ALERT_EMAIL_FROM", "").strip() or user
-    msg.set_content(body)
     try:
+        msg = EmailMessage()
+        msg["Subject"], msg["To"] = subject, ", ".join(to)
+        msg["From"] = env.get("PI_ALERT_EMAIL_FROM", "").strip() or user
+        msg.set_content(body)
         port = int(env.get("PI_ALERT_SMTP_PORT") or 587)
         _deliver(msg, host, port, user, env.get("PI_ALERT_SMTP_PASSWORD", ""))
     except Exception as exc:  # noqa: BLE001 (an alert must never fail the caller)
@@ -110,4 +110,27 @@ def anomalies_alert(
     ]
     if len(lines) > limit:
         body.append(f"... and {len(lines) - limit} more (the anomalies table)")
+    return f"[{dag_id}] {what}", "\n".join(body)
+
+
+def new_headers_alert(
+    dag_id: str, run_id: str, lines: list[str], limit: int = 20
+) -> tuple[str, str] | None:
+    """(subject, body) for the silver partitions built without new CMS headers (`precursor-pipeline silver`,
+    spec §3.2: additive schema drift); None if none."""
+    if not lines:
+        return None
+    what = (
+        f"new CMS columns in {len(lines)} silver {'partition' if len(lines) == 1 else 'partitions'}"
+    )
+    body = [
+        f"DAG {dag_id}: run {run_id} built silver without columns the column map doesn't know. "
+        "It does not fail the run; it continues.",
+        "Bronze keeps them. To use one, map it in configs/column_map.yaml; otherwise add it to the table's "
+        "`ignored:` list. Either stops this alert.",
+        "",
+        *(f"- {line[:300]}" for line in lines[:limit]),
+    ]
+    if len(lines) > limit:
+        body.append(f"... and {len(lines) - limit} more (02_unmapped_headers.csv)")
     return f"[{dag_id}] {what}", "\n".join(body)

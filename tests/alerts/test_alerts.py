@@ -100,3 +100,17 @@ def test_anomalies_alert_only_when_there_are_new_ones():
         "cms_nh_pipeline", RUN, [f"no_vintage (e{i}): x" for i in range(25)]
     )
     assert "25 new error anomalies" in subject and "... and 5 more" in body
+
+
+def test_new_headers_alert_only_when_silver_dropped_columns():
+    assert alerts.new_headers_alert("cms_nh_pipeline", RUN, []) is None
+    subject, body = alerts.new_headers_alert(
+        "cms_nh_pipeline", RUN, ["provider_info 2026-10: High Performing Icon"]
+    )
+    assert subject == "[cms_nh_pipeline] new CMS columns in 1 silver partition"
+    assert "- provider_info 2026-10: High Performing Icon" in body
+    assert "column_map.yaml" in body and "ignored:" in body  # what to do about it
+    subject, body = alerts.new_headers_alert(
+        "cms_nh_pipeline", RUN, [f"provider_info 2026-{i:02d}: X" for i in range(1, 26)]
+    )
+    assert "25 silver partitions" in subject and "... and 5 more" in body

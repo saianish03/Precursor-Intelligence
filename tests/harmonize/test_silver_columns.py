@@ -1,4 +1,4 @@
-"""Silver configs and header resolution (spec §3.2): the hard rule and the alias ranges."""
+"""Silver configs and header resolution (spec §3.2): new headers, failures and the alias ranges."""
 
 import json
 from pathlib import Path
@@ -29,6 +29,7 @@ SOURCE = SourceMap("penalties", {"ccn": CCN, "fine_id": FINE_ID}, frozenset({"Lo
 def test_the_alias_valid_in_the_vintage_is_used():
     res = resolve_headers(SOURCE, ["Federal Provider Number", "Location"], "2023-05")
     assert res.problems == [] and res.rename == {"ccn": "Federal Provider Number"}
+    assert res.new == []  # `Location` is ignored, not new
     assert res.absent == ["fine_id"]  # not published yet: null in silver, not an error
 
 
@@ -40,11 +41,41 @@ def test_an_open_ended_alias_stays_valid_for_new_releases():
     }
 
 
-def test_an_unknown_header_fails():
+def test_a_new_header_with_every_expected_column_present_is_dropped_not_failed():
     res = resolve_headers(
         SOURCE, ["CMS Certification Number (CCN)", "Fine ID", "Brand New"], "2026-07"
     )
-    assert ("Brand New", "unmapped header") in res.problems
+    assert res.problems == [] and res.new == ["Brand New"]  # additive drift: built with a warning
+    assert res.rename == {"ccn": "CMS Certification Number (CCN)", "fine_id": "Fine ID"}
+
+
+def test_a_new_header_next_to_a_missing_one_fails_as_a_likely_rename():
+    res = resolve_headers(SOURCE, ["CMS Certification Number (CCN)", "Fine Identifier"], "2026-07")
+    assert res.problems == [
+        ("fine_id", "expected header 'Fine ID' is missing"),
+        ("Fine Identifier", "unmapped header"),
+    ]
+
+
+def test_a_rename_that_cms_publishes_under_both_names_for_a_while():
+    """The recipe (spec §3.2): open the new alias from the first overlap vintage, close the old one before
+    it, and ignore the old name, which is otherwise an alias used outside its range."""
+    ccn = Column(
+        "ccn",
+        "ccn",
+        (
+            Alias("Federal Provider Number", "2021-01", "2023-05"),
+            Alias("CMS Certification Number (CCN)", "2023-06", None),
+        ),
+    )
+    source = SourceMap("penalties", {"ccn": ccn}, frozenset({"Federal Provider Number"}))
+    overlap = resolve_headers(
+        source, ["Federal Provider Number", "CMS Certification Number (CCN)"], "2023-06"
+    )
+    before = resolve_headers(source, ["Federal Provider Number"], "2023-05")
+    assert overlap.problems == [] and overlap.new == []
+    assert overlap.rename == {"ccn": "CMS Certification Number (CCN)"}
+    assert before.problems == [] and before.rename == {"ccn": "Federal Provider Number"}
 
 
 def test_an_alias_outside_its_range_fails():
@@ -194,11 +225,13 @@ def test_the_calibration_settings_are_read_from_the_config():
 
 def test_the_sep_2026_release_headers_are_all_mapped_or_ignored():
     """The real header sets of the 2026-10-08 release (Sep 2026 data, recorded by Step 1). CMS added
-    `Survey Footnote` (citations, surveys) and three provider columns; an unknown header fails silver."""
+    `Survey Footnote` (citations, surveys) and three provider columns; an unknown header would only warn
+    (spec §3.2), so check that none is left unmapped."""
     cfg = load_silver_config()
     headers = json.loads((Path(__file__).parent / "data" / "headers_2026-09.json").read_text())
     for table, names in headers.items():
-        assert resolve_headers(cfg.sources[table], names, "2026-09").problems == [], table
+        res = resolve_headers(cfg.sources[table], names, "2026-09")
+        assert res.problems == [] and res.new == [], table
 
 
 def test_the_sep_2026_columns_are_mapped_from_2026_09_and_absent_before():
