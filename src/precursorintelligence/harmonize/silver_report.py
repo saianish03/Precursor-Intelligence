@@ -39,13 +39,23 @@ def _current_stats(ctx: Context) -> dict[tuple[str, str], dict[str, Any]]:
     }
 
 
+def _not_yet_alerted(ctx: Context, run_id: str) -> set[str]:
+    """run_id and every run whose silver step came after the last one that ended ok in another run. A silver
+    step that fails (exit 2) never reaches the DAG's alert, so the next run must still report its partitions."""
+    steps = [r for r in ctx.metadata.read("run_log", {"task": "silver"}) if r["run_id"] != run_id]
+    last_ok = max((r["id"] for r in steps if r["status"] == "ok"), default=0)
+    return {run_id} | {r["run_id"] for r in steps if r["id"] > last_ok}
+
+
 def new_headers(ctx: Context, run_id: str | None = None) -> dict[tuple[str, str], list[str]]:
     """(bronze table, vintage) -> the new CMS headers its current silver partitions were built without
-    (spec §3.2). With run_id, only the partitions that DAG run built, in any of its tries."""
+    (spec §3.2). With run_id, only those no alert has covered yet: built by that DAG run (any try) or by a
+    silver run that failed since the last successful one."""
+    runs = None if run_id is None else _not_yet_alerted(ctx, run_id)
     return {
         (s["source_table"], vintage): s["new_headers"]
         for (_, vintage), s in sorted(_current_stats(ctx).items())
-        if s.get("new_headers") and (run_id is None or s["run_id"] == run_id)
+        if s.get("new_headers") and (runs is None or s["run_id"] in runs)
     }
 
 

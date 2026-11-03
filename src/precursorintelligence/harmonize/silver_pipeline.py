@@ -47,8 +47,9 @@ class SilverResult:
     )  # all-vintage tables (Steps 3-5): rows written
     manifest_key: str = ""
     report_keys: list[str] = field(default_factory=list)
-    # `<table> <vintage>: <headers>` of the partitions this DAG run built without new CMS headers, in any
-    # try (spec §3.2); the CLI prints them for the DAG's alert
+    # `<table> <vintage>: <headers>` of the partitions built without new CMS headers that no alert has covered
+    # yet: this DAG run's (any try) and those of silver runs that failed since the last successful one (spec
+    # §3.2); the CLI prints them for the DAG's alert
     new_headers: list[str] = field(default_factory=list)
 
     @property

@@ -180,6 +180,32 @@ def test_a_dropped_header_is_still_reported_after_a_retry_and_a_later_run(
     assert unmapped_report(ctx) == [("provider_info", "2025-06", "Provider Name", NEW_HEADER)]
 
 
+def test_a_dropped_header_is_still_alerted_after_a_silver_run_that_failed(
+    ctx, meta, stage, tmp_path
+):
+    """A silver run that exits 2 never reaches the DAG's alert, so the next run reports what it built."""
+    cfg = config_without_provider_name(tmp_path / "cfg")
+    stage("provider_info", "2025-05")
+    run_bronze(ctx, now=NOW)
+    # R0 succeeds, so its own alert covers 2025-05
+    ok = run_silver(replace(ctx, run_id="R0"), cfg=cfg, now=NOW)
+    stage("provider_info", "2025-06")
+    stage("provider_info", "2025-07", rows=[("015009", "Oak Manor"), ("015009", "Oak Annex")])
+    run_bronze(ctx, now=NOW)
+    # R1 builds 2025-06 without the new column, but 2025-07 fails, so R1's alert never runs
+    failed = run_silver(replace(ctx, run_id="R1"), cfg=cfg, now=NOW)
+    # R2 skips 2025-06 (current) and 2025-07 still fails: it must still report 2025-06
+    after = run_silver(replace(ctx, run_id="R2"), cfg=cfg, now=NOW)
+
+    assert ok.exit_code == EXIT_OK and failed.exit_code == after.exit_code == EXIT_VALIDATION
+    assert [(p.vintage, p.status) for p in after.partitions] == [
+        ("2025-05", "skipped"),
+        ("2025-06", "skipped"),
+        ("2025-07", "failed"),
+    ]
+    assert failed.new_headers == after.new_headers == ["provider_info 2025-06: Provider Name"]
+
+
 def test_a_partition_that_fails_for_another_reason_also_names_its_new_header(
     ctx, meta, stage, tmp_path
 ):
