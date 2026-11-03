@@ -109,7 +109,7 @@ release_lock      teardown of acquire_lock: runs whenever the lock was taken (§
 | `stop_after` | `null` | `ingestion`, `bronze` or `silver`: run up to that node (the first backfill, checked node by node) |
 | `entry_ids` | `""` | development only: ingest just these catalog entries (comma-separated). Empty = every in-scope zip |
 
-**Schedule:** `PI_DAG_SCHEDULE`. Production polls CMS once a day (CMS sends no notification); a laptop uses manual runs only. `max_active_runs=1`, `catchup=False`.
+**Schedule:** `PI_DAG_SCHEDULE` for now; a laptop uses manual runs only (empty). `max_active_runs=1`, `catchup=False`. **Decided for production** (spec §14 #24, not built yet): a separate DAG `cms_nh_release_check` polls CMS hourly while the VM is on and starts this DAG through the asset `cms_nh_release`; it stays paused during development, so runs are manual. `PI_DAG_SCHEDULE` then goes away.
 
 **Idempotency:** every task can be re-run with the same run id.
 - Unchanged zips, files and partitions are skipped.
@@ -237,8 +237,8 @@ Every key is relative to one root, the local folder or `gs://precursor-intel-mlo
 | `PI_HOST_DATA_DIR` | a host folder, bind-mounted at `/app/data` | empty | empty |
 | `PI_BUCKET_URI` | — | empty (the bucket root) or `gs://precursor-intel-mlops-data/trial-<date>` | `gs://precursor-intel-mlops-data` |
 | `PI_GCP_CREDENTIALS_FILE` | — | host path of your gcloud ADC file, mounted read-only into task containers. **Short trials only:** it puts your personal login into containers that open untrusted zips (runbook §2.1) | empty |
-| `PI_DAG_SCHEDULE` | empty (manual) | empty (manual) | a daily cron inside the VM's up-window |
-| `PI_TASK_MEM_LIMIT`, `PI_AUTO_REMOVE` | empty, `success` | empty, `success` | `6g`, `force` |
+| `PI_DAG_SCHEDULE` | empty (manual) | empty (manual) | empty: releases start runs through `cms_nh_release_check` (spec §14 #24) |
+| `PI_TASK_MEM_LIMIT`, `PI_AUTO_REMOVE` | empty, `success` | empty, `success` | `10g` (e2-standard-4, 16 GB; spec §14 #26), `force` |
 | credentials | none | you (`gcloud auth application-default login`) | the VM's service account `sa-pipeline` (no key files) |
 
 With `--env prod`, gcsfs uses `token: google_default`: missing credentials fail at once instead of turning into anonymous 401s later. A `gcs` root that doesn't start with `gs://` is a config error (exit 3), so an empty or bare `PI_BUCKET_URI` can't make the tasks write to the container's disk instead.
@@ -252,7 +252,7 @@ With `--env prod`, gcsfs uses `token: google_default`: missing credentials fail 
 - read secrets from the DAG file;
 - run everything on one Docker network.
 
-It would work on a demo day. The table lists what this implementation does instead, and why it matters once the pipeline runs unattended every day on one shared VM.
+It would work on a demo day. The table lists what this implementation does instead, and why it matters once the pipeline runs unattended on one shared VM.
 
 | Area | This pipeline | Why it matters | Where |
 |---|---|---|---|
@@ -264,12 +264,12 @@ It would work on a demo day. The table lists what this implementation does inste
 | **Input hardening** | The `entry_ids` param is pattern-checked; ids from `entries --pending` are validated before becoming commands; downloads go through an HTTPS allow-list with zip-safety limits | A trigger parameter cannot inject CLI arguments; a tampered catalog cannot make the pipeline fetch or unpack something dangerous | DAG, `ingestion/http.py`, `zipsafe.py` |
 | **Failure semantics** | Exit-code contract: **1** = transient, retried (2 × 5 min); **2** = bad data and **3** = config, failed at once (`AirflowFailException`) | Retrying a quarantined zip or an unmapped header only wastes ten minutes and hides the alert. Transient network or DB errors heal themselves | `PipelineDockerOperator` (tested against the pinned provider) |
 | **Fail-closed data checks** | Bronze and silver write nothing for a file or partition that fails a check, record it as `failed`, and retry it next run | Bad data never reaches gold silently. Run B proved it: 5 new CMS columns stopped silver for that month only | bronze and silver nodes |
-| **Concurrency control** | One `data_pipeline` lock row for the whole DAG run (re-entrant for the same run id, owner-checked release, stale takeover after 12 h) plus `max_active_runs=1` | A manual run and a scheduled run never write the same metadata at once. A run killed by the VM's nightly stop does not block the pipeline forever | `common/io/run_lock.py`, DAG |
+| **Concurrency control** | One `data_pipeline` lock row for the whole DAG run (re-entrant for the same run id, owner-checked release, stale takeover after 12 h) plus `max_active_runs=1` | A manual run and a scheduled run never write the same metadata at once. A run killed by a VM stop does not block the pipeline forever | `common/io/run_lock.py`, DAG |
 | **Honest run state** | `release_lock` is a **teardown** of `acquire_lock`: it always runs once the lock was taken, but does not decide the run's state | With an `all_done` cleanup leaf, every failed run shows green and no alert fires (verified, §3) | DAG |
 | **Safe retries and idempotency** | One run id per DAG run; every task skips work already done (HEAD-checked zips, sha-keyed bronze, content- and config-keyed silver) | Retrying a task, clearing it in the UI or re-running a day is always safe. A rerun with nothing new is a byte-identical no-op (verified) | all nodes |
-| **Incremental and parallel** | Per-zip mapped tasks (≤ 3 at a time) only for zips not yet processed; 0 tasks on a quiet day | A normal daily run costs one catalog fetch plus HEAD requests. A new release processes only its own zips (≈ 1 min) | ingestion TaskGroup |
+| **Incremental and parallel** | Per-zip mapped tasks (≤ 3 at a time) only for zips not yet processed; 0 tasks on a quiet day | A run with nothing new costs one catalog fetch plus HEAD requests. A new release processes only its own zips (≈ 1 min) | ingestion TaskGroup |
 | **Republished data** | A changed zip is stored side by side, reloaded in bronze, and flagged `revised_after_publication`; only the affected partitions are rebuilt | CMS silently corrects old releases. The pipeline picks that up and records that history was rewritten | ingestion, bronze, silver |
-| **Resource governance** | Sized for an e2-standard-2: 1 API worker, parallelism 4, optional per-task memory limit, capped container logs, auto-removed containers | On a 2-vCPU/8 GB VM, one heavy task cannot starve Postgres or the scheduler, and logs cannot fill the disk | compose, `pipeline_operator.py` |
+| **Resource governance** | Kept small (designed for 2 vCPU / 8 GB; the VM is an e2-standard-4, spec §14 #26): 1 API worker, parallelism 4, a per-task memory limit (10g on the VM), capped container logs, auto-removed containers | One heavy task cannot starve Postgres or the scheduler, and logs cannot fill the disk | compose, `pipeline_operator.py` |
 | **Observability and audit** | One run id on every metadata row, log file, report folder and manifest; per-process JSON logs shipped to the bucket; per-node assets; Checkpoint reports | "What did run X do, and why did it fail?" is answerable from one id, after the containers are long gone | §5, §6 |
 | **Reproducibility** | Pinned base images and tools; `uv.lock --frozen`; Airflow installed under its own constraints; provider pinned, with a test that fails if its error format changes; `PI_GIT_SHA` in manifests | The same commit builds the same images. An Airflow or provider upgrade cannot silently break the exit-code handling | Dockerfiles, `tests/dags` |
 | **Environment parity** | The laptop and the VM use identical compose, images and DAG; only `.env` differs. On a laptop, manual runs only, so unpausing cannot start a full-archive run | What was tested locally is what runs in production | `.env.example` |
@@ -298,23 +298,24 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
   - per-month copies;
   - the staged Parquet bytes;
   - a re-read of every staged file for its checks (`gold/build.py`, `_run` and `_stage`).
-- **Why it matters:** on the full archive (spine 2023-01 → 2026-09, ≈ 590k rows; ≈ 755k with a 2022-01 start, spec §14 #10) the review estimates a 4–5 GB peak. The VM has 8 GB, the Airflow services and Postgres use about 2–2.5 GB, and `PI_TASK_MEM_LIMIT` is 6g. The VM itself could run out of memory before the container limit stops the task.
-- **Measured locally (runbook §8.2):** gold peaked at **1.95–2.17 GB** for 207k–237k rows (sampled every 2 s, so short spikes can be missed). Scaled linearly to the full archive's ≈ 590k rows, that is **≈ 5 GB**, above the ~4 GB comfort line, so this fix is needed before the first full-archive run on the VM.
-- **Merged dataset file (PR #32):** writing `gold/facility_month_dataset.parquet` adds about 16% to the peak (2.55–2.57 → 2.95–2.99 GiB on the 237k-row subset, sampled every 0.1 s), so the full-archive estimate goes from ≈ 5 GB to **≈ 5.8 GB**, close to the 6g limit. Before the first full-archive run, write that file by streaming the staged partitions instead of holding a second sorted copy.
-- **Fix, if the full-archive peak is above ~4 GB:**
+- **Why it matters:** on the full archive (spine 2023-01 → 2026-09, ≈ 590k rows; ≈ 755k with a 2022-01 start, spec §14 #10) the review estimates a 4–5 GB peak. That was too tight for the originally planned 8 GB VM: the Airflow services and Postgres use about 2–2.5 GB and `PI_TASK_MEM_LIMIT` was 6g, so the VM itself could run out of memory before the container limit stopped the task.
+- **Update 2026-10-29:** the VM is now an e2-standard-4 with 16 GB (spec §14 #26) and `PI_TASK_MEM_LIMIT=10g`, which covers the ≈ 5.8 GB estimate below. The fix is needed only to go back to an 8 GB VM.
+- **Measured locally (runbook §8.2):** gold peaked at **1.95–2.17 GB** for 207k–237k rows (sampled every 2 s, so short spikes can be missed). Scaled linearly to the full archive's ≈ 590k rows, that is **≈ 5 GB**, above the ~4 GB comfort line of an 8 GB VM.
+- **Merged dataset file (PR #32):** writing `gold/facility_month_dataset.parquet` adds about 16% to the peak (2.55–2.57 → 2.95–2.99 GiB on the 237k-row subset, sampled every 0.1 s), so the full-archive estimate goes from ≈ 5 GB to **≈ 5.8 GB**: within the 16 GB VM's 10g limit, but close to an 8 GB VM's 6g. Writing that file by streaming the staged partitions, instead of holding a second sorted copy, is part of the fix below.
+- **Fix, only needed to run gold on an 8 GB VM (measure the peak on the first full-archive run):**
   1. In `_stage`, check each staged file right after writing it, instead of re-reading all of them at the end.
   2. Drop `silver` after the labels are built, and the feature frames after `assemble`.
-  3. Otherwise, lower `PI_TASK_MEM_LIMIT` to about 5g.
+  3. Write the merged file by streaming the staged partitions.
 - **Owner:** gold.
 
-### 9.2 Every daily run rewrites gold, and nothing cleans up
+### 9.2 Every run rewrites gold, and nothing cleans up
 - **What:**
   - Bronze and silver skip unchanged work; gold rebuilds and re-publishes the whole dataset on every successful run.
-  - Until `check_release` exists, that means every day.
+  - That includes manual and scheduled runs with nothing new, until `check_release` exists (spec §14 #24).
   - Each run also leaves `gold/_staging/run=<id>/`.
   - The prod bucket has object versioning, so each overwrite of `gold/*` keeps the old version.
   - The only lifecycle rule is for `quarantine/` (`infra/terraform/modules/gcs/main.tf`).
-- **Why it matters:** about 0.3–0.4 GB of extra storage a day, ≈ 10 GB more every month. Cheap at first (cents), but it grows for as long as the pipeline runs.
+- **Why it matters:** about 0.3–0.4 GB of extra storage per run. At one run per CMS release that is cents; it mattered under the old daily-run plan (≈ 10 GB a month). It still grows for as long as the pipeline runs.
 - **Fix:**
   1. Lifecycle rules: delete `gold/_staging/` after 14 days, and keep at most 3 noncurrent versions (or 30 days) under `gold/`.
   2. In gold, skip the publish when the staged sha256s equal those in `gold/_current.json`. A rerun with nothing new then writes nothing, as in bronze and silver.
