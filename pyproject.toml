@@ -83,12 +83,11 @@ bias = [
 precursor-ingest = "precursorintelligence.ingestion.cli:main"
 precursor-pipeline = "precursorintelligence.harmonize.cli:main"
 
-# Airflow is deliberately NOT a dependency: apache-airflow pins conflict with the ML stack, and DAGs run in
-# the official Airflow 3 image. DAG tests (tests/dags) run in CI inside that image, e.g.
-#   docker run --rm -v "$PWD:/repo" -w /repo -e PYTHONPATH=dags apache/airflow:3.x-python3.12 \
-#     bash -c "uv pip install pytest && python -m pytest tests/dags -p no:cacheprovider"
-# (or as a GitHub Actions job with `container: apache/airflow:3.x-python3.12`). tests/dags/conftest.py should
-# call pytest.importorskip("airflow") so the normal `uv run pytest` skips DAG tests instead of failing.
+# Airflow is deliberately NOT a dependency: apache-airflow pins conflict with the ML stack. The DAGs run in our own
+# Airflow image (docker/airflow.Dockerfile: Airflow 3.1.8 with the pinned docker provider), not the stock
+# apache/airflow image, whose provider version tests/dags rejects. tests/dags runs inside our image: in CI as job
+# `images` of .github/workflows/ci.yml, locally with the command in docs/runbooks/airflow-local.md §6.
+# tests/dags/conftest.py calls pytest.importorskip("airflow"), so the normal `uv run pytest` skips them.
 
 [dependency-groups]
 dev = [
