@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -132,6 +132,8 @@ class Resolution:
     problems: list[
         tuple[str, str]
     ]  # (raw header or canonical, problem); any problem fails the partition
+    # headers the map doesn't know: dropped with a warning when nothing else fails (spec §3.2)
+    new: list[str] = field(default_factory=list)
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -185,15 +187,15 @@ def load_silver_config(config_dir: Path | None = None) -> SilverConfig:
 
 
 def resolve_headers(source: SourceMap, headers: list[str], vintage: str) -> Resolution:
-    """Every raw header must be an alias valid in this vintage or ignored (spec §3.2 hard rule). Also
-    fails: an alias used outside its range, a column whose in-range alias is missing from the file, and
-    two aliases of one column in the same file."""
+    """Every raw header is an alias valid in this vintage, ignored, or new (spec §3.2). New headers alone
+    are additive drift: dropped and reported, not a failure. Fails: an alias used outside its range, a
+    column whose in-range alias is missing from the file, and two aliases of one column in the same file.
+    A failed partition also lists its new headers, since a new name next to a missing one is usually a
+    rename."""
     res = Resolution(rename={}, absent=[], problems=[])
     present = set(headers)
     known = {a.raw for c in source.columns.values() for a in c.aliases}
-    for h in headers:
-        if h not in known and h not in source.ignored:
-            res.problems.append((h, "unmapped header"))
+    res.new = [h for h in headers if h not in known and h not in source.ignored]
     for col in source.columns.values():
         in_range = [a for a in col.aliases if a.valid_at(vintage)]
         used = [a.raw for a in in_range if a.raw in present]
@@ -214,4 +216,6 @@ def resolve_headers(source: SourceMap, headers: list[str], vintage: str) -> Reso
             res.problems.append((col.name, f"expected header {in_range[0].raw!r} is missing"))
         else:
             res.absent.append(col.name)
+    if res.problems:
+        res.problems += [(h, "unmapped header") for h in res.new]
     return res

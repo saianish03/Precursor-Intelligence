@@ -36,7 +36,7 @@
 - **Error anomalies on a run that still succeeded.** `no_vintage` and `download_*` (see §1). Query `anomalies` for `run_id = R and severity = 'error'`.
   - **Keep the DAG thin:** do it in a pipeline CLI command (for example `precursor-ingest anomalies --run-id R --severity error`, run as a teardown or after `resolve_report`), not in DAG code.
 - **Out-of-memory kills.** Exit 137 is treated like exit 1 today, so it is retried twice (≈ 15 more minutes) and rarely helps. Alert on 137, and consider making it no-retry in `PipelineDockerOperator` (`NO_RETRY_EXIT_CODES`).
-- **A run that hangs.** `build_gold` has no `execution_timeout`. A hanging run holds the lock, and with `max_active_runs=1` the next daily runs queue.
+- **A run that hangs.** `build_gold` has no `execution_timeout`. A hanging run holds the lock, and with `max_active_runs=1` the next runs queue.
   - Airflow 3 removed SLA-miss callbacks.
   - Use `execution_timeout`; the failure callback then fires. Or check Airflow 3.1.8's deadline alerts.
 - **A partial CMS release stuck for N days** (from the ticket) needs `check_release` (spec §2.0), which is **not built**. Note it as blocked.
@@ -66,8 +66,8 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
 | # | Problem | Status | Owner | Ticket 2? |
 |---|---|---|---|---|
 | 1 | The image did not pass the commit to gold (`PI_GIT_COMMIT`), so every container-built gold manifest had `git_commit: null` | **Fixed** in the Airflow PR; the manifest now records the full SHA | — | no |
-| 2 | **Gold's peak memory:** about 2.1 GB on 237k rows (measured); ≈ 5 GB on the full archive's ≈ 590k rows (scaled). Too tight for the 8 GB VM with the 6g task limit | Open: gold-side fix (§9.1) | gold | alert on exit 137 |
-| 3 | Every daily run re-publishes gold, even unchanged; `gold/_staging/run=<id>/` and old object versions are never deleted (≈ 10 GB more per month on GCS) | Open: lifecycle rules + skip-unchanged publish (§9.2) | gold + Terraform | no |
+| 2 | **Gold's peak memory:** about 2.1 GB on 237k rows (measured); ≈ 5 GB on the full archive's ≈ 590k rows (scaled). Too tight for an 8 GB VM with a 6g task limit. The VM is now an e2-standard-4 (16 GB, 10g limit; spec §14 #26), so the fix is only needed to go back to 8 GB | Open, low: gold-side fix (§9.1) | gold | alert on exit 137 |
+| 3 | Every run re-publishes gold, even unchanged; `gold/_staging/run=<id>/` and old object versions are never deleted (≈ 10 GB more per month on GCS) | Open: lifecycle rules + skip-unchanged publish (§9.2) | gold + Terraform | no |
 | 4 | Gold manifest commit: the build arg defaulted to `"unknown"`; no dirty flag | **Default fixed:** the build fails without `PI_GIT_SHA`. The dirty flag is still open (§9.3) | image + gold | no |
 | 5 | Out-of-memory kills (exit 137) are retried twice | Open (§9.4) | operator | **yes** |
 | 6 | No `execution_timeout` on `build_gold`: a hung run holds the lock | Open (§9.4) | DAG | **yes** |
@@ -89,6 +89,7 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
   - **Failed run:** DAG `on_failure_callback`, one email with the failed tasks, exit codes (XCom `pipeline_exit_code`, pushed by `PipelineDockerOperator`) and log links.
   - **Failed `release_lock`:** task-level `on_failure_callback`.
   - **New error anomalies:** `precursor-ingest anomalies --run-id R --severity error --new-only` (`ingestion/anomalies.py`) runs as `ingestion.check_anomalies` after `resolve_report`; `ingestion.alert_anomalies` posts it. "New" = an (entry_id, kind) the previous run with a successful resolve did not have, because resolve re-records an unfixed problem on every run.
+  - **New CMS columns** (additive schema drift, spec §3.2; added 2026-10-29): `precursor-pipeline silver` prints the partitions this DAG run built without headers the column map doesn't know as its last output line, and `silver.alert_new_headers` emails them. The dropped headers are stored with the partition (`silver_partitions.stats`), so a retried `build_silver` still alerts. The alert fires once per build of a partition: each new month that still has the column alerts again, until the column is mapped or added to `ignored:`. If silver exits 2, the alert task can't run (the failure email goes out instead), so the next silver run reports those partitions too: the list covers every run since the last silver step that ended ok. The dropped columns also stay listed in `reports/step2/latest/02_unmapped_headers.csv`.
   - **Exit 137:** no-retry, named in the alert. **Hang:** `build_gold` `execution_timeout` 2 h (`PI_GOLD_TIMEOUT_MINUTES`).
   - **Destination:** email over SMTP with the standard library's `smtplib` (no provider; TLS always), settings `PI_ALERT_EMAIL_TO` / `PI_ALERT_SMTP_*` in `.env`, e.g. Gmail with an app password. Empty `PI_ALERT_EMAIL_TO` = nothing sent. Slack was set aside for now; `send()` is the one place to add it.
 - **Tests:** `tests/alerts/test_alerts.py` (messages and sending, fake SMTP delivery, offline in CI), `tests/dags/test_alerts.py` (the callbacks), `tests/dags/test_dag_integrity.py` (wiring), `tests/dags/test_pipeline_operator.py` (137, XCom), `tests/ingestion/test_anomalies.py`.

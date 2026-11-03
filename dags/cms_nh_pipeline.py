@@ -7,14 +7,15 @@ hides a failed run), so all nodes run under one lock. No business logic here.
 
 Alerts (precursorintelligence.alerts; the callbacks in utils/alerts.py; email; nothing is sent when
 PI_ALERT_EMAIL_TO is unset): one per failed run (the DAG's on_failure_callback), one when release_lock fails
-(that leaves the run green), and one per run with new error anomalies (`check_anomalies` → `alert_anomalies`,
-after resolve_report).
+(that leaves the run green), one per run with new error anomalies (`check_anomalies` → `alert_anomalies`,
+after resolve_report), and one per run whose silver dropped new CMS columns (`alert_new_headers`, from
+build_silver's last output line; spec §3.2).
 
 Validation (`precursor-pipeline validate`, docs/VALIDATION.md) runs as `validate_silver` before gold and
 `validate_gold` after it. A schema violation exits 2, fails the run and alerts like any failed task.
 
 Implemented nodes: ingestion → bronze → silver → gold. Not built yet, slots marked TODO: `check_release`
-(spec §2.0, gates the DAG) and `mirror_metadata` (spec §15.3).
+(spec §2.0; its own DAG that starts this one through an asset) and `mirror_metadata` (spec §15.3).
 
 Params:
   mode        monthly | backfill (backfill implies the silver calibration tasks)
@@ -38,7 +39,7 @@ from utils.pipeline_operator import (
     pipeline_env,
 )
 
-from precursorintelligence.alerts import anomalies_alert, send
+from precursorintelligence.alerts import anomalies_alert, new_headers_alert, send
 
 LANDING, BRONZE, SILVER, GOLD = (
     Asset(name) for name in ("cms_nh_landing", "cms_nh_bronze", "cms_nh_silver", "cms_nh_gold")
@@ -90,8 +91,8 @@ def run(task_id: str, command: str, **kwargs) -> PipelineDockerOperator:
     doc_md=__doc__,
 )
 def cms_nh_pipeline():
-    # TODO(check_release): spec §2.0 / §15.5: gate (@task.branch on params.run_check_release) →
-    # check_release (`precursor-pipeline check-release`) → @task.short_circuit on its JSON `proceed`.
+    # TODO(check_release): spec §2.0 / §15 (decision 24): a separate DAG, cms_nh_release_check, runs
+    # `precursor-pipeline check-release` and emits the asset cms_nh_release; this DAG is then scheduled on it.
 
     # stop_after: skip the next node only; the later nodes skip through their default trigger rule, and the
     # release_lock teardown still runs.
@@ -116,6 +117,14 @@ def cms_nh_pipeline():
     def alert_anomalies(output: str | list[str] | None) -> None:
         context = get_current_context()
         if alert := anomalies_alert(
+            context["dag"].dag_id, context["run_id"], last_json_list(output)
+        ):
+            send(*alert)
+
+    @task
+    def alert_new_headers(output: str | list[str] | None) -> None:
+        context = get_current_context()
+        if alert := new_headers_alert(
             context["dag"].dag_id, context["run_id"], last_json_list(output)
         ):
             send(*alert)
@@ -164,7 +173,10 @@ def cms_nh_pipeline():
             f"{PIPELINE} silver"
             " {{ '--calibrate' if params.calibrate or params.mode == 'backfill' else '--no-calibrate' }}",
             outlets=[SILVER],
+            do_xcom_push=True,  # its last line lists the partitions built without new CMS columns
+            xcom_all=True,
         )
+        alert_new_headers(build.output)  # additive schema drift: a warning, the run continues
         # Schema, null and range checks plus drift against the previous month (docs/VALIDATION.md). A schema
         # violation is exit 2: the task fails without a retry, and bad silver never reaches gold.
         validate = run(
@@ -177,7 +189,7 @@ def cms_nh_pipeline():
     @task_group(group_id="gold")
     def gold():
         # exit 2 (a failed gate or check: nothing published) fails the task.
-        # execution_timeout: a hung gold run would hold the lock and queue the next daily runs
+        # execution_timeout: a hung gold run would hold the lock and queue the next runs
         build = run("build_gold", f"{PIPELINE} gold", execution_timeout=GOLD_TIMEOUT)
         # Every gold month against its schema. It runs after the publish, so a failure fails the run and holds
         # back cms_nh_gold (which starts the ML DAGs) but cannot unpublish: cms_nh_gold means published and valid.

@@ -225,13 +225,15 @@ def build_partition(
     }
     frame = bronze_sink.read(source, {"vintage": vintage})
     try:
-        outputs, stats, _ = harmonize(frame, source, vintage, cfg)
+        outputs, stats, res = harmonize(frame, source, vintage, cfg)
     except PartitionError as exc:
-        problems = resolve_headers(
+        failed = resolve_headers(
             cfg.sources[source],
             [c for c in frame.columns if not c.startswith("_") and c != "vintage"],
             vintage,
-        ).problems
+        )
+        # whatever failed the partition, a new header is a clue (e.g. a new column that splits rows)
+        problems = failed.problems or [(h, "unmapped header") for h in failed.new]
         log.warning("silver failed for %s %s: %s", source, vintage, exc)
         meta.append(
             "silver_partitions",
@@ -239,6 +241,8 @@ def build_partition(
         )
         return PartitionResult(source, vintage, FAILED, str(exc), problems)
 
+    # Stored with the partition (spec §3.2): the report and the alert read it back, also after a retry
+    stats["new_headers"] = res.new
     rows = []
     for name, out in outputs.items():
         uri = silver_sink.write_partition(name, {"vintage": vintage}, out, overwrite=True)
@@ -257,4 +261,8 @@ def build_partition(
         )
     meta.append("silver_partitions", rows)
     log.info("silver built %s %s (%d rows)", source, vintage, stats["rows"])
+    if res.new:
+        log.warning(
+            "silver %s %s: new headers not in the column map, dropped: %s", source, vintage, res.new
+        )
     return PartitionResult(source, vintage, BUILT, stats=stats)

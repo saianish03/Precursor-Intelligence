@@ -71,7 +71,10 @@ def test_node_order_and_lock(dag):
     assert upstream("silver.build_silver") == {"continue_after_bronze"}
     # bad silver never reaches gold, and bad gold fails the run
     assert upstream("silver.validate_silver") == {"silver.build_silver"}
-    assert upstream("continue_after_silver") == {"silver.validate_silver"}
+    assert upstream("continue_after_silver") == {
+        "silver.validate_silver",
+        "silver.alert_new_headers",
+    }
     assert upstream("gold.build_gold") == {"continue_after_silver"}
     assert upstream("gold.validate_gold") == {"gold.build_gold"}
     assert upstream("release_lock") == {
@@ -114,6 +117,9 @@ def test_alerts_are_wired(dag):
     assert on_release_failure in _callbacks(tasks["release_lock"].on_failure_callback)
     check = tasks["ingestion.check_anomalies"]
     assert " anomalies --severity error --new-only " in check.command and check.do_xcom_push
+    # silver's last output line lists the partitions built without new CMS columns (spec §3.2)
+    assert tasks["silver.build_silver"].do_xcom_push and tasks["silver.build_silver"].xcom_all
+    assert tasks["silver.alert_new_headers"].upstream_task_ids == {"silver.build_silver"}
     # a hung gold run would hold the lock; the timeout fails it, and the DAG callback alerts
     assert tasks["gold.build_gold"].execution_timeout == timedelta(hours=2)
 
