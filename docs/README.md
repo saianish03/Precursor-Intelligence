@@ -15,4 +15,4 @@
 | `adr/` | architecture decision records (`0001-monorepo.md`, …) |
 | `data/` | data dictionary notes, footnote codes, schema-change log |
 | `reference/` | reference material, e.g. `column_lineage.xlsx` (raw CMS column → feature lineage) |
-| `runbooks/` | how to operate, backfill, recover, promote / roll back; `airflow-local.md` (run the stack), `airflow-e2e-simulation.md` (reproduce the end-to-end test runs, written for Claude Code) |
+| `runbooks/` | how to operate, backfill, recover, promote / roll back; `airflow-local.md` (run the stack), `airflow-e2e-simulation.md` (reproduce the end-to-end test runs, written for Claude Code); `gold-snapshot.md` (snapshot the published gold under DVC) |

@@ -1,0 +1,6 @@
+outs:
+- md5: 37fa782a7cf234d17811a15555f6d394.dir
+  size: 22528014
+  nfiles: 3
+  hash: md5
+  path: gold_real
