@@ -454,12 +454,15 @@ DVC sits next to, not in place of, the production data versioning: real data is 
 Because gold is rebuilt in full each run, every release produces a complete new table, and the history has to be kept on
 purpose. One DVC snapshot per release does it:
 - **What is snapshotted:** the published merged file `gold/facility_month_dataset.parquet` with its `dataset_manifest.json` and
-  `_current.json`, copied by `precursor-pipeline snapshot-gold` (sha256-checked, and it refuses an unverified gold unless
-  `--allow-unverified`). `dvc add snapshots/gold_real` makes the pointer `snapshots/gold_real.dvc`, which Git tracks; the data goes to the
-  DVC bucket. There is no `dvc.yaml` stage on the real data: it would go stale with every code PR.
+  `_current.json`, copied by `precursor-pipeline snapshot-gold` (the merged file sha256-checked; it refuses an unverified gold
+  unless `--allow-unverified`, and one built from a dirty tree unless `--allow-dirty`). `dvc add snapshots/gold_real` makes the
+  pointer `snapshots/gold_real.dvc`, which Git tracks; the data goes to the DVC bucket. There is no `dvc.yaml` stage on the real
+  data: it would go stale with every code PR.
+- **The first snapshot is test data:** `gold-V2026-09-9be058f9-unverified` was built from the 23-zip sample archive (gold run
+  `dp-gcp-test-4`), not the full CMS archive. Do not train on it; the first full-archive snapshot replaces the pointer.
 - **Restore a version:** `git checkout <tag> -- snapshots/gold_real.dvc && uv run dvc pull snapshots/gold_real.dvc`. DVC stores files by
   content, so unchanged parts are not copied again.
-- **Tags:** the squash-merge commit on `dev` is tagged with the month and the content hash, `gold-V<V>-<first 8 characters of
+- **Tags:** the PR's squash-merge commit on `dev` (not the tip of `dev`) is tagged with the month and the content hash, `gold-V<V>-<first 8 characters of
   dataset_version>`. The month alone is not a unique version: a rerun for the same V can change rows (a reload, a config
   change, CMS revising history); `dataset_version` in the manifest is the content hash.
 - **No month-named copies** such as `facility_month_dataset_2026-09.csv`: they duplicate data, say nothing about the code and
@@ -490,6 +493,7 @@ Precursor-Intelligence/
 ├── notebooks/                  # exploration only
 ├── data/                       # local data cache (git-ignored)
 ├── docs/                       # ADRs, data notes, runbooks
+├── snapshots/                  # DVC pointers of the published gold (data in the DVC bucket)
 ├── dvc.yaml  dvc.lock  metrics/   # DVC pipeline (test), its lock file and metrics
 └── pyproject.toml  uv.lock  requirements.txt
 ```
@@ -510,6 +514,7 @@ Precursor-Intelligence/
 | `notebooks/` | Exploration only; strip outputs before committing |
 | `data/` | Git-ignored local cache that mirrors the GCS layout |
 | `docs/` | Architecture decision records, data notes, runbooks |
+| `snapshots/` | `gold_real.dvc`, the DVC pointer of the published gold (`docs/runbooks/gold-snapshot.md`); the data is git-ignored |
 
 Each top-level folder has its own README describing what belongs there.
 
@@ -557,7 +562,7 @@ The course's example structure maps onto this repository as follows:
   copy is the planned fix, before the first full-archive run (`docs/AIRFLOW_PIPELINE.md` §9.1).
 - **Team decisions in #27:** which slices are fairness groups, whether state effects are risk or bias, whether
   sample weights are used by default.
-- **Snapshots of real gold:** `snapshot-gold` and the pointer exist (section 11.1); the first snapshots are of an unverified gold until the spec §11 verification gate is built.
+- **Snapshots of real gold:** `snapshot-gold` and the pointer exist (section 11.1). The first snapshot is of the sample archive (test data), and every snapshot is of an unverified gold until the spec §11 verification gate is built.
 - **Next:** the ML DAGs (`train_evaluate`, `batch_score`, `monitor`) on the `cms_nh_gold` asset, LightGBM with
   calibration and per-slice evaluation, the agents, the API and the dashboard.
 

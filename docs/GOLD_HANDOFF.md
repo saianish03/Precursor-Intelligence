@@ -105,7 +105,7 @@ its sha256 in `_current.json` and under `merged_file` in `dataset_manifest.json`
 
 `precursor-pipeline snapshot-gold` copies the published merged file, the manifest and `_current.json` into `snapshots/gold_real/` for
 `dvc add` (one DVC snapshot per release, `docs/runbooks/gold-snapshot.md`). It reads gold through `read_current_gold` and refuses
-while `verified` is false or the tree was dirty, unless `--allow-unverified`.
+while `verified` is false (unless `--allow-unverified`) or the tree was dirty (unless `--allow-dirty`).
 
 | Table | Columns (type) |
 |---|---|

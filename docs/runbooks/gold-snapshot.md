@@ -7,6 +7,9 @@ good run; Airflow never calls DVC or commits to Git.
 - **Versioned:** `snapshots/gold_real/` = `facility_month_dataset.parquet` (every month, one file), `dataset_manifest.json`
   (sources, config hashes, git commit, `dataset_version`) and `_current.json` (run id, V, sha256 of every gold file).
   `snapshots/gold_real.dvc` is the pointer that Git tracks; the data lives in the DVC bucket `gs://precursor-intel-mlops-dvc`.
+- **The first snapshot is test data.** `gold-V2026-09-9be058f9-unverified` (gold run `dp-gcp-test-4`) was built from the 23-zip
+  sample archive, not the full CMS archive: 236,748 rows, `verified: false`. Do not train or evaluate on it. The first snapshot
+  of a full-archive run replaces the pointer; older tags keep the sample reachable.
 - **Not versioned:** landing, bronze and silver (the bucket's object versioning and the run manifests cover them; Airflow
   rebuilds them) and the per-month gold partitions (the merged file holds the same rows).
 - **Why `snapshots/` and not `data/`:** DVC does not look for `.dvc` files inside git-ignored folders. A pointer under `data/` is
@@ -22,8 +25,8 @@ good run; Airflow never calls DVC or commits to Git.
 
 ## Take a snapshot
 ```bash
-# --env prod reads configs/prod.yaml, which requires PI_DATABASE_URL although this command never touches the metadata
-# store; any value works, for example a throwaway sqlite file
+# --env prod reads configs/prod.yaml, which requires PI_DATABASE_URL to be set. The command opens only the object store,
+# never the metadata store, so a placeholder is enough
 export PI_DATABASE_URL=sqlite:////tmp/unused_meta.db
 uv run precursor-pipeline snapshot-gold --env prod --allow-unverified   # until the §11 gate exists; prints the tag and next commands
 uv run dvc add snapshots/gold_real                           # makes snapshots/gold_real.dvc
@@ -37,25 +40,34 @@ Then check it the way a teammate would: a fresh clone of the branch, `uv run dvc
 Also run `uv run dvc status -c`: it must say "Cache and remote 'gcs' are in sync" **after** the push (and list the snapshot as new before it).
 CI only runs `dvc repro`, so a missing `dvc push` is not caught there (it broke `dvc pull` once, in #32).
 
-After the PR is **squash-merged**, tag the merge commit on `dev` (a tag on the PR branch would disappear with the squash):
+After the PR is **squash-merged**, tag the PR's merge commit on `dev`, not the tip of `dev` (another PR may have merged since),
+and not the PR branch (its commits disappear with the squash):
 ```bash
-git fetch origin && git tag <tag> origin/dev && git push origin <tag>
+git fetch origin
+git tag <tag> "$(gh pr view <PR number> --json mergeCommit --jq .mergeCommit.oid)"
+git push origin <tag>
 ```
 
 ## Tag convention
 `gold-V<V>-<first 8 characters of dataset_version>`, for example `gold-V2026-09-2a65c164`. The month alone is not a version: a
 rerun for the same V can change rows (a reload, a config change, CMS revising history). `dataset_version` in the manifest is
-the content hash. A snapshot taken with `--allow-unverified` gets the suffix `-unverified`.
+the content hash. An overridden refusal adds a suffix: `-unverified` (`--allow-unverified`), `-dirty` (`--allow-dirty`). A
+snapshot of unchanged data gets the same tag again; it already exists, so there is nothing new to tag.
 
 ## When the command refuses (exit 2)
 - **`verified=false`:** the spec §11 verification gate is not built, so every gold manifest says `verified: false` and nothing
   should train on it. Until the gate exists, a snapshot needs `--allow-unverified`; say so in the commit message and the PR.
   When the gate lands, the flag stops being needed.
 - **Built from a dirty tree** (`git_dirty: true`): the manifest's commit does not name the code. Rebuild from a clean checkout.
-  `git_dirty: null` (gold built in the pipeline image, which has no `.git`) is reported, not refused.
+  `--allow-dirty` overrides it (tag suffix `-dirty`); `--allow-unverified` does not. `git_dirty: null` (gold built in the
+  pipeline image, which has no `.git`) is reported, not refused: the image's commit comes from `PI_GIT_SHA`.
 - **"lists no facility_month_dataset.parquet":** that gold was built before the merged file existed (#32). Rerun gold with the current code.
 - **Gold changed after publishing, or not current:** a file no longer matches its sha256 in `_current.json`. Rerun gold.
-- **`--out` holds files that are not a snapshot's:** the command replaces only an earlier snapshot, never other files (exit 3).
+- **Gold changed while snapshotting:** a gold run promoted between the checks and the copy. Run `snapshot-gold` again.
+- **The manifest is missing, not JSON, or lacks `dataset_version`, `v` or `rows.total`:** rerun gold.
+  Every check runs before an earlier snapshot is replaced, so a refusal never loses the previous one.
+- **`--out` holds files that are not a snapshot's:** the command replaces only an earlier snapshot (plus a macOS `.DS_Store`),
+  never other files (exit 3). The default `--out` is `snapshots/gold_real` under the repo root, wherever you run it from.
 
 ## Restore or compare a version
 ```bash

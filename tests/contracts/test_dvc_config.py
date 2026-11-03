@@ -82,7 +82,9 @@ def test_git_does_not_ignore_the_files_dvc_needs_committed():
         "snapshots/gold_real.dvc",
         "snapshots/.gitignore",
     ):
-        ignored = subprocess.run(["git", "check-ignore", "-q", path], cwd=ROOT).returncode == 0
+        # --no-index: without it, check-ignore never reports a tracked file, so this could not fail
+        cmd = ["git", "check-ignore", "-q", "--no-index", path]
+        ignored = subprocess.run(cmd, cwd=ROOT).returncode == 0
         assert not ignored, f"{path} is git-ignored"
 
 
