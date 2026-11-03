@@ -162,9 +162,10 @@ bucket (an import does not set it; the code sets `false`), and possibly nothing 
 
 ## Sizing note
 
-The full-archive bronze run (427 files, 61 vintages) peaked at about 2.2 GiB of memory, so the planned
-e2-standard-2 VM (8 GB) is enough for the backfill; the resize to e2-standard-4 in the tech-stack document is
-not needed.
+The full-archive bronze run (427 files, 61 vintages) peaked at about 2.2 GiB of memory, but gold is larger: it
+holds the whole dataset in memory, estimated at about 5.8 GB on the full archive (`AIRFLOW_PIPELINE.md` §9.1),
+and every monthly run rebuilds all of gold. The Airflow VM is therefore an e2-standard-4 (16 GB), decided
+2026-10-29 (spec §14 #26); the machine type is a Terraform variable.
 
 ## Cost and cleanup
 
