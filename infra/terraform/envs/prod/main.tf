@@ -65,6 +65,15 @@ resource "google_storage_bucket_iam_member" "pipeline_backups" {
   member = "serviceAccount:${google_service_account.pipeline.email}"
 }
 
+# The VM's logging and monitoring agents write as sa-pipeline; without these its logs and metrics are dropped.
+resource "google_project_iam_member" "pipeline_runtime" {
+  for_each = toset(["roles/logging.logWriter", "roles/monitoring.metricWriter"])
+
+  project = var.project_id
+  role    = each.key
+  member  = "serviceAccount:${google_service_account.pipeline.email}"
+}
+
 module "wif" {
   source = "../../modules/wif"
 
