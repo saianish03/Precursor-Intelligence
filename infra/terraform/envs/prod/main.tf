@@ -55,3 +55,43 @@ module "wif" {
   apply_branches    = var.apply_branches
   state_bucket_name = module.state_bucket.name
 }
+
+# Every image CI builds (pipeline, airflow), tagged with the full git sha. The VM pulls the sha it is told to run.
+module "artifact_registry" {
+  source        = "../../modules/artifact_registry"
+  location      = var.region
+  repository_id = "precursor"
+}
+
+resource "google_artifact_registry_repository_iam_member" "pipeline_pulls" {
+  location   = module.artifact_registry.location
+  repository = module.artifact_registry.name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.pipeline.email}"
+}
+
+# CD pushes the images as this account. Like sa-tf-apply, only a run on one of apply_branches can act as it,
+# never a pull request, so code that has not been reviewed and merged can never publish an image.
+resource "google_service_account" "deployer" {
+  account_id   = "sa-deployer"
+  display_name = "CD image push (merged branches only)"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "google_artifact_registry_repository_iam_member" "deployer_pushes" {
+  location   = module.artifact_registry.location
+  repository = module.artifact_registry.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.deployer.email}"
+}
+
+resource "google_service_account_iam_member" "deployer_from_branch" {
+  for_each = toset(var.apply_branches)
+
+  service_account_id = google_service_account.deployer.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "${module.wif.subject_prefix}:ref:refs/heads/${each.key}"
+}
