@@ -1,0 +1,122 @@
+name: CD
+
+# After a merge into dev or main that changes what goes into an image: build both images once, test them, and push
+# them to Artifact Registry tagged with the full commit sha. Tags are immutable there and nothing is ever tagged
+# latest, so a VM told to run a sha runs exactly those bytes. Logs in keylessly as sa-deployer, which only runs on
+# dev and main can act as, with push rights on that one repository (infra/terraform/envs/prod/main.tf).
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - "docker/**"
+      - "dags/**"
+      - "src/**"
+      - "configs/**"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/cd.yml"
+  # Publish the current tip of dev or main by hand, e.g. when its push changed no image input or its run failed. A
+  # dispatch always builds the tip, never an older commit. Workload identity federation accepts only runs on dev
+  # and main, so a dispatch on any other branch cannot log in.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per commit, never cancelled halfway. Keyed on the sha, not the branch: a per-branch group keeps only one
+# pending run, so a third quick merge would cancel the second and leave that commit without images. Different shas
+# never share a tag, and runs of the same sha (rerun, dispatch, main fast-forwarded to it) queue and then skip.
+concurrency:
+  group: cd-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor
+  WIF_PROVIDER: projects/852874974077/locations/global/workloadIdentityPools/github/providers/github-repo
+
+jobs:
+  push-images:
+    name: build, test and push images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # the OIDC token that workload identity federation exchanges for Google credentials
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # nothing here pushes to git
+
+      - id: auth
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: sa-deployer@precursor-intel-mlops.iam.gserviceaccount.com
+          token_format: access_token
+          create_credentials_file: false # only the access token below is used
+
+      - name: Log in to Artifact Registry
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: printf %s "$TOKEN" | docker login -u oauth2accesstoken --password-stdin https://us-central1-docker.pkg.dev
+
+      # Tags are immutable, so a rerun of a commit that is already published must not build and push again.
+      - name: Already published?
+        id: published
+        run: |
+          if docker manifest inspect "$REGISTRY/pipeline:$GITHUB_SHA" >/dev/null 2>&1 \
+              && docker manifest inspect "$REGISTRY/airflow:$GITHUB_SHA" >/dev/null 2>&1; then
+            echo "both=true" >> "$GITHUB_OUTPUT"
+            echo "Both images for \`$GITHUB_SHA\` are already in the registry: nothing to build or push." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "both=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build both images
+        if: steps.published.outputs.both == 'false'
+        run: |
+          # No provenance or SBOM attachments: one plain manifest per tag, so the registry's keep-the-5-newest
+          # cleanup counts releases, not attachments.
+          docker build --provenance=false --sbom=false -f docker/pipeline.Dockerfile \
+            --build-arg PI_GIT_SHA="$GITHUB_SHA" -t "$REGISTRY/pipeline:$GITHUB_SHA" .
+          docker build --provenance=false --sbom=false -f docker/airflow.Dockerfile \
+            --build-arg PI_GIT_SHA="$GITHUB_SHA" -t "$REGISTRY/airflow:$GITHUB_SHA" .
+
+      # The same checks as CI's images job, on the exact images about to be pushed, plus the commit label on both.
+      - name: Test the images
+        if: steps.published.outputs.both == 'false'
+        run: |
+          for image in pipeline airflow; do
+            label=$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$REGISTRY/$image:$GITHUB_SHA")
+            test "$label" = "$GITHUB_SHA" || { echo "::error::$image image is labelled '$label', not $GITHUB_SHA"; exit 1; }
+          done
+          docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" precursor-ingest --help > /dev/null
+          docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" precursor-pipeline --help > /dev/null
+          test "$(docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" printenv PI_GIT_SHA)" = "$GITHUB_SHA"
+          docker run --rm --entrypoint "" -v "$PWD/tests/dags:/opt/airflow/tests/dags:ro" \
+            "$REGISTRY/airflow:$GITHUB_SHA" python -m pytest -q -p no:cacheprovider /opt/airflow/tests/dags
+          # the compose bundle the VM deploys from, on its own (no laptop override); the secrets are dummies
+          cid=$(docker create "$REGISTRY/airflow:$GITHUB_SHA") && docker cp "$cid:/opt/precursor/compose" bundle && docker rm "$cid"
+          test -x bundle/init-db.sh
+          AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x \
+            docker compose -f bundle/docker-compose.yaml config -q
+
+      # Push each image only if its tag is still free: after a run that pushed one image and then failed, the rerun
+      # pushes only the other one.
+      - name: Push
+        if: steps.published.outputs.both == 'false'
+        run: |
+          {
+            echo "| image | digest |"
+            echo "|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for image in pipeline airflow; do
+            ref="$REGISTRY/$image:$GITHUB_SHA"
+            if docker manifest inspect "$ref" >/dev/null 2>&1; then
+              echo "| \`$ref\` | already published |" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            docker push "$ref"
+            echo "| \`$ref\` | \`$(docker image inspect -f '{{ index .RepoDigests 0 }}' "$ref")\` |" >> "$GITHUB_STEP_SUMMARY"
+          done
