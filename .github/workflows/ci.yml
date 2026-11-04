@@ -1,7 +1,8 @@
 name: CI
 
-# Runs on every pull request into dev (feature work) and main (releases).
-# Make the "ci-ok" check required in the branch rulesets: a PR can then merge only when lint and tests pass.
+# Runs on every pull request into dev (feature work) and main (releases): lint and tests, plus the two images and
+# the DAG tests when the PR touches them.
+# Make the "ci-ok" check required in the branch rulesets: a PR can then merge only when every job passes.
 on:
   pull_request:
     branches: [dev, main]
@@ -70,16 +71,78 @@ jobs:
             echo "::warning::dvc.lock or metrics/ changed after dvc repro; run 'uv run dvc repro' and commit them."
           fi
 
+  # Builds both images and runs tests/dags inside the Airflow image (Airflow is not a repo dependency, so the
+  # tests job skips them). Nothing is pushed: the images stay on the runner. The job always runs, because
+  # ci-ok needs it; its first step skips the rest when the PR changes nothing that goes into an image or a DAG.
+  images:
+    name: images + DAG tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the merge commit and its base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2
+
+      # On a PR, HEAD is the merge commit and HEAD^1 the base branch, so this diff is exactly the PR's changes.
+      - name: Does the change touch an image or a DAG?
+        id: changes
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only HEAD^1 HEAD \
+              | grep -qE '^(docker/|dags/|tests/dags/|src/|configs/|\.dockerignore$|pyproject\.toml$|uv\.lock$|\.github/workflows/ci\.yml$)'; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "No image or DAG changes: nothing to build." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build the pipeline image
+        if: steps.changes.outputs.build == 'true'
+        run: docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA="$GITHUB_SHA" -t precursor-pipeline:ci .
+
+      - name: Build the Airflow image
+        if: steps.changes.outputs.build == 'true'
+        run: docker build -f docker/airflow.Dockerfile -t precursor-airflow:ci .
+
+      # precursor-pipeline --help imports every node's CLI, so a dependency missing from the pipeline extra fails here.
+      - name: The pipeline image runs its CLIs and records the commit
+        if: steps.changes.outputs.build == 'true'
+        run: |
+          docker run --rm precursor-pipeline:ci precursor-ingest --help > /dev/null
+          docker run --rm precursor-pipeline:ci precursor-pipeline --help > /dev/null
+          test "$(docker run --rm precursor-pipeline:ci printenv PI_GIT_SHA)" = "$GITHUB_SHA"
+
+      # The mounts of docker/airflow-local/docker-compose.yaml, without compose (it needs the .env secrets).
+      - name: DAG tests inside the Airflow image
+        if: steps.changes.outputs.build == 'true'
+        run: |
+          docker run --rm --entrypoint "" -e PYTHONPATH=/opt/airflow/src \
+            -v "$PWD/dags:/opt/airflow/dags:ro" \
+            -v "$PWD/src/precursorintelligence:/opt/airflow/src/precursorintelligence:ro" \
+            -v "$PWD/tests/dags:/opt/airflow/tests/dags:ro" \
+            precursor-airflow:ci python -m pytest -q -p no:cacheprovider /opt/airflow/tests/dags
+
+      - name: Image sizes
+        if: steps.changes.outputs.build == 'true'
+        run: |
+          {
+            echo "| image | size |"
+            echo "|---|---|"
+            docker image ls --filter reference='precursor-*:ci' --format '| {{.Repository}} | {{.Size}} |'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Single stable check name to require in the branch rulesets (independent of the Python matrix).
   ci-ok:
     name: ci-ok
-    needs: [tests]
+    needs: [tests, images]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: All required jobs passed
         run: |
-          if [ "${{ needs.tests.result }}" != "success" ]; then
-            echo "tests job result: ${{ needs.tests.result }}"
+          if [ "${{ needs.tests.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ]; then
+            echo "tests job result: ${{ needs.tests.result }}; images job result: ${{ needs.images.result }}"
             exit 1
           fi
