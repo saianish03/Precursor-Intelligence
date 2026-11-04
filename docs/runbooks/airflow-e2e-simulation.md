@@ -37,7 +37,7 @@ docker build -f docker/airflow.Dockerfile -t precursor-airflow:$SHA .
 docker run --rm --entrypoint "" precursor-pipeline:$SHA sh -c 'echo $PI_GIT_COMMIT'   # full SHA expected
 ```
 - **Tag:** the git SHA, so the gold manifest and the image tell the same story.
-- **When to rebuild:** after any change to `src/` or `configs/`. The DAGs are mounted, so a DAG edit needs no rebuild.
+- **When to rebuild:** after any change to `src/` or `configs/`. The DAGs are baked into `precursor-airflow`, but `docker-compose.override.yaml` mounts the working tree over them on a laptop, so a DAG edit needs no rebuild (run compose from `docker/airflow-local/`, or name both files with `-f`). Rebuild `precursor-airflow` once if yours predates the baked DAGs (it lacks the `PYTHONPATH` the DAGs need).
 
 ## 2. `.env`: the user does this
 Ask the user to run (in their Claude Code prompt, with the `!` prefix, from the repo root):

@@ -21,7 +21,7 @@ DAG task → PipelineDockerOperator → precursor-pipeline container on the comp
 docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) -t precursor-pipeline:latest .   # full SHA: gold's manifest records it
 docker build -f docker/airflow.Dockerfile -t precursor-airflow:latest .
 ```
-Rebuild `precursor-pipeline` after any change to `src/` or `configs/`; a task runs whatever the image holds. The DAGs are mounted, so a DAG edit needs no rebuild.
+Rebuild `precursor-pipeline` after any change to `src/` or `configs/`; a task runs whatever the image holds. `precursor-airflow` contains the DAGs too, but on a laptop `docker-compose.override.yaml` (loaded automatically by `docker compose` in `docker/airflow-local/`) mounts the working tree over them, so a DAG edit needs no rebuild. If you run compose with `-f`, name both files: `-f docker-compose.yaml -f docker-compose.override.yaml`. Rebuild `precursor-airflow` after any change to `docker/airflow.Dockerfile`, and **once after the DAGs moved into the image**: `PYTHONPATH` now comes from the image, so an older `precursor-airflow` fails to import the DAG (`airflow dags list-import-errors` shows `No module named 'precursorintelligence'`).
 
 ## 2. Configure and start
 ```bash
@@ -160,6 +160,7 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
   - Render the secrets from Secret Manager at deploy time.
 - **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` run or an SSH session.
 - **Credentials:** the VM runs as `sa-pipeline` (`storage.objectAdmin` on the data bucket only). Task containers reach the GCE metadata server, so gcsfs gets its tokens and no key file is needed.
+- **No override:** the VM runs `docker-compose.yaml` from the compose bundle in the Airflow image (`/opt/precursor/compose/`), without `docker-compose.override.yaml`, so the DAGs come from the image.
 - **Images:** push to Artifact Registry, then pre-pull on deploy (`gcloud auth configure-docker …`, `docker pull`). The Docker proxy sends no registry credentials, and `force_pull` is off.
 - **Access:** no firewall rule for 8080. Reach the UI with `gcloud compute ssh <vm> --tunnel-through-iap -- -L 8080:127.0.0.1:8080`.
 - **Alert log links:** they use Airflow's `[api] base_url`, `http://localhost:8080` when unset. That works only through the tunnel above on local port 8080; for any other address, set `AIRFLOW__API__BASE_URL` for the Airflow containers.
@@ -175,7 +176,7 @@ uv run pytest      # repo tests, incl. tests/alerts; tests/dags is skipped (Airf
 docker compose run --rm --no-deps --entrypoint "" airflow-scheduler \
   python -m pytest -p no:cacheprovider /opt/airflow/tests/dags     # DAG integrity, exit codes, alert callbacks
 ```
-CI (job `images` in `.github/workflows/ci.yml`) builds both images on every PR that touches them or the DAGs, and runs the same DAG tests in the fresh Airflow image with `docker run` and these mounts.
+CI (job `images` in `.github/workflows/ci.yml`) builds both images on every PR that touches them or the DAGs, and runs the same DAG tests in the fresh Airflow image, against the DAGs baked into it (only `tests/dags` is mounted).
 
 ## 7. Stop and clean up
 ```bash

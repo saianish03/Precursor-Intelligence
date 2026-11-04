@@ -1,0 +1,20 @@
+# Laptop only. `docker compose` in this folder loads it automatically on top of docker-compose.yaml (with -f, name
+# both files). It mounts the working tree over the code baked into precursor-airflow, so a DAG or alerts edit needs
+# no rebuild, and adds tests/dags for `docker compose run ... pytest` (runbooks/airflow-local.md §6). The VM never
+# loads it: it runs the compose bundle from the image.
+x-code-mounts: &code-mounts
+  - ../../dags:/opt/airflow/dags:ro
+  - ../../src/precursorintelligence:/opt/airflow/src/precursorintelligence:ro
+  - ../../tests/dags:/opt/airflow/tests/dags:ro
+
+services:
+  airflow-init:
+    volumes: *code-mounts
+  airflow-apiserver:
+    volumes: *code-mounts
+  airflow-scheduler:
+    volumes: *code-mounts
+  airflow-dag-processor:
+    volumes: *code-mounts
+  airflow-triggerer:
+    volumes: *code-mounts

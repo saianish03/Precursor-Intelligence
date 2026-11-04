@@ -114,15 +114,22 @@ jobs:
           docker run --rm precursor-pipeline:ci precursor-pipeline --help > /dev/null
           test "$(docker run --rm precursor-pipeline:ci printenv PI_GIT_SHA)" = "$GITHUB_SHA"
 
-      # The mounts of docker/airflow-local/docker-compose.yaml, without compose (it needs the .env secrets).
+      # Against the DAGs baked into the image, as it ships: only tests/dags is mounted (it is not part of the image).
       - name: DAG tests inside the Airflow image
         if: steps.changes.outputs.build == 'true'
         run: |
-          docker run --rm --entrypoint "" -e PYTHONPATH=/opt/airflow/src \
-            -v "$PWD/dags:/opt/airflow/dags:ro" \
-            -v "$PWD/src/precursorintelligence:/opt/airflow/src/precursorintelligence:ro" \
-            -v "$PWD/tests/dags:/opt/airflow/tests/dags:ro" \
+          docker run --rm --entrypoint "" -v "$PWD/tests/dags:/opt/airflow/tests/dags:ro" \
             precursor-airflow:ci python -m pytest -q -p no:cacheprovider /opt/airflow/tests/dags
+
+      # The compose bundle the VM deploys from, checked the way the VM uses it: on its own (no laptop override),
+      # with init-db.sh executable. The secrets are dummies: `config -q` only needs them set.
+      - name: The compose bundle in the Airflow image works on its own
+        if: steps.changes.outputs.build == 'true'
+        run: |
+          cid=$(docker create precursor-airflow:ci) && docker cp "$cid:/opt/precursor/compose" bundle && docker rm "$cid"
+          test -x bundle/init-db.sh
+          AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x \
+            docker compose -f bundle/docker-compose.yaml config -q
 
       - name: Image sizes
         if: steps.changes.outputs.build == 'true'

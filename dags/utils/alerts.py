@@ -1,6 +1,6 @@
 """Airflow callbacks for the pipeline alerts: the DAG's on_failure_callback and release_lock's. Building and
-sending the emails lives in precursorintelligence.alerts (src/, mounted read-only into the Airflow
-containers); this module only reads the run from Airflow's context. Callbacks run inside Airflow's own
+sending the emails lives in precursorintelligence.alerts (src/, baked into the Airflow image; mounted
+over it on a laptop); this module only reads the run from Airflow's context. Callbacks run inside Airflow's own
 containers (the DAG callback in the dag-processor, task callbacks in the LocalExecutor worker), which reach
 the internet.
 """
