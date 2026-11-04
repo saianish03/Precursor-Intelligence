@@ -104,8 +104,12 @@ resource "google_project_iam_member" "plan" {
   }
 }
 
+# editor holds no setIamPolicy at all, and projectIamAdmin only the project's own, so apply could create a secret,
+# the image repository or a bucket but not grant access to it. securityAdmin adds the setIamPolicy of single
+# resources without any data access: it cannot read a secret value or an object (checked 2026-11-04). It adds no
+# real power either, since projectIamAdmin could already grant apply any role.
 resource "google_project_iam_member" "apply" {
-  for_each = toset(["roles/editor", "roles/resourcemanager.projectIamAdmin"])
+  for_each = toset(["roles/editor", "roles/resourcemanager.projectIamAdmin", "roles/iam.securityAdmin"])
 
   project = var.project_id
   role    = each.key
