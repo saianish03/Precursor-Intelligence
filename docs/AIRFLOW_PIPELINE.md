@@ -35,8 +35,8 @@ you / @daily -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080     
   - The same commands run by hand, in tests and in Airflow.
   - Airflow only orders them, retries them, and records their state.
 - **One image for all data tasks.** `docker/pipeline.Dockerfile`: the repo package plus `configs/`.
-  - The Airflow services run a second image, `docker/airflow.Dockerfile` (Airflow 3.1.8 + the Docker provider 4.6.1).
-- **Laptop = GCP.** The compose file, images and DAG are identical; only `docker/airflow-local/.env` differs (§6).
+  - The Airflow services run a second image, `docker/airflow.Dockerfile`: Airflow 3.1.8 + the Docker provider 4.6.1, plus the DAGs, the `precursorintelligence` package they import (only `alerts` is used) and the compose bundle (`/opt/precursor/compose/`). One image is one release: the VM runs exactly the DAGs CI tested.
+- **Laptop = GCP.** The compose file, images and DAG are identical; only `docker/airflow-local/.env` differs (§6). On a laptop, `docker-compose.override.yaml` also mounts the working tree over the baked DAGs, so edits need no rebuild; the VM never loads it.
 - **Networks are fenced off.** Three Docker networks, each verified:
   - `pi-airflow`: the Airflow services and Postgres;
   - `pi-airflow_docker-api` (internal): only the scheduler and `docker-proxy`;
@@ -285,7 +285,8 @@ It would work on a demo day. The table lists what this implementation does inste
 | `dags/cms_nh_pipeline.py` | the DAG |
 | `dags/utils/pipeline_operator.py` | `PipelineDockerOperator`, `docker_kwargs()`, the JSON result parser |
 | `docker/pipeline.Dockerfile`, `docker/airflow.Dockerfile`, `.dockerignore` | the two images |
-| `docker/airflow-local/docker-compose.yaml`, `init-db.sh`, `.env.example` | the stack |
+| `docker/airflow-local/docker-compose.yaml`, `init-db.sh`, `.env.example` | the stack (the first two are also baked into the Airflow image for the VM) |
+| `docker/airflow-local/docker-compose.override.yaml` | laptop only: mounts `dags/`, `src/precursorintelligence/` and `tests/dags/` over the image's copies |
 | `tests/dags/` | DAG integrity and exit-code tests (run in the airflow image) |
 | `docs/runbooks/airflow-local.md` | how to build, run, inspect and clean up; laptop and GCP; verified results |
 

@@ -6,7 +6,7 @@ SMTP settings come from the environment (docker/airflow-local/.env, never commit
 (comma-separated), PI_ALERT_SMTP_HOST, PI_ALERT_SMTP_PORT (587 = STARTTLS, 465 = TLS), PI_ALERT_SMTP_USER,
 PI_ALERT_SMTP_PASSWORD (for Gmail an app password), PI_ALERT_EMAIL_FROM (default: the user). No recipient
 means nothing is sent, so tests and laptop runs stay quiet. The standard library only (smtplib, TLS always),
-so the Airflow image needs no extra dependency: it mounts this package and imports only this module. Sending
+so the Airflow image needs no extra dependency: it carries this package and imports only this module. Sending
 never raises: a lost alert is logged, and never fails a task or hides the run's own state.
 """
 

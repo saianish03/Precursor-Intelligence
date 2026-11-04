@@ -5,5 +5,18 @@
 !README.md
 !src/
 !configs/
+# the Airflow image's DAGs and compose bundle (never .env: it stays excluded by ** above)
+!dags/
+!docker/airflow-local/docker-compose.yaml
+!docker/airflow-local/init-db.sh
 src/**/__pycache__
+dags/**/__pycache__
 **/*.pyc
+# backstop: never send secrets or OS litter, even if one lands inside a re-included folder (last match wins)
+**/.env
+**/.env.*
+**/*.pem
+**/*-key.json
+**/credentials*.json
+**/service-account*.json
+**/.DS_Store

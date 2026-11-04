@@ -1,4 +1,4 @@
-# precursor-airflow: the official Airflow 3 image plus the pinned Docker provider the DAGs use.
+# precursor-airflow: the official Airflow 3 image plus the pinned Docker provider and the DAGs themselves.
 # It runs the scheduler, API server, DAG processor and triggerer; pipeline work runs in precursor-pipeline
 # containers that the DockerOperator starts.
 #
@@ -21,3 +21,16 @@ RUN curl -fsSL -o /tmp/constraints.txt \
       "apache-airflow-providers-docker==${DOCKER_PROVIDER_VERSION}" \
       "pytest==8.4.2" \
     && rm /tmp/constraints.txt
+
+# The code the Airflow services run, so one image (one git sha) is one release: the DAGs, the src package they import
+# (only precursorintelligence.alerts, which needs nothing outside the standard library) and the compose bundle the VM
+# deploys from. On a laptop, docker/airflow-local/docker-compose.override.yaml mounts the working tree over the first two.
+ENV PYTHONPATH=/opt/airflow/src
+COPY dags /opt/airflow/dags
+COPY src/precursorintelligence /opt/airflow/src/precursorintelligence
+COPY docker/airflow-local/docker-compose.yaml docker/airflow-local/init-db.sh /opt/precursor/compose/
+# The base image's DAGs folder belongs to airflow (775) and COPY keeps a folder's owner, so the airflow user could add
+# or delete DAGs. Root-owned and read-only, like the files in it and the old :ro mount.
+USER root
+RUN chown root:root /opt/airflow/dags && chmod 755 /opt/airflow/dags
+USER airflow
