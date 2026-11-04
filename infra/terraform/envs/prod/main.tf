@@ -95,3 +95,46 @@ resource "google_service_account_iam_member" "deployer_from_branch" {
   role               = "roles/iam.workloadIdentityUser"
   member             = "${module.wif.subject_prefix}:ref:refs/heads/${each.key}"
 }
+
+locals {
+  # The VM renders these into its .env at deploy time; the comment is the variable each becomes.
+  vm_secrets = toset([
+    "airflow-db-password",    # AIRFLOW_DB_PASSWORD     Postgres role `airflow`
+    "pi-meta-db-password",    # PI_META_DB_PASSWORD     Postgres role `pi_meta` (pipeline metadata)
+    "airflow-fernet-key",     # AIRFLOW_FERNET_KEY      never change it once set: it decrypts stored connections
+    "airflow-jwt-secret",     # AIRFLOW_JWT_SECRET
+    "airflow-api-secret-key", # AIRFLOW_API_SECRET_KEY  compose still reuses the JWT secret; a later task splits them
+    "smtp-password",          # PI_ALERT_SMTP_PASSWORD  the alert sender's Gmail app password
+  ])
+}
+
+# Empty containers only. A person adds each value with `gcloud secrets versions add` (gcp-bootstrap.md), so no
+# value ever passes through Terraform or its state. sa-pipeline may read each one, and nothing else.
+resource "google_secret_manager_secret" "vm" {
+  for_each = local.vm_secrets
+
+  secret_id = each.key
+  labels    = { app = "precursor", consumer = "airflow-vm" }
+
+  # One region for every resource, like the buckets.
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  # Deleting a secret deletes its values with it; the Fernet key in particular cannot be recreated.
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "google_secret_manager_secret_iam_member" "pipeline_reads" {
+  for_each = local.vm_secrets
+
+  secret_id = google_secret_manager_secret.vm[each.key].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.pipeline.email}"
+}

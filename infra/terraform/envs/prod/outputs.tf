@@ -24,3 +24,8 @@ output "deployer_service_account" {
   description = "What the CD workflow logs in as to push images."
   value       = google_service_account.deployer.email
 }
+
+output "vm_secret_ids" {
+  description = "The VM's secrets; their values are added by hand (gcp-bootstrap.md)."
+  value       = sort(keys(google_secret_manager_secret.vm))
+}
