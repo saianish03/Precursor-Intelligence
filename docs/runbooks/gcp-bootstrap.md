@@ -15,7 +15,7 @@ that holds the $300 trial credit. The project has no organisation, so Owner can 
 | State bucket | `precursor-intel-mlops-tfstate` | Terraform state. Versioned, public access blocked |
 | `sa-pipeline` | service account | What the pipeline VM runs as. `storage.objectAdmin` and `storage.legacyBucketReader` on the data bucket only. The reader role is needed because gcsfs checks the bucket itself (`storage.buckets.get`); without it every write fails with "bucket does not exist" |
 | `sa-tf-plan` | service account | Terraform `plan` on pull requests. Project `viewer` and `iam.securityReviewer` (plan must read IAM policies), and only `objectViewer` on the state bucket. Usable only by the `pull_request` workflow identity of the repo |
-| `sa-tf-apply` | service account | Terraform `apply`. Project `editor` and `resourcemanager.projectIamAdmin`, `objectAdmin` on the state bucket. Usable only by workflow runs on `dev` or `main` |
+| `sa-tf-apply` | service account | Terraform `apply`. Project `editor`, `resourcemanager.projectIamAdmin` and `iam.securityAdmin` (step 6), `objectAdmin` on the state bucket. Usable only by workflow runs on `dev` or `main` |
 | Workload identity pool `github`, provider `github-repo` | keyless CI login | Accepts only tokens from the repository `saianish03/Precursor-Intelligence` |
 | Budget `pi-trial-credit` | $300 | Alerts at about $25, $50, $100 and $150. It only sends emails and does not stop spending |
 
@@ -76,6 +76,12 @@ drops the colon.
    ```bash
    gcloud projects add-iam-policy-binding $PROJECT --member=user:<email> --role=roles/editor
    ```
+6. **Resource-level IAM for `sa-tf-apply`** (2026-11-04, before the PR that adopts it through `imports.tf`)
+   ```bash
+   gcloud projects add-iam-policy-binding $PROJECT --member=serviceAccount:sa-tf-apply@$PROJECT.iam.gserviceaccount.com --role=roles/iam.securityAdmin --condition=None
+   ```
+   Granted by hand because the same apply then uses it, and a role created inside that apply would not have
+   propagated yet. Run it before the first `plan` of that PR: the import fails while the binding is missing.
 
 ### Two corrections to step 4, after the first review
 
@@ -122,7 +128,11 @@ gcloud iam service-accounts get-iam-policy sa-tf-apply@$PROJECT.iam.gserviceacco
 gcloud projects get-iam-policy $PROJECT --flatten="bindings[].members" --filter="bindings.members:user:" --format="table(bindings.members,bindings.role)"
 ```
 The `sa-tf-apply` policy must list exactly two members, ending in `:ref:refs/heads/dev` and `:ref:refs/heads/main`, each
-with the numeric ids in the repository part.
+with the numeric ids in the repository part. Its project roles must be exactly three:
+```bash
+gcloud projects get-iam-policy $PROJECT --flatten="bindings[].members" --filter="bindings.members:sa-tf-apply@" --format="value(bindings.role)"
+```
+`roles/editor`, `roles/iam.securityAdmin` and `roles/resourcemanager.projectIamAdmin`.
 
 ## Why two Terraform accounts
 
@@ -144,7 +154,15 @@ bucket (an import does not set it; the code sets `false`), and possibly nothing 
   Terraform stands on. The apply job also refuses any plan that deletes or replaces something.
 - **Protect `dev` and `main` on GitHub** (repository settings, by an admin): require a pull request with one
   approval, require the CI checks, and block direct pushes. A merge into either branch runs `apply` as
-  `editor` plus `projectIamAdmin`, so this protection is the only gate between a pull request and the cloud.
+  `editor`, `projectIamAdmin` and `securityAdmin`, so this protection is the only gate between a pull request and
+  the cloud.
+- **Why `sa-tf-apply` holds `iam.securityAdmin`.** `editor` has no `setIamPolicy` permission at all, and
+  `projectIamAdmin` only the project's own, so apply could create a secret, the image repository or a bucket but
+  not grant anyone access to it (`403 … setIamPolicy`, and `plan` cannot show this in advance). `securityAdmin`
+  adds the `setIamPolicy` of single resources without any data access: it cannot read a secret value or an object.
+  It adds no real power either, because `projectIamAdmin` could already grant the account any role. The four
+  service admin roles (`secretmanager.admin` and others) were rejected: `secretmanager.admin` can read every secret
+  value, which today only the Owners can (Editors and the CI accounts cannot).
   Do not mark the Terraform `plan` job itself as a required check: it only runs when `infra/` changes, so a
   required check would stay pending forever on other pull requests.
 - **Do not add a GitHub `environment:` to the apply job.** It changes the token subject to
@@ -159,6 +177,42 @@ bucket (an import does not set it; the code sets `false`), and possibly nothing 
 - Dependabot (`.github/dependabot.yml`) proposes the SHA bumps against `dev`, never `main`. Review each one by
   hand and never auto-merge it: the first grouped PR will include major upgrades, and a bump of `terraform.yml`
   runs `apply` as `sa-tf-apply` once it reaches `dev` or `main`.
+
+## People's access to the VM (by hand, once per teammate)
+
+Emails stay out of the repository, so these two grants are made by an Owner, like step 5. Editors already have
+OS Login and can start and stop VMs; they lack the IAP tunnel and the right to act as `sa-pipeline`.
+```bash
+gcloud projects add-iam-policy-binding $PROJECT --member=user:<email> --role=roles/iap.tunnelResourceAccessor
+gcloud iam service-accounts add-iam-policy-binding sa-pipeline@$PROJECT.iam.gserviceaccount.com --member=user:<email> --role=roles/iam.serviceAccountTokenCreator
+```
+The first is SSH through IAP (the VM has no external IP). The second lets a laptop test with the VM's exact
+permissions instead of a personal login. Check it without printing the token:
+```bash
+gcloud auth print-access-token --impersonate-service-account=sa-pipeline@$PROJECT.iam.gserviceaccount.com >/dev/null && echo ok
+```
+
+## Secret values (by hand, after Terraform created the secrets)
+
+Terraform creates the six secrets empty, so no value ever passes through Terraform, its state or CI. A teammate
+adds each value once. Editors can add a version but not read one back, which is intended.
+- Generate fresh values; never reuse a laptop `.env`.
+- Hex for the two database passwords: they go into connection URLs, where `/`, `+` and `=` break.
+- No trailing newline: pipe with `printf %s`.
+```bash
+add() { printf %s "$2" | gcloud secrets versions add "$1" --data-file=- --project=$PROJECT; }
+add airflow-db-password "$(openssl rand -hex 24)"
+add pi-meta-db-password "$(openssl rand -hex 24)"
+add airflow-fernet-key "$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+add airflow-jwt-secret "$(openssl rand -hex 32)"
+add airflow-api-secret-key "$(openssl rand -hex 32)"
+add smtp-password "<the alert sender's Gmail app password>"
+```
+The last one is added by the person who owns that Gmail account. Check that each secret has one enabled
+version, without reading it: `gcloud secrets versions list <name> --format="table(name,state)"`.
+
+**Never change `airflow-fernet-key` once the VM has run:** it decrypts the connections Airflow has stored. Rotate
+the others by adding a new version; the VM picks it up at its next deploy.
 
 ## Sizing note
 

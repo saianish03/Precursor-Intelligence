@@ -10,3 +10,8 @@ output "plan_service_account" {
 output "apply_service_account" {
   value = google_service_account.apply.email
 }
+
+output "subject_prefix" {
+  description = "principal:// prefix of this repository's GitHub token subjects; append :ref:refs/heads/<branch> or :pull_request."
+  value       = local.subject
+}

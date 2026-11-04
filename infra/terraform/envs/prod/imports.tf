@@ -81,6 +81,13 @@ import {
   id = "precursor-intel-mlops roles/resourcemanager.projectIamAdmin serviceAccount:sa-tf-apply@precursor-intel-mlops.iam.gserviceaccount.com"
 }
 
+# Granted by hand before the merge that added it (gcp-bootstrap.md): the same apply also uses it to grant access
+# on single resources, and a role created in that apply would not have propagated yet.
+import {
+  to = module.wif.google_project_iam_member.apply["roles/iam.securityAdmin"]
+  id = "precursor-intel-mlops roles/iam.securityAdmin serviceAccount:sa-tf-apply@precursor-intel-mlops.iam.gserviceaccount.com"
+}
+
 import {
   to = module.wif.google_storage_bucket_iam_member.state["plan"]
   id = "b/precursor-intel-mlops-tfstate roles/storage.objectViewer serviceAccount:sa-tf-plan@precursor-intel-mlops.iam.gserviceaccount.com"
