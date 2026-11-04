@@ -19,3 +19,9 @@ variable "quarantine_ttl_days" {
   type        = number
   default     = null
 }
+
+variable "delete_after_days" {
+  description = "Delete every object after this many days. Null = no rule."
+  type        = number
+  default     = null
+}
