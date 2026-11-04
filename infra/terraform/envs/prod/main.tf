@@ -138,3 +138,56 @@ resource "google_secret_manager_secret_iam_member" "pipeline_reads" {
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.pipeline.email}"
 }
+
+# The VM's own network, so it never shares the default network's open rules. The VM gets no external IP.
+resource "google_compute_network" "vpc" {
+  name                    = "pi-vpc"
+  auto_create_subnetworks = false
+  routing_mode            = "REGIONAL"
+}
+
+resource "google_compute_subnetwork" "main" {
+  name          = "pi-subnet"
+  region        = var.region
+  network       = google_compute_network.vpc.id
+  ip_cidr_range = "10.10.0.0/24"
+
+  # GCS, Artifact Registry and Secret Manager are reached without an external IP.
+  private_ip_google_access = true
+}
+
+resource "google_compute_router" "nat" {
+  name    = "pi-router"
+  region  = var.region
+  network = google_compute_network.vpc.id
+}
+
+# Outbound internet for a VM with no external IP: the pipeline downloads the CMS archive from data.cms.gov, and
+# compose pulls postgres and the Docker proxy from Docker Hub.
+resource "google_compute_router_nat" "nat" {
+  name                               = "pi-nat"
+  router                             = google_compute_router.nat.name
+  region                             = var.region
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+
+  log_config {
+    enable = true
+    filter = "ERRORS_ONLY"
+  }
+}
+
+# The only inbound rule: SSH from Google's IAP range to VMs tagged pi-airflow. The Airflow UI is reached through an
+# SSH port forward, so 8080 is never opened; everything else inbound is denied by default.
+resource "google_compute_firewall" "iap_ssh" {
+  name          = "pi-allow-iap-ssh"
+  network       = google_compute_network.vpc.id
+  direction     = "INGRESS"
+  source_ranges = ["35.235.240.0/20"]
+  target_tags   = ["pi-airflow"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+}
