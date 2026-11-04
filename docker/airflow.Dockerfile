@@ -29,3 +29,8 @@ ENV PYTHONPATH=/opt/airflow/src
 COPY dags /opt/airflow/dags
 COPY src/precursorintelligence /opt/airflow/src/precursorintelligence
 COPY docker/airflow-local/docker-compose.yaml docker/airflow-local/init-db.sh /opt/precursor/compose/
+# The base image's DAGs folder belongs to airflow (775) and COPY keeps a folder's owner, so the airflow user could add
+# or delete DAGs. Root-owned and read-only, like the files in it and the old :ro mount.
+USER root
+RUN chown root:root /opt/airflow/dags && chmod 755 /opt/airflow/dags
+USER airflow
