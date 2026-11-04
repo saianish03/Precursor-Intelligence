@@ -27,13 +27,13 @@ module "state_bucket" {
 }
 
 # Postgres dumps taken on the VM before every stop (spec §14 decision 27). A bucket of its own, so clearing the data
-# bucket never deletes them. No versioning, since every dump has a new name; dumps expire after 30 days.
+# bucket never deletes them. No versioning, since every dump has a new name; dumps expire after 180 days.
 module "backups_bucket" {
   source            = "../../modules/gcs"
   name              = "${var.project_id}-backups"
   location          = var.region
   versioning        = false
-  delete_after_days = 30
+  delete_after_days = 180
 }
 
 # What the pipeline VM runs as. gcsfs checks the bucket itself before writing, which needs
