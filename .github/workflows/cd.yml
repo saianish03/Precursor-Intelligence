@@ -83,7 +83,8 @@ jobs:
           docker build --provenance=false --sbom=false -f docker/airflow.Dockerfile \
             --build-arg PI_GIT_SHA="$GITHUB_SHA" -t "$REGISTRY/airflow:$GITHUB_SHA" .
 
-      # The same checks as CI's images job, on the exact images about to be pushed, plus the commit label on both.
+      # The same checks as CI's images job (ci.yml), on the exact images about to be pushed, plus the commit label on
+      # both. Keep the two in step: a check added to one must be added to the other.
       - name: Test the images
         if: steps.published.outputs.both == 'false'
         run: |

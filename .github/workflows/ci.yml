@@ -71,6 +71,7 @@ jobs:
             echo "::warning::dvc.lock or metrics/ changed after dvc repro; run 'uv run dvc repro' and commit them."
           fi
 
+  # cd.yml repeats this job's checks on the images it pushes: change both together.
   # Builds both images and runs tests/dags inside the Airflow image (Airflow is not a repo dependency, so the
   # tests job skips them). Nothing is pushed: the images stay on the runner. The job always runs, because
   # ci-ok needs it; its first step skips the rest when the PR changes nothing that goes into an image or a DAG.
