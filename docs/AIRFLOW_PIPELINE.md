@@ -287,6 +287,7 @@ It would work on a demo day. The table lists what this implementation does inste
 | `docker/pipeline.Dockerfile`, `docker/airflow.Dockerfile`, `.dockerignore` | the two images |
 | `docker/airflow-local/docker-compose.yaml`, `init-db.sh`, `.env.example` | the stack (the first two are also baked into the Airflow image for the VM) |
 | `docker/airflow-local/docker-compose.override.yaml` | laptop only: mounts `dags/`, `src/precursorintelligence/` and `tests/dags/` over the image's copies |
+| `.github/workflows/cd.yml` | after a merge into `dev`/`main`: builds both images, tests them, pushes them to Artifact Registry as `<image>:<full sha>` (as `sa-deployer`) |
 | `tests/dags/` | DAG integrity and exit-code tests (run in the airflow image) |
 | `docs/runbooks/airflow-local.md` | how to build, run, inspect and clean up; laptop and GCP; verified results |
 

@@ -34,3 +34,10 @@ COPY docker/airflow-local/docker-compose.yaml docker/airflow-local/init-db.sh /o
 USER root
 RUN chown root:root /opt/airflow/dags && chmod 755 /opt/airflow/dags
 USER airflow
+
+# The commit the image was built from, so a pulled or retagged image still says which one it is. CD always passes it
+# (and checks it before pushing); a laptop build may leave it empty. Both labels replace the base image's, which name
+# Apache's repository and commit. Last, so changing the sha rebuilds no other layer.
+ARG PI_GIT_SHA=""
+LABEL org.opencontainers.image.source=https://github.com/saianish03/Precursor-Intelligence \
+      org.opencontainers.image.revision=${PI_GIT_SHA}

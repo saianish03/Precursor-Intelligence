@@ -39,5 +39,8 @@ ARG PI_GIT_SHA
 RUN test -n "$PI_GIT_SHA" || { echo 'build with --build-arg PI_GIT_SHA=$(git rev-parse HEAD)' >&2; exit 1; }
 ENV PI_GIT_SHA=${PI_GIT_SHA} \
     PI_GIT_COMMIT=${PI_GIT_SHA}
+# The standard labels, so a pulled or retagged image still says which commit it is (CD checks it before pushing).
+LABEL org.opencontainers.image.source=https://github.com/saianish03/Precursor-Intelligence \
+      org.opencontainers.image.revision=${PI_GIT_SHA}
 
 CMD ["precursor-ingest", "--help"]
