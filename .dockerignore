@@ -8,6 +8,7 @@
 # the Airflow image's DAGs and compose bundle (never .env: it stays excluded by ** above)
 !dags/
 !docker/airflow-local/docker-compose.yaml
+!docker/airflow-local/docker-compose.vm.yaml
 !docker/airflow-local/init-db.sh
 src/**/__pycache__
 dags/**/__pycache__

@@ -36,7 +36,7 @@ you / @daily -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080     
   - Airflow only orders them, retries them, and records their state.
 - **One image for all data tasks.** `docker/pipeline.Dockerfile`: the repo package plus `configs/`.
   - The Airflow services run a second image, `docker/airflow.Dockerfile`: Airflow 3.1.8 + the Docker provider 4.6.1, plus the DAGs, the `precursorintelligence` package they import (only `alerts` is used) and the compose bundle (`/opt/precursor/compose/`). One image is one release: the VM runs exactly the DAGs CI tested.
-- **Laptop = GCP.** The compose file, images and DAG are identical; only `docker/airflow-local/.env` differs (§6). On a laptop, `docker-compose.override.yaml` also mounts the working tree over the baked DAGs, so edits need no rebuild; the VM never loads it.
+- **Laptop = GCP.** The compose file, images and DAG are identical; only the env file differs (`docker/airflow-local/.env` on a laptop, §6), plus `docker-compose.vm.yaml` on the VM. On a laptop, `docker-compose.override.yaml` also mounts the working tree over the baked DAGs, so edits need no rebuild; the VM never loads it.
 - **Networks are fenced off.** Three Docker networks, each verified:
   - `pi-airflow`: the Airflow services and Postgres;
   - `pi-airflow_docker-api` (internal): only the scheduler and `docker-proxy`;
@@ -231,7 +231,7 @@ Also: `run_log` marks a step failed when it raises, or when it reports `n_failur
 
 Every key is relative to one root, the local folder or `gs://precursor-intel-mlops-data`, so the folder layout is identical on both. `tests/ingestion/test_bronze_end_to_end.py` and `tests/gold/test_gold_on_object_store.py` check that each node writes only its own folders.
 
-**Environment: local disk, a laptop against GCS, and the VM** (`docker/airflow-local/.env`):
+**Environment: local disk, a laptop against GCS, and the VM** (`docker/airflow-local/.env`; on the VM, `docker-compose.vm.yaml` sets these values and makes the images, the secrets and the alert settings required):
 
 | Setting | Laptop, local disk | Laptop → GCS | GCP VM |
 |---|---|---|---|
@@ -274,7 +274,7 @@ It would work on a demo day. The table lists what this implementation does inste
 | **Resource governance** | Kept small (designed for 2 vCPU / 8 GB; the VM is an e2-standard-4, spec §14 #26): 1 API worker, parallelism 4, a per-task memory limit (10g on the VM), capped container logs, auto-removed containers | One heavy task cannot starve Postgres or the scheduler, and logs cannot fill the disk | compose, `pipeline_operator.py` |
 | **Observability and audit** | One run id on every metadata row, log file, report folder and manifest; per-process JSON logs shipped to the bucket; per-node assets; Checkpoint reports | "What did run X do, and why did it fail?" is answerable from one id, after the containers are long gone | §5, §6 |
 | **Reproducibility** | Pinned base images and tools; `uv.lock --frozen`; Airflow installed under its own constraints; provider pinned, with a test that fails if its error format changes; `PI_GIT_SHA` in manifests | The same commit builds the same images. An Airflow or provider upgrade cannot silently break the exit-code handling | Dockerfiles, `tests/dags` |
-| **Environment parity** | The laptop and the VM use identical compose, images and DAG; only `.env` differs. On a laptop, manual runs only, so unpausing cannot start a full-archive run | What was tested locally is what runs in production | `.env.example` |
+| **Environment parity** | The laptop and the VM use identical compose, images and DAG; only `.env` differs, plus `docker-compose.vm.yaml` on the VM. On a laptop, manual runs only, so unpausing cannot start a full-archive run | What was tested locally is what runs in production | `.env.example` |
 | **Operability** | Params `mode` (backfill or monthly), `calibrate`, `stop_after` (node-by-node first backfill), `entry_ids` (development subsets); a runbook for build, run, inspect and clean up | Operators control the pipeline from the UI without code changes | DAG, runbook |
 | **Tested** | DAG integrity and operator tests in the Airflow image, which CI builds and tests on every PR that touches an image or a DAG; repo unit tests; real end-to-end runs on CMS data (runbook §8) | Wiring mistakes are caught before deploy, not at 3 a.m. | `tests/dags`, runbook |
 
@@ -286,6 +286,7 @@ It would work on a demo day. The table lists what this implementation does inste
 | `dags/utils/pipeline_operator.py` | `PipelineDockerOperator`, `docker_kwargs()`, the JSON result parser |
 | `docker/pipeline.Dockerfile`, `docker/airflow.Dockerfile`, `.dockerignore` | the two images |
 | `docker/airflow-local/docker-compose.yaml`, `init-db.sh`, `.env.example` | the stack (the first two are also baked into the Airflow image for the VM) |
+| `docker/airflow-local/docker-compose.vm.yaml` | VM only, baked into the Airflow image: the production values, images by sha, Postgres data on the data disk |
 | `docker/airflow-local/docker-compose.override.yaml` | laptop only: mounts `dags/`, `src/precursorintelligence/` and `tests/dags/` over the image's copies |
 | `.github/workflows/cd.yml` | after a merge into `dev`/`main`: builds both images, tests them, pushes them to Artifact Registry as `<image>:<full sha>` (as `sa-deployer`) |
 | `tests/dags/` | DAG integrity and exit-code tests (run in the airflow image) |

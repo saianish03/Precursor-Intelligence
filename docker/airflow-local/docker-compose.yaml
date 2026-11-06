@@ -1,8 +1,9 @@
 # Airflow 3 (LocalExecutor) + Postgres for the CMS data pipeline: the same stack on a laptop and on the GCP VM.
 # Every DAG task runs in its own precursor-pipeline container, started through docker-proxy (spec §15).
-# What differs between a laptop and the VM lives only in .env (copy .env.example): docs/runbooks/airflow-local.md
-# The DAGs are baked into precursor-airflow. On a laptop, docker-compose.override.yaml (loaded automatically by
-# `docker compose` in this folder) mounts the working tree over them; the VM runs this file without it.
+# A laptop sets its values in .env (copy .env.example): docs/runbooks/airflow-local.md. The VM's production values are
+# in docker-compose.vm.yaml. The DAGs are baked into precursor-airflow. On a laptop, docker-compose.override.yaml
+# (loaded automatically by `docker compose` in this folder) mounts the working tree over them; the VM runs this file
+# with docker-compose.vm.yaml instead.
 #
 #   cd docker/airflow-local && cp .env.example .env    # then edit .env
 #   docker compose up -d --wait                        # http://localhost:8080
