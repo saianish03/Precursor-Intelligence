@@ -58,6 +58,9 @@ class SourceMap:
     table: str
     columns: dict[str, Column]
     ignored: frozenset[str]
+    # `new_headers: fail` in column_map.yaml: a new header fails the partition even when every expected
+    # column is present, for a table where a new column could change what a row means unnoticed
+    fail_on_new_headers: bool = False
 
 
 @dataclass(frozen=True)
@@ -132,7 +135,8 @@ class Resolution:
     problems: list[
         tuple[str, str]
     ]  # (raw header or canonical, problem); any problem fails the partition
-    # headers the map doesn't know: dropped with a warning when nothing else fails (spec §3.2)
+    # headers the map doesn't know: dropped with a warning when nothing else fails and the table allows it
+    # (spec §3.2)
     new: list[str] = field(default_factory=list)
 
 
@@ -157,7 +161,12 @@ def _source_map(table: str, spec: dict[str, Any]) -> SourceMap:
         if not aliases:
             raise ConfigError(f"column_map {table}.{name}: no aliases")
         columns[name] = Column(name, col["dtype"], aliases)
-    return SourceMap(table, columns, frozenset(spec.get("ignored") or []))
+    new_headers = spec.get("new_headers", "warn")
+    if new_headers not in ("warn", "fail"):
+        raise ConfigError(
+            f"column_map {table}.new_headers must be warn or fail, got {new_headers!r}"
+        )
+    return SourceMap(table, columns, frozenset(spec.get("ignored") or []), new_headers == "fail")
 
 
 def load_silver_config(config_dir: Path | None = None) -> SilverConfig:
@@ -188,10 +197,10 @@ def load_silver_config(config_dir: Path | None = None) -> SilverConfig:
 
 def resolve_headers(source: SourceMap, headers: list[str], vintage: str) -> Resolution:
     """Every raw header is an alias valid in this vintage, ignored, or new (spec §3.2). New headers alone
-    are additive drift: dropped and reported, not a failure. Fails: an alias used outside its range, a
-    column whose in-range alias is missing from the file, and two aliases of one column in the same file.
-    A failed partition also lists its new headers, since a new name next to a missing one is usually a
-    rename."""
+    are additive drift: dropped and reported, not a failure, unless the table sets `new_headers: fail`.
+    Fails: an alias used outside its range, a column whose in-range alias is missing from the file, and
+    two aliases of one column in the same file. A failed partition also lists its new headers, since a new
+    name next to a missing one is usually a rename."""
     res = Resolution(rename={}, absent=[], problems=[])
     present = set(headers)
     known = {a.raw for c in source.columns.values() for a in c.aliases}
@@ -216,6 +225,6 @@ def resolve_headers(source: SourceMap, headers: list[str], vintage: str) -> Reso
             res.problems.append((col.name, f"expected header {in_range[0].raw!r} is missing"))
         else:
             res.absent.append(col.name)
-    if res.problems:
+    if res.problems or source.fail_on_new_headers:
         res.problems += [(h, "unmapped header") for h in res.new]
     return res
