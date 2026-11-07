@@ -167,7 +167,14 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
   - `PI_RELEASE_SHA`: the full git sha of the release. Both images come from Artifact Registry with that tag, so they can't come from different commits;
   - `PI_ALERT_EMAIL_TO`, `PI_ALERT_SMTP_HOST`, `PI_ALERT_SMTP_USER`, `PI_ALERT_SMTP_PASSWORD` (the `smtp-password` secret), so a failed run emails someone.
 - **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` run or an SSH session.
-- **Credentials:** the VM runs as `sa-pipeline` (`storage.objectAdmin` on the data bucket only). Task containers reach the GCE metadata server, so gcsfs gets its tokens and no key file is needed.
+- **Credentials:** the VM runs as `sa-pipeline`, with no key file: gcsfs and gcloud get its tokens from the GCE metadata server. Its roles (Terraform, #41):
+  - `storage.objectAdmin` on the data bucket;
+  - `secretmanager.secretAccessor` on the six VM secrets (it is their only reader);
+  - `storage.objectCreator` + `storage.objectViewer` on the backups bucket;
+  - `artifactregistry.reader` on the `precursor` repository;
+  - `logging.logWriter` and `monitoring.metricWriter` on the project.
+
+  **Task containers reach the metadata server too, so they get the same identity.** A compromised task could therefore read the secrets as well, including the Postgres superuser password (`airflow-db-password`). Settle this before the first VM smoke test: `pg_hba` rules that refuse the `airflow` role from the task network, or a recorded accepted risk.
 - **Images:** CD (`.github/workflows/cd.yml`) pushes both on every merge into `dev` or `main` that changes an image input, tagged with the full commit sha: `us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/{pipeline,airflow}:<sha>` (immutable tags, never `latest`; run it by hand from the Actions tab to publish the current tip of `dev` or `main`, e.g. a commit whose push changed no image input). The VM pre-pulls by sha on deploy (`gcloud auth configure-docker us-central1-docker.pkg.dev`, `docker pull`). The Docker proxy sends no registry credentials, and `force_pull` is off.
 - **Access:** no firewall rule for 8080. Reach the UI with `gcloud compute ssh <vm> --tunnel-through-iap -- -L 8080:127.0.0.1:8080`.
 - **Alert log links:** they use Airflow's `[api] base_url`, `http://localhost:8080` when unset. That works only through the tunnel above on local port 8080; for any other address, set `AIRFLOW__API__BASE_URL` for the Airflow containers.
