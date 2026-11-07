@@ -21,7 +21,7 @@ from precursorintelligence.ingestion.pipeline import EXIT_OK, EXIT_VALIDATION
 NOW = datetime(2026, 10, 18, 12, 0, tzinfo=UTC)
 
 
-def write_config(folder, *, extra_ignored=(), name_dtype="str"):
+def write_config(folder, *, extra_ignored=(), name_dtype="str", new_headers=None):
     """A tiny column map for the 3-column provider CSVs of the bronze fixtures."""
     folder.mkdir(exist_ok=True)
     alias = lambda raw: [{"raw": raw, "from": "2021-01", "to": None}]  # noqa: E731
@@ -35,6 +35,8 @@ def write_config(folder, *, extra_ignored=(), name_dtype="str"):
             "ignored": list(extra_ignored),
         }
     }
+    if new_headers is not None:
+        cmap["provider_info"]["new_headers"] = new_headers
     keep = {
         "provider_by_vintage": {
             "source": "provider_info",
@@ -129,9 +131,9 @@ def test_a_renamed_header_fails_closed_and_is_retried_after_the_fix(
     ]
 
 
-def config_without_provider_name(folder):
+def config_without_provider_name(folder, **kw):
     """A column map that doesn't know the fixtures' `Provider Name`: a new CMS column (spec §3.2)."""
-    write_config(folder)
+    write_config(folder, **kw)
     cfg = load_silver_config(folder)
     cfg.sources["provider_info"].columns.pop("provider_name")
     cfg.tables["provider_by_vintage"] = replace(cfg.tables["provider_by_vintage"], columns=("ccn",))
@@ -218,6 +220,24 @@ def test_a_partition_that_fails_for_another_reason_also_names_its_new_header(
     assert res.new_headers == []  # nothing was built without it
 
 
+def test_a_table_set_to_fail_closed_fails_its_partition_on_a_new_header(ctx, meta, stage, tmp_path):
+    stage("provider_info", "2025-06")
+    run_bronze(ctx, now=NOW)
+    cfg = config_without_provider_name(tmp_path / "cfg", new_headers="fail")
+    res = run_silver(ctx, cfg=cfg, now=NOW)
+
+    assert res.exit_code == EXIT_VALIDATION
+    (part,) = res.partitions
+    assert (part.status, part.problems) == ("failed", [("Provider Name", "unmapped header")])
+    assert (
+        res.new_headers == []
+    )  # a failure, not the additive-drift warning: the run-failure email goes out
+    assert silver_sink(ctx).list_partitions("provider_by_vintage") == []
+    assert unmapped_report(ctx) == [
+        ("provider_info", "2025-06", "Provider Name", "unmapped header")
+    ]
+
+
 def test_silver_refuses_to_start_on_incomplete_bronze(ctx, meta, stage, tmp_path):
     stage("provider_info", "2025-06")  # staged in landing, but bronze never ran
     res = run_silver(ctx, cfg=write_config(tmp_path / "cfg"), now=NOW)
@@ -265,6 +285,26 @@ def test_identical_penalties_are_kept_and_numbered_in_file_order():
     assert (
         stats["dup_seq_gt_1"] == 1 and stats["exact_duplicate_rows"] == 0
     )  # Fine ID tells them apart
+
+
+def test_a_new_penalties_column_fails_the_partition_even_with_every_column_present():
+    """The repo config: penalties fail closed on new headers (no grain backstop, see column_map.yaml)."""
+    from precursorintelligence.harmonize.silver import PartitionError
+
+    fine = {
+        "ccn": "015009",
+        "penalty_date": "2026-05-04",
+        "penalty_type": "Fine",
+        "fine_amount": "6500",
+        "processing_date": "2026-08-01",
+        "fine_id": "A1",
+    }
+    frame, cfg = _penalty_frame([fine])
+    outputs, _, _ = harmonize(frame, "penalties", "2026-08", cfg)  # every expected column: builds
+    assert outputs["penalties_by_vintage"].height == 1
+    split = frame.with_columns(pl.lit("1 of 2").alias("Fine Installment"))
+    with pytest.raises(PartitionError, match="Fine Installment: unmapped header"):
+        harmonize(split, "penalties", "2026-08", cfg)
 
 
 def test_a_wrong_processing_date_fails_the_partition():

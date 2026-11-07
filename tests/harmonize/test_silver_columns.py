@@ -1,6 +1,7 @@
 """Silver configs and header resolution (spec §3.2): new headers, failures and the alias ranges."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -47,6 +48,15 @@ def test_a_new_header_with_every_expected_column_present_is_dropped_not_failed()
     )
     assert res.problems == [] and res.new == ["Brand New"]  # additive drift: built with a warning
     assert res.rename == {"ccn": "CMS Certification Number (CCN)", "fine_id": "Fine ID"}
+
+
+def test_a_table_set_to_fail_closed_fails_on_a_new_header_even_with_every_column_present():
+    strict = replace(SOURCE, fail_on_new_headers=True)
+    present = ["CMS Certification Number (CCN)", "Fine ID"]
+    res = resolve_headers(strict, [*present, "Brand New"], "2026-07")
+    assert res.problems == [("Brand New", "unmapped header")] and res.new == ["Brand New"]
+    # listing a header under `ignored:` still accepts it, as for any table
+    assert resolve_headers(strict, [*present, "Location"], "2026-07").problems == []
 
 
 def test_a_new_header_next_to_a_missing_one_fails_as_a_likely_rename():
@@ -107,6 +117,30 @@ def test_the_repo_configs_load_and_cover_every_silver_table():
     }
     # current aliases are open-ended, so the next CMS release needs no config edit
     assert cfg.sources["penalties"].columns["ccn"].aliases[-1].end is None
+
+
+def test_only_penalties_fail_closed_on_new_headers_in_the_repo_config():
+    """Penalties have no grain backstop (its row key is unique by construction), so a new column that splits a
+    fine into two rows would add fines silently. Every other table builds without a new column (spec §3.2)."""
+    cfg = load_silver_config()
+    assert {t for t, s in cfg.sources.items() if s.fail_on_new_headers} == {"penalties"}
+
+
+@pytest.mark.parametrize("value", ["maybe", "true"])
+def test_an_unknown_new_headers_setting_is_a_config_error(tmp_path, value):
+    from shutil import copy
+
+    from precursorintelligence.common.config import project_root
+
+    for name in ("keep_columns.yaml", "value_maps.yaml", "calibration.yaml"):
+        copy(project_root() / "configs" / name, tmp_path / name)
+    text = (project_root() / "configs" / "column_map.yaml").read_text(encoding="utf-8")
+    assert "\n  new_headers: fail\n" in text
+    (tmp_path / "column_map.yaml").write_text(
+        text.replace("\n  new_headers: fail\n", f"\n  new_headers: {value}\n"), encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="new_headers"):
+        load_silver_config(tmp_path)
 
 
 def test_the_config_hash_ignores_comments_and_line_endings(tmp_path):
@@ -224,9 +258,9 @@ def test_the_calibration_settings_are_read_from_the_config():
 
 
 def test_the_sep_2026_release_headers_are_all_mapped_or_ignored():
-    """The real header sets of the 2026-10-08 release (Sep 2026 data, recorded by Step 1). CMS added
-    `Survey Footnote` (citations, surveys) and three provider columns; an unknown header would only warn
-    (spec §3.2), so check that none is left unmapped."""
+    """The real header sets of the 2026-10-08 release (Sep 2026 data, recorded by Step 1; penalties read from
+    its bronze). CMS added `Survey Footnote` (citations, surveys) and three provider columns. An unknown header
+    would only warn for most tables and would fail penalties (spec §3.2), so check that none is left unmapped."""
     cfg = load_silver_config()
     headers = json.loads((Path(__file__).parent / "data" / "headers_2026-09.json").read_text())
     for table, names in headers.items():

@@ -2,8 +2,10 @@
 _meta:
   version: 1
   source: docs/data/step2_reference/column_map.draft.yaml (machine-checked against the 427 selected files, vintages 2021-01..2026-08)
-  rule: every raw header in every vintage is an alias valid for that vintage or listed under ignored; anything else fails
-    the partition (exit 2)
+  rule: every raw header in every vintage is an alias valid for that vintage, listed under ignored, or new (spec §3.2). A
+    new header alone is dropped with a warning and an email, unless the table sets new_headers to fail. A missing expected
+    header, an alias used outside its range, or two aliases of one column fail the partition (exit 2), and the failure
+    lists its new headers too
   ranges: 'from/to are inclusive vintage months; to: null means still valid (open-ended), so a new release needs no edit unless
     CMS renames a column'
 provider_info:
@@ -744,6 +746,11 @@ survey_dates:
       complete: false
   ignored: []
 penalties:
+  # No grain backstop: the row key (5 fields + dup_seq) is unique by construction, so a new column that splits one fine
+  # into two rows would add fines silently. A new header fails the partition until it is mapped or ignored (review of
+  # PR #35). Before ignoring one, check in bronze that no rows differ only in that column; after the rebuild, compare the
+  # `dup_seq` > 1 count on the Penalties line of 02_harmonization.md with the previous run.
+  new_headers: fail
   columns:
     ccn:
       dtype: ccn
