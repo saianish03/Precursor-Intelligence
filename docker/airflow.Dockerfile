@@ -28,7 +28,8 @@ RUN curl -fsSL -o /tmp/constraints.txt \
 ENV PYTHONPATH=/opt/airflow/src
 COPY dags /opt/airflow/dags
 COPY src/precursorintelligence /opt/airflow/src/precursorintelligence
-COPY docker/airflow-local/docker-compose.yaml docker/airflow-local/init-db.sh /opt/precursor/compose/
+COPY docker/airflow-local/docker-compose.yaml docker/airflow-local/docker-compose.vm.yaml \
+     docker/airflow-local/init-db.sh /opt/precursor/compose/
 # The base image's DAGs folder belongs to airflow (775) and COPY keeps a folder's owner, so the airflow user could add
 # or delete DAGs. Root-owned and read-only, like the files in it and the old :ro mount.
 USER root

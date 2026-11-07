@@ -1,0 +1,50 @@
+# The GCP VM only: its production settings on top of docker-compose.yaml. Baked into the Airflow image's compose bundle
+# (/opt/precursor/compose/); the VM's deploy script runs both files from there, with an env file it writes from
+# Secret Manager:
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.vm.yaml --env-file /etc/precursor/.env up -d --wait
+#
+# Naming the files with -f means docker-compose.override.yaml (laptop only) is never loaded. What must not differ
+# between VMs is fixed here; the rest has no default (${VAR:?}), so a missing value stops the deploy instead of
+# falling back to a laptop default.
+x-airflow-vm: &airflow-vm
+  # A release is one commit: both images come from Artifact Registry tagged with the same full sha (cd.yml), so they
+  # can never come from different commits. No default: the registry never has `latest`.
+  image: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/airflow:${PI_RELEASE_SHA:?set it to the full git sha}
+  environment:
+    PI_PIPELINE_IMAGE: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/pipeline:${PI_RELEASE_SHA:?set it to the full git sha}
+    PI_PIPELINE_ENV: prod
+    PI_BUCKET_URI: ${PI_BUCKET_URI:-gs://precursor-intel-mlops-data} # a trial prefix only for a smoke test
+    PI_HOST_DATA_DIR: "" # every layer goes to GCS, none to the VM's disk
+    PI_GCP_CREDENTIALS_FILE: "" # no key file: tasks get sa-pipeline's tokens from the metadata server
+    PI_DAG_SCHEDULE: "" # manual runs only; releases will start runs through cms_nh_release_check (spec §14 #24)
+    PI_TASK_MEM_LIMIT: 10g # per task container (16 GB e2-standard-4, spec §14 #26): a task past it is killed alone
+    PI_AUTO_REMOVE: force # failed task containers hold PI_DATABASE_URL: never keep them
+    AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?set it in the env file} # its own secret, not the JWT one
+    # Nobody watches the VM: a failed run must email someone (src/precursorintelligence/alerts.py).
+    PI_ALERT_EMAIL_TO: ${PI_ALERT_EMAIL_TO:?set it in the env file}
+    PI_ALERT_SMTP_HOST: smtp.gmail.com # the sender is a Gmail account; port 587 (STARTTLS) is the default
+    PI_ALERT_SMTP_USER: ${PI_ALERT_SMTP_USER:?set it in the env file}
+    PI_ALERT_SMTP_PASSWORD: ${PI_ALERT_SMTP_PASSWORD:?set it in the env file}
+
+services:
+  postgres:
+    volumes:
+      # On the VM's data disk, which outlives the VM (spec §14 #27), instead of the named volume on the boot disk. A
+      # subdirectory, because initdb refuses the disk's root (lost+found). Created once with the disk, never here:
+      # if the disk is not mounted, Postgres fails to start instead of creating an empty database on the boot disk.
+      - type: bind
+        source: ${PI_PGDATA_DIR:-/mnt/disks/pgdata}/data
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+  airflow-init:
+    <<: *airflow-vm
+  airflow-apiserver:
+    <<: *airflow-vm
+  airflow-scheduler:
+    <<: *airflow-vm
+  airflow-dag-processor:
+    <<: *airflow-vm
+  airflow-triggerer:
+    <<: *airflow-vm

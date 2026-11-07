@@ -2,11 +2,11 @@
 
 How it works (DAG, tasks, lock, exit codes, metadata DB schema): [`../AIRFLOW_PIPELINE.md`](../AIRFLOW_PIPELINE.md). This page is the how-to.
 
-One DAG, `cms_nh_pipeline` (spec §15), runs the implemented nodes **ingestion → bronze → silver → gold**. Every task is one CLI command in a `precursor-pipeline` container. The same compose file, images and DAG run on a laptop and on the VM; only `docker/airflow-local/.env` differs.
+One DAG, `cms_nh_pipeline` (spec §15), runs the implemented nodes **ingestion → bronze → silver → gold**. Every task is one CLI command in a `precursor-pipeline` container. The same compose file, images and DAG run on a laptop and on the VM; only the env file differs (`docker/airflow-local/.env` on a laptop), plus `docker-compose.vm.yaml` on the VM (§5).
 
 ```
 docker compose (docker/airflow-local/)
-  postgres:16         databases airflow + precursor_meta (named volume)
+  postgres:16         databases airflow + precursor_meta (named volume; on the VM, the data disk)
   airflow-*           precursor-airflow image: api-server, scheduler (LocalExecutor), dag-processor, triggerer
   docker-proxy        the only Docker API access (containers + images), on an internal network only the
                       scheduler joins
@@ -150,17 +150,32 @@ docker compose exec postgres psql -U airflow -d precursor_meta -c "select status
 ## 5. On the GCP VM
 Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
 
-- **`.env`:**
+- **Two compose files, from the compose bundle in the Airflow image** (`/opt/precursor/compose/`):
+  ```bash
+  docker compose -f docker-compose.yaml -f docker-compose.vm.yaml --env-file /etc/precursor/.env up -d --wait
+  ```
+  Naming the files with `-f` keeps `docker-compose.override.yaml` out, so the DAGs come from the image.
+- **`docker-compose.vm.yaml` sets the production values:**
   - `PI_PIPELINE_ENV=prod`;
-  - `PI_HOST_DATA_DIR=` (empty);
-  - `PI_BUCKET_URI=gs://precursor-intel-mlops-data`;
-  - `PI_DAG_SCHEDULE=` (empty: releases start runs through the `cms_nh_release_check` DAG, spec §14 #24);
+  - `PI_HOST_DATA_DIR` and `PI_GCP_CREDENTIALS_FILE` empty;
+  - `PI_BUCKET_URI` defaults to `gs://precursor-intel-mlops-data`. Set it only for a trial prefix, and reset `precursor_meta` afterwards: the metadata database records keys relative to the bucket root, so a later run on the root would trust objects that are only under the prefix;
+  - `PI_DAG_SCHEDULE` empty: releases will start runs through the `cms_nh_release_check` DAG (spec §14 #24);
   - `PI_TASK_MEM_LIMIT=10g` (e2-standard-4, 16 GB), `PI_AUTO_REMOVE=force`;
-  - git-SHA image tags.
-  - Render the secrets from Secret Manager at deploy time.
+  - `PI_ALERT_SMTP_HOST=smtp.gmail.com`: the alert sender is a Gmail account (port 587, the default);
+  - Postgres data in `${PI_PGDATA_DIR:-/mnt/disks/pgdata}/data` on the data disk, instead of the named volume. The disk's setup creates that folder once; compose never does, so an unmounted disk stops Postgres instead of starting an empty database on the boot disk.
+- **The env file must set these, or compose stops** (none has a default on the VM):
+  - the laptop's four secrets plus `AIRFLOW_API_SECRET_KEY`, all from Secret Manager;
+  - `PI_RELEASE_SHA`: the full git sha of the release. Both images come from Artifact Registry with that tag, so they can't come from different commits;
+  - `PI_ALERT_SMTP_USER`, `PI_ALERT_SMTP_PASSWORD` and `PI_ALERT_EMAIL_TO`, from the secrets `alert-smtp-user`, `smtp-password` and `alert-email-to`, so a failed run emails someone. The two addresses aren't secret, but email addresses stay out of this public repository.
 - **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` run or an SSH session.
-- **Credentials:** the VM runs as `sa-pipeline` (`storage.objectAdmin` on the data bucket only). Task containers reach the GCE metadata server, so gcsfs gets its tokens and no key file is needed.
-- **No override:** the VM runs `docker-compose.yaml` from the compose bundle in the Airflow image (`/opt/precursor/compose/`), without `docker-compose.override.yaml`, so the DAGs come from the image.
+- **Credentials:** the VM runs as `sa-pipeline`, with no key file: gcsfs and gcloud get its tokens from the GCE metadata server. Its roles (Terraform, #41):
+  - `storage.objectAdmin` on the data bucket;
+  - `secretmanager.secretAccessor` on each VM secret (the only service account with access);
+  - `storage.objectCreator` + `storage.objectViewer` on the backups bucket;
+  - `artifactregistry.reader` on the `precursor` repository;
+  - `logging.logWriter` and `monitoring.metricWriter` on the project.
+
+  **Task containers reach the metadata server too, so they get the same identity.** A compromised task could therefore read the secrets as well, including the Postgres superuser password (`airflow-db-password`). Settle this before the first VM smoke test: `pg_hba` rules that refuse the `airflow` role from the task network, or a recorded accepted risk.
 - **Images:** CD (`.github/workflows/cd.yml`) pushes both on every merge into `dev` or `main` that changes an image input, tagged with the full commit sha: `us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/{pipeline,airflow}:<sha>` (immutable tags, never `latest`; run it by hand from the Actions tab to publish the current tip of `dev` or `main`, e.g. a commit whose push changed no image input). The VM pre-pulls by sha on deploy (`gcloud auth configure-docker us-central1-docker.pkg.dev`, `docker pull`). The Docker proxy sends no registry credentials, and `force_pull` is off.
 - **Access:** no firewall rule for 8080. Reach the UI with `gcloud compute ssh <vm> --tunnel-through-iap -- -L 8080:127.0.0.1:8080`.
 - **Alert log links:** they use Airflow's `[api] base_url`, `http://localhost:8080` when unset. That works only through the tunnel above on local port 8080; for any other address, set `AIRFLOW__API__BASE_URL` for the Airflow containers.

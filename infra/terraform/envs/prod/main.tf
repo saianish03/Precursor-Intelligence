@@ -132,7 +132,7 @@ locals {
     "pi-meta-db-password",    # PI_META_DB_PASSWORD     Postgres role `pi_meta` (pipeline metadata)
     "airflow-fernet-key",     # AIRFLOW_FERNET_KEY      never change it once set: it decrypts stored connections
     "airflow-jwt-secret",     # AIRFLOW_JWT_SECRET
-    "airflow-api-secret-key", # AIRFLOW_API_SECRET_KEY  compose still reuses the JWT secret; a later task splits them
+    "airflow-api-secret-key", # AIRFLOW_API_SECRET_KEY  docker-compose.vm.yaml; a laptop reuses the JWT secret
     "smtp-password",          # PI_ALERT_SMTP_PASSWORD  the alert sender's Gmail app password
   ])
 }
