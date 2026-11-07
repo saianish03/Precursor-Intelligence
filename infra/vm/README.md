@@ -24,8 +24,8 @@ the one that made the dump (`airflow db migrate` can't go backwards). Task logs 
 1. **On your laptop, pick the dumps** by creation time, not by name, and check them:
    ```bash
    B=gs://precursor-intel-mlops-backups/postgres
-   gcloud storage ls -l $B/airflow/ | sort -k2 | tail -3          # size, creation time, name
-   gcloud storage ls -l $B/precursor_meta/ | sort -k2 | tail -3
+   gcloud storage ls -l $B/airflow/ | grep -v '^TOTAL' | sort -k2 | tail -3          # size, creation time, name
+   gcloud storage ls -l $B/precursor_meta/ | grep -v '^TOTAL' | sort -k2 | tail -3
    ```
    - The same name must exist for both databases. A name listed for only one is a failed run.
    - The time in the name must match the creation time to within a minute.
