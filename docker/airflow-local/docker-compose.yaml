@@ -9,6 +9,12 @@
 #   docker compose up -d --wait                        # http://localhost:8080
 name: pi-airflow
 
+# The task network's subnet, fixed so that Postgres can refuse task containers everything but precursor_meta
+# (init-db.sh). 172.16.0.0/16 is outside Docker's default address pools and the GCP VPC. Changing it also needs the
+# top two lines of pg_hba.conf changed in every existing database, the VM's data disk included (init-db.sh never
+# reruns); otherwise Postgres silently accepts the airflow login from task containers again.
+x-tasks-subnet: &tasks-subnet 172.16.77.0/24
+
 x-logging: &logging # container logs are capped (the VM disk is small)
   driver: local
   options: { max-size: 10m, max-file: "3" }
@@ -74,11 +80,12 @@ services:
       POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD:?set it in .env}
       POSTGRES_DB: airflow
       PI_META_DB_PASSWORD: ${PI_META_DB_PASSWORD:?set it in .env}
+      PI_TASKS_SUBNET: *tasks-subnet
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./init-db.sh:/docker-entrypoint-initdb.d/10-precursor-meta.sh:ro
     ports:
-      - "127.0.0.1:${PI_POSTGRES_HOST_PORT:-55433}:5432" # for inspection from the host only
+      - "127.0.0.1:${PI_POSTGRES_HOST_PORT:-55433}:5432" # for inspection from the host only: keep it on 127.0.0.1
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
       interval: 5s
@@ -172,9 +179,13 @@ networks:
   default:
     name: pi-airflow # the Airflow services and Postgres
   tasks:
-    # pipeline task containers: Postgres (precursor_meta) and internet egress for CMS, nothing else.
-    # They cannot reach the Airflow API server, the scheduler or the Docker proxy.
+    # pipeline task containers: Postgres (precursor_meta only, as pi_meta) and internet egress for CMS, nothing
+    # else. They cannot reach the Airflow API server, the scheduler or the Docker proxy.
     name: pi-airflow-tasks
+    enable_ipv6: false # the Postgres rule is IPv4 only
+    ipam:
+      config:
+        - subnet: *tasks-subnet
   docker-api:
     internal: true
 
