@@ -4,6 +4,7 @@ this hourly check start it? Read-only, apart from one row appended to `vintage_r
 Decisions, in precedence order:
   BUSY       a pipeline run holds the `data_pipeline` lock: skip, the next check decides again
   READY      all 7 datasets report one `modified` month, newer than the latest ingested vintage
+  (PARTIAL   some datasets moved to a newer month, not all 7 to the same one, and landing has work: wait, see below)
   RESUME     no new month at CMS, but the last pipeline work did not finish: the latest ingested vintage is not
              published to gold, a pipeline task ran after the last good gold build (the run failed, was killed or
              stopped early), or validation found errors after it. Run again; every node is idempotent
@@ -11,7 +12,9 @@ Decisions, in precedence order:
              downloaded or not yet extracted (e.g. CMS re-posted an old archive, or a corrective partial zip),
              or inventory rows not resolved yet
   PARTIAL    some datasets moved to a newer month, not all 7 to the same one, and nothing else to do: wait; one
-             alert once the streak is `release_check.partial_alert_days` old
+             alert once the streak is `release_check.partial_alert_days` old. With landing work it comes before
+             RESUME and CHANGED: any run would download that work, and a zip posted mid-release (e.g. the
+             "current" zip) can hold a half-updated month that gold would publish as V
   NO_CHANGE  nothing to do
   BLOCKED    READY, RESUME or CHANGED that would only repeat the last proceed: that proceed ran the same deployed
              commit less than `release_check.repeat_after_hours` ago, a pipeline run started after it, only BUSY
@@ -113,6 +116,8 @@ def decide(
             newer[0],
             f"all {len(inp.modified)} datasets at {newer[0]}, newer than the latest ingested ({latest})",
         )
+    elif newer and (inp.backlog or inp.pending_rows):  # mid-release: landing work waits (docstring)
+        return _partial(inp, newer, history, now, cfg)
     elif latest is not None and (published is None or published < latest):
         d = Decision(
             "RESUME", latest, f"{latest} is ingested but gold is published for {published}"
@@ -212,6 +217,8 @@ def _partial(
         by_month.setdefault(month, []).append(ds)
     detail = "; ".join(f"{m}: {', '.join(ds)}" for m, ds in sorted(by_month.items()))
     reason = f"datasets at different months ({detail}); latest ingested {inp.latest_ingested}"
+    if waiting := len(inp.backlog) + (1 if inp.pending_rows else 0):
+        reason += f"; landing work waits until all 7 match ({waiting} item(s))"
     alert = None
     if not any(r.get("alerted") for r in streak) and now - started >= timedelta(
         days=cfg.partial_alert_days

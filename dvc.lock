@@ -62,8 +62,8 @@ stages:
       nfiles: 18
     - path: src/precursorintelligence/ingestion
       hash: md5
-      md5: 908e5badf881395cda59763545ead89e.dir
-      size: 135446
+      md5: c90c8bc2bf235c6188d860e523b1d244.dir
+      size: 136096
       nfiles: 19
     - path: tests/gold/make_toy_silver.py
       hash: md5

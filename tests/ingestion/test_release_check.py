@@ -135,7 +135,26 @@ def test_precedence_ready_resume_changed_partial():
     assert check(inputs(modified=new_month, backlog=[ZIP], **unpublished)).decision == "READY"
     assert check(inputs(backlog=[ZIP], **unpublished)).decision == "RESUME"
     assert check(inputs(backlog=[ZIP], **failed)).decision == "RESUME"
-    assert check(inputs(modified=partial, backlog=[ZIP])).decision == "CHANGED"
+    assert check(inputs(modified=partial, backlog=[ZIP])).decision == "PARTIAL"  # see below
+
+
+def test_landing_work_waits_while_a_release_is_partial():
+    """Review S7: any run would download it, and a zip posted mid-release can hold a half-updated month. A RESUME
+    with nothing to download still runs."""
+    partial = dict.fromkeys(DATASETS, "2026-09") | {"4pq5-n9py": "2026-10"}
+    for kw in (
+        {"backlog": [ZIP]},
+        {"pending_rows": 2},
+        {"backlog": [ZIP], "latest_published": "2026-08"},
+    ):
+        d = check(inputs(modified=partial, **kw))
+        assert (d.decision, d.proceed) == ("PARTIAL", False), kw
+        assert "landing work waits until all 7 match" in d.reason
+    assert check(inputs(modified=partial, latest_published="2026-08")).decision == "RESUME"
+    assert (
+        check(inputs(modified=dict.fromkeys(DATASETS, "2026-10"), backlog=[ZIP])).decision
+        == "READY"
+    )
 
 
 # ---------------------------------------------------------------------------------- BLOCKED: no hourly repeats
@@ -500,6 +519,19 @@ def test_a_new_current_zip_is_changed(ingested, fake_cms):
     assert [b.split("@")[0] for b in out["backlog"]] == [
         "current:2021-05-06:theme_nursing-homes_current.zip"
     ]
+
+
+def test_a_current_zip_posted_mid_release_waits_for_all_seven(ingested, fake_cms):
+    ctx = ingested()
+    publish(ctx, "2021-03")
+    fake_cms.modified["4pq5-n9py"] = "2021-04-01"  # Provider Information moved first
+    current = fake_cms.current[0]
+    current["date"] = "2021-04-20"
+    fake_cms.replace(current["url"], make_zip("2021-04", "Apr2021", tables=["provider_info"]))
+    out = run_release_check(ctx)
+    assert (out["decision"], out["proceed"], out["backlog_count"]) == ("PARTIAL", False, 1)
+    fake_cms.modified = dict.fromkeys(DATASETS, "2021-04-01")  # the release is complete
+    assert run_release_check(ingested("c2"))["decision"] == "READY"
 
 
 def test_the_printed_backlog_is_capped_but_the_row_keeps_all(ingested, fake_cms):
