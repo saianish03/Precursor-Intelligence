@@ -126,7 +126,8 @@ resource "google_service_account_iam_member" "deployer_from_branch" {
 }
 
 locals {
-  # The VM renders these into its .env at deploy time; the comment is the variable each becomes.
+  # The VM renders these into its .env at deploy time; the comment is the variable each becomes. The two alert
+  # addresses aren't secret, but email addresses stay out of this public repository.
   vm_secrets = toset([
     "airflow-db-password",    # AIRFLOW_DB_PASSWORD     Postgres role `airflow`
     "pi-meta-db-password",    # PI_META_DB_PASSWORD     Postgres role `pi_meta` (pipeline metadata)
@@ -134,6 +135,8 @@ locals {
     "airflow-jwt-secret",     # AIRFLOW_JWT_SECRET
     "airflow-api-secret-key", # AIRFLOW_API_SECRET_KEY  docker-compose.vm.yaml; a laptop reuses the JWT secret
     "smtp-password",          # PI_ALERT_SMTP_PASSWORD  the alert sender's Gmail app password
+    "alert-smtp-user",        # PI_ALERT_SMTP_USER      the alert sender's Gmail address
+    "alert-email-to",         # PI_ALERT_EMAIL_TO       the alert recipients, comma-separated
   ])
 }
 

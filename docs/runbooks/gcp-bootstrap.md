@@ -194,7 +194,7 @@ gcloud auth print-access-token --impersonate-service-account=sa-pipeline@$PROJEC
 
 ## Secret values (by hand, after Terraform created the secrets)
 
-Terraform creates the six secrets empty, so no value ever passes through Terraform, its state or CI. A teammate
+Terraform creates the VM secrets empty, so no value ever passes through Terraform, its state or CI. A teammate
 adds each value once. Editors can add a version but not read one back, which is intended.
 - Generate fresh values; never reuse a laptop `.env`.
 - Hex for the two database passwords: they go into connection URLs, where `/`, `+` and `=` break.
@@ -207,9 +207,14 @@ add airflow-fernet-key "$(python3 -c 'import base64,os;print(base64.urlsafe_b64e
 add airflow-jwt-secret "$(openssl rand -hex 32)"
 add airflow-api-secret-key "$(openssl rand -hex 32)"
 add smtp-password "<the alert sender's Gmail app password>"
+add alert-smtp-user "<the alert sender's Gmail address>"
+add alert-email-to "<recipient emails, comma-separated, no spaces>"
 ```
-The last one is added by the person who owns that Gmail account. Check that each secret has one enabled
-version, without reading it: `gcloud secrets versions list <name> --format="table(name,state)"`.
+The last three come from the alert Gmail account: `smtp-password` (its app password, pasted without the spaces
+Google shows) is added by the person who owns it, `alert-smtp-user` is its address, and `alert-email-to` holds
+the team's recipient emails. The two addresses aren't secret, but email addresses stay out of this
+public repository, so they live here too. Check that each secret has one enabled version, without reading it:
+`gcloud secrets versions list <name> --format="table(name,state)"`.
 
 **Never change `airflow-fernet-key` once the VM has run:** it decrypts the connections Airflow has stored. Rotate
 the others by adding a new version; the VM picks it up at its next deploy.
