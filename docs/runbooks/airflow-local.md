@@ -161,15 +161,16 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
   - `PI_BUCKET_URI` defaults to `gs://precursor-intel-mlops-data`. Set it only for a trial prefix, and reset `precursor_meta` afterwards: the metadata database records keys relative to the bucket root, so a later run on the root would trust objects that are only under the prefix;
   - `PI_DAG_SCHEDULE` empty: releases will start runs through the `cms_nh_release_check` DAG (spec §14 #24);
   - `PI_TASK_MEM_LIMIT=10g` (e2-standard-4, 16 GB), `PI_AUTO_REMOVE=force`;
+  - `PI_ALERT_SMTP_HOST=smtp.gmail.com`: the alert sender is a Gmail account (port 587, the default);
   - Postgres data in `${PI_PGDATA_DIR:-/mnt/disks/pgdata}/data` on the data disk, instead of the named volume. The disk's setup creates that folder once; compose never does, so an unmounted disk stops Postgres instead of starting an empty database on the boot disk.
 - **The env file must set these, or compose stops** (none has a default on the VM):
   - the laptop's four secrets plus `AIRFLOW_API_SECRET_KEY`, all from Secret Manager;
   - `PI_RELEASE_SHA`: the full git sha of the release. Both images come from Artifact Registry with that tag, so they can't come from different commits;
-  - `PI_ALERT_EMAIL_TO`, `PI_ALERT_SMTP_HOST`, `PI_ALERT_SMTP_USER`, `PI_ALERT_SMTP_PASSWORD` (the `smtp-password` secret), so a failed run emails someone.
+  - `PI_ALERT_SMTP_USER`, `PI_ALERT_SMTP_PASSWORD` and `PI_ALERT_EMAIL_TO`, from the secrets `alert-smtp-user`, `smtp-password` and `alert-email-to`, so a failed run emails someone. The two addresses aren't secret, but email addresses stay out of this public repository.
 - **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` run or an SSH session.
 - **Credentials:** the VM runs as `sa-pipeline`, with no key file: gcsfs and gcloud get its tokens from the GCE metadata server. Its roles (Terraform, #41):
   - `storage.objectAdmin` on the data bucket;
-  - `secretmanager.secretAccessor` on the six VM secrets (it is their only reader);
+  - `secretmanager.secretAccessor` on each VM secret (the only service account with access);
   - `storage.objectCreator` + `storage.objectViewer` on the backups bucket;
   - `artifactregistry.reader` on the `precursor` repository;
   - `logging.logWriter` and `monitoring.metricWriter` on the project.

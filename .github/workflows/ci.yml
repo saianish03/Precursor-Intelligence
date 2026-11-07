@@ -132,8 +132,8 @@ jobs:
           test -x bundle/init-db.sh
           export AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x
           docker compose -f bundle/docker-compose.yaml config -q
-          export AIRFLOW_API_SECRET_KEY=x PI_RELEASE_SHA=x PI_ALERT_EMAIL_TO=x PI_ALERT_SMTP_HOST=x \
-            PI_ALERT_SMTP_USER=x PI_ALERT_SMTP_PASSWORD=x
+          export AIRFLOW_API_SECRET_KEY=x PI_RELEASE_SHA=x PI_ALERT_EMAIL_TO=x PI_ALERT_SMTP_USER=x \
+            PI_ALERT_SMTP_PASSWORD=x
           docker compose -f bundle/docker-compose.yaml -f bundle/docker-compose.vm.yaml config -q
           # every Airflow service must take its image from the VM file, never a laptop's `latest`
           if docker compose -f bundle/docker-compose.yaml -f bundle/docker-compose.vm.yaml config --images | grep ':latest$'; then

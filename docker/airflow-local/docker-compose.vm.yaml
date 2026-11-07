@@ -23,7 +23,7 @@ x-airflow-vm: &airflow-vm
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?set it in the env file} # its own secret, not the JWT one
     # Nobody watches the VM: a failed run must email someone (src/precursorintelligence/alerts.py).
     PI_ALERT_EMAIL_TO: ${PI_ALERT_EMAIL_TO:?set it in the env file}
-    PI_ALERT_SMTP_HOST: ${PI_ALERT_SMTP_HOST:?set it in the env file}
+    PI_ALERT_SMTP_HOST: smtp.gmail.com # the sender is a Gmail account; port 587 (STARTTLS) is the default
     PI_ALERT_SMTP_USER: ${PI_ALERT_SMTP_USER:?set it in the env file}
     PI_ALERT_SMTP_PASSWORD: ${PI_ALERT_SMTP_PASSWORD:?set it in the env file}
 
