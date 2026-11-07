@@ -51,12 +51,11 @@ Ask the user to run (in their Claude Code prompt, with the `!` prefix, from the 
 |---|---|
 | `PI_PIPELINE_ENV` | `dev` |
 | `PI_HOST_DATA_DIR` | an absolute path, e.g. `/Users/<you>/pi-airflow-local/data` |
-| `PI_DAG_SCHEDULE` | **empty** (`PI_DAG_SCHEDULE=`). Otherwise unpausing starts a daily full-archive run |
 | `PI_PIPELINE_IMAGE` / `PI_AIRFLOW_IMAGE` | `precursor-pipeline:<SHA>` / `precursor-airflow:<SHA>` |
 
 **Names-only check** (prints set or MISSING, never the values):
 ```bash
-cd docker/airflow-local && bash -c 'set -a; . ./.env >/dev/null 2>&1; set +a; for v in AIRFLOW_DB_PASSWORD PI_META_DB_PASSWORD AIRFLOW_JWT_SECRET AIRFLOW_FERNET_KEY PI_PIPELINE_ENV PI_HOST_DATA_DIR PI_PIPELINE_IMAGE PI_AIRFLOW_IMAGE; do [ -n "${!v}" ] && echo "$v: set" || echo "$v: MISSING"; done; echo "PI_DAG_SCHEDULE: ${PI_DAG_SCHEDULE:-empty (good)}"'
+cd docker/airflow-local && bash -c 'set -a; . ./.env >/dev/null 2>&1; set +a; for v in AIRFLOW_DB_PASSWORD PI_META_DB_PASSWORD AIRFLOW_JWT_SECRET AIRFLOW_FERNET_KEY PI_PIPELINE_ENV PI_HOST_DATA_DIR PI_PIPELINE_IMAGE PI_AIRFLOW_IMAGE; do [ -n "${!v}" ] && echo "$v: set" || echo "$v: MISSING"; done'
 ```
 **Note:** Postgres takes its passwords **only on first start**. Changing them later needs `docker compose down -v`, which deletes the databases.
 
@@ -280,7 +279,6 @@ uv run python $SIM/verify_gold.py <PI_HOST_DATA_DIR>                     # after
 | Gold manifest `git_commit: null` | An image built before the `PI_GIT_COMMIT` fix: rebuild it |
 | `memwatch` records nothing | The `ancestor=` tag does not match `PI_PIPELINE_IMAGE` |
 | Memory peaks parse as 0 | The command contains commas (`discover,download`): take memory from the last CSV column |
-| Unpausing started a run | `PI_DAG_SCHEDULE` was not empty. Mark the run failed in the UI; the lock is released by its teardown |
 | A run sits in `acquire_lock` retries | Another run (or a manual CLI) holds the lock. `precursor-ingest lock status` from a container on `pi-airflow-tasks`; a dead holder is taken over after 12 h |
 | `rm -rf` of the data folder fails | Landing files are chmod 444: `chmod -R u+w` first |
 | zsh mangles `"$H:path"` | zsh treats `$H:` as a modifier; use `"${H}:path"` |

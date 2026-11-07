@@ -87,3 +87,8 @@ security:
     ratio_check_min_bytes: 10485760            # only apply the ratio rule to members > 10 MiB
     allowed_extensions: [.csv, .json, .pdf, .xlsx, .txt]
     max_nested_depth: 0                        # nested zips (annual bundles) are not extracted
+
+# check_release (spec §2.0), the hourly release check that starts cms_nh_pipeline
+release_check:
+  partial_alert_days: 3        # not all 7 datasets at one new month for this long: one alert
+  repeat_after_hours: 24       # a proceed that would only repeat the last one (same commit, its run started, nothing new at CMS): BLOCKED within this

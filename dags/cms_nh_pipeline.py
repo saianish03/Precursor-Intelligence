@@ -14,8 +14,9 @@ build_silver's last output line; spec §3.2).
 Validation (`precursor-pipeline validate`, docs/VALIDATION.md) runs as `validate_silver` before gold and
 `validate_gold` after it. A schema violation exits 2, fails the run and alerts like any failed task.
 
-Implemented nodes: ingestion → bronze → silver → gold. Not built yet, slots marked TODO: `check_release`
-(spec §2.0; its own DAG that starts this one through an asset) and `mirror_metadata` (spec §15.3).
+Implemented nodes: ingestion → bronze → silver → gold. `check_release` is its own DAG, cms_nh_release_check, which
+starts this one through the asset `cms_nh_release` (spec §2.0, decision 24); a manual run never goes through it.
+Not built yet: `mirror_metadata` (spec §15.3).
 
 Params:
   mode        monthly | backfill (backfill implies the silver calibration tasks)
@@ -41,8 +42,15 @@ from utils.pipeline_operator import (
 
 from precursorintelligence.alerts import anomalies_alert, new_headers_alert, send
 
-LANDING, BRONZE, SILVER, GOLD = (
-    Asset(name) for name in ("cms_nh_landing", "cms_nh_bronze", "cms_nh_silver", "cms_nh_gold")
+RELEASE, LANDING, BRONZE, SILVER, GOLD = (
+    Asset(name)
+    for name in (
+        "cms_nh_release",
+        "cms_nh_landing",
+        "cms_nh_bronze",
+        "cms_nh_silver",
+        "cms_nh_gold",
+    )
 )
 INGEST, PIPELINE = "precursor-ingest", "precursor-pipeline"
 NODES = ("ingestion", "bronze", "silver")
@@ -65,9 +73,9 @@ def run(task_id: str, command: str, **kwargs) -> PipelineDockerOperator:
 
 @dag(
     dag_id="cms_nh_pipeline",
-    # CMS sends no notification, so production polls daily (TODO: check_release decides whether a day proceeds).
-    # PI_DAG_SCHEDULE="" (laptop) = manual runs only, so unpausing never starts a full-archive run.
-    schedule=os.environ.get("PI_DAG_SCHEDULE", "@daily") or None,
+    # Started by cms_nh_release_check through the asset (spec §2.0), or by hand. While the release check stays paused
+    # (development), nothing starts a run on its own, so unpausing this DAG never starts a full-archive run.
+    schedule=[RELEASE],
     start_date=datetime(2026, 10, 1),
     catchup=False,
     max_active_runs=1,
@@ -91,9 +99,6 @@ def run(task_id: str, command: str, **kwargs) -> PipelineDockerOperator:
     doc_md=__doc__,
 )
 def cms_nh_pipeline():
-    # TODO(check_release): spec §2.0 / §15 (decision 24): a separate DAG, cms_nh_release_check, runs
-    # `precursor-pipeline check-release` and emits the asset cms_nh_release; this DAG is then scheduled on it.
-
     # stop_after: skip the next node only; the later nodes skip through their default trigger rule, and the
     # release_lock teardown still runs.
     @task.short_circuit(ignore_downstream_trigger_rules=False)

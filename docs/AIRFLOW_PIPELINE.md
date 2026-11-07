@@ -3,7 +3,7 @@
 - **What this covers:** how the CMS data pipeline runs as one Airflow DAG, what each task does, how the run lock and the exit codes work, what the metadata database holds (its schema), and where logs and run artifacts go.
 - **How to run it** on a laptop or on GCP: [`runbooks/airflow-local.md`](runbooks/airflow-local.md).
 - **Rules behind it:** `DATA_PIPELINE_SPEC.md` §15 (one DAG, five nodes) and §0.6–0.7 (storage and metadata).
-- **Status (2026-10-27):** ingestion → bronze → silver → gold implemented and run end to end on real CMS data, from download to a published gold dataset (runbook §8.2). `check_release` and `mirror_metadata` are TODO slots in the DAG.
+- **Status (2026-10-27):** ingestion → bronze → silver → gold implemented and run end to end on real CMS data, from download to a published gold dataset (runbook §8.2). `check_release` runs in its own hourly DAG, `cms_nh_release_check` (created paused; 2026-11-07). `mirror_metadata` is a TODO slot in the DAG.
 
 ---
 
@@ -11,7 +11,7 @@
 
 ```
                 ┌─ docker compose (docker/airflow-local/) ─────────────────────────────────┐
-you / @daily -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080                  │
+you / hourly -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080                  │
                 │ airflow-scheduler       decides what runs; LocalExecutor runs the tasks  │
                 │ airflow-dag-processor   parses dags/                                     │
                 │ airflow-triggerer                                                        │
@@ -48,7 +48,7 @@ you / @daily -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080     
 `dags/cms_nh_pipeline.py`. One DAG for the whole data pipeline; each node is a TaskGroup.
 
 ```
-[check_release]   TODO (spec §2.0): gates the run
+[cms_nh_release_check] hourly, its own DAG (spec §2.0): READY / RESUME / CHANGED emit cms_nh_release
        |
        v
 ┌─ ingestion ──────────────────────────────────────────────────┐
@@ -111,7 +111,7 @@ release_lock      teardown of acquire_lock: runs whenever the lock was taken (§
 | `stop_after` | `null` | `ingestion`, `bronze` or `silver`: run up to that node (the first backfill, checked node by node) |
 | `entry_ids` | `""` | development only: ingest just these catalog entries (comma-separated). Empty = every in-scope zip |
 
-**Schedule:** `PI_DAG_SCHEDULE` for now; a laptop uses manual runs only (empty). `max_active_runs=1`, `catchup=False`. **Decided for production** (spec §14 #24, not built yet): a separate DAG `cms_nh_release_check` polls CMS hourly while the VM is on and starts this DAG through the asset `cms_nh_release`; it stays paused during development, so runs are manual. `PI_DAG_SCHEDULE` then goes away.
+**Schedule:** the asset `cms_nh_release`, plus manual runs; `max_active_runs=1`, `catchup=False`. A separate DAG, `cms_nh_release_check` (hourly, created paused; spec §2.0, §14 #24), runs `precursor-pipeline check-release` and emits the asset on READY, RESUME or CHANGED, with the decision in the event's `extra`. A proceed that would only repeat the last one (same deployed commit, less than 24 h, its pipeline run started, and CMS shows nothing new) is BLOCKED, so a failure that repeats does not run every hour. It stays paused during development, so runs are manual; unpause it when production starts (runbook §5), once gold is published, and pause it during a backfill or node-by-node run (a RESUME runs the default monthly mode). Unpause it **after** `cms_nh_pipeline`: Airflow does not queue an asset event for a paused DAG (verified on the local stack), so a READY emitted while the pipeline is paused starts nothing (the next check emits it again, since no run started).
 
 **Idempotency:** every task can be re-run with the same run id.
 - Unchanged zips, files and partitions are skipped.
@@ -175,6 +175,7 @@ catalog                       one row per CMS catalog entry               (entry
 
 standalone:  anomalies (run_id, entry_id)    run_log (run_id, task)
              run_lock (lock_name)            source_datasets (dataset_id)
+             vintage_registry (id)
 
 ─<  one-to-many
 ```
@@ -194,6 +195,7 @@ standalone:  anomalies (run_id, entry_id)    run_log (run_id, task)
 | `silver_partitions` | `id` (append-only) | silver | one row per silver table and vintage `built` or `failed`; the skip key is content_hash + zip_sha256 + config_hash | run_id, table_name, source_table, vintage_month, status, content_hash, zip_sha256, config_hash, row_count, stats, object_uri, detail, built_at |
 | `run_log` | `id` (append-only) | every node (`task_scope`) | one row per step of a run: start, end, duration, status, details (JSON) | run_id, task, entry_id, status, started_at, finished_at, duration_s, detail |
 | `run_lock` | `lock_name` | lock commands | the `data_pipeline` lock (0 or 1 row) | run_id, holder, acquired_at |
+| `vintage_registry` | `id` (append-only) | `check-release --run-id` (the DAG task; a check by hand, without `--run-id`, records nothing) | one row per release check: the decision, why, and what it saw (spec §2.0) | run_id, checked_at, decision, target, proceed, alerted, git_sha, latest_ingested, latest_published, reason, modified_json, backlog_json |
 
 **Useful queries:**
 ```sql
@@ -205,6 +207,8 @@ union all select 'bronze', status, count(*) from bronze_files where run_id = :ru
 union all select 'silver', status, count(*) from silver_partitions where run_id = :run group by 2;
 -- release flags
 select * from vintage_flags where value order by vintage_month;
+-- the last day of release checks
+select checked_at, decision, target, reason from vintage_registry order by id desc limit 24;
 -- slowest steps of a run
 select task, entry_id, duration_s from run_log where run_id = :run order by duration_s::float desc limit 10;
 ```
@@ -223,7 +227,7 @@ Also: `run_log` marks a step failed when it raises, or when it reports `n_failur
 
 | What | Where (under the bucket root) | Written by |
 |---|---|---|
-| Per-task JSON log (one file per container) | `reports/<node>/run=<run_id>/logs/` (`step1` for ingestion) | every CLI process |
+| Per-task JSON log (one file per container) | `reports/<node>/run=<run_id>/logs/` (`step1` for ingestion) | every CLI process but `check-release` (hourly; its output stays in the Airflow task log) |
 | Checkpoint reports | `reports/step1/` (inventory), `step2/` (harmonisation), `step4/` (posting lag), `step5/` (universe and QM), each as `run=<id>/` and `latest/` | ingestion, silver |
 | Per-run manifests (D11) | `metadata/<ingestion\|bronze\|silver\|gold\|validation>/run_date=<date>/<layer>_run_<run_id>_<ts>.json` | each node |
 | Airflow task logs (container output) | `airflow-logs` volume: `dag_id=…/run_id=…/task_id=…/attempt=N.log` | Airflow |
@@ -239,7 +243,6 @@ Every key is relative to one root, the local folder or `gs://precursor-intel-mlo
 | `PI_HOST_DATA_DIR` | a host folder, bind-mounted at `/app/data` | empty | empty |
 | `PI_BUCKET_URI` | — | empty (the bucket root) or `gs://precursor-intel-mlops-data/trial-<date>` | `gs://precursor-intel-mlops-data` |
 | `PI_GCP_CREDENTIALS_FILE` | — | host path of your gcloud ADC file, mounted read-only into task containers. **Short trials only:** it puts your personal login into containers that open untrusted zips (runbook §2.1) | empty |
-| `PI_DAG_SCHEDULE` | empty (manual) | empty (manual) | empty: releases start runs through `cms_nh_release_check` (spec §14 #24) |
 | `PI_TASK_MEM_LIMIT`, `PI_AUTO_REMOVE` | empty, `success` | empty, `success` | `10g` (e2-standard-4, 16 GB; spec §14 #26), `force` |
 | credentials | none | you (`gcloud auth application-default login`) | the VM's service account `sa-pipeline` (no key files) |
 
@@ -316,7 +319,7 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
 ### 9.2 Every run rewrites gold, and nothing cleans up
 - **What:**
   - Bronze and silver skip unchanged work; gold rebuilds and re-publishes the whole dataset on every successful run.
-  - That includes manual and scheduled runs with nothing new, until `check_release` exists (spec §14 #24).
+  - That includes manual runs with nothing new; `check_release` (spec §2.0) starts a run only when there is work.
   - Each run also leaves `gold/_staging/run=<id>/`.
   - The prod bucket has object versioning, so each overwrite of `gold/*` keeps the old version.
   - The only lifecycle rule is for `quarantine/` (`infra/terraform/modules/gcs/main.tf`).

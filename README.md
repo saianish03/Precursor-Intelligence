@@ -48,7 +48,7 @@ scores.
 | Orchestration | One Airflow 3 DAG, one Docker container per task, run lock with teardown, exit-code retries, email alerts | Built |
 | Cloud | Runs against `gs://precursor-intel-mlops-data`, one folder per layer; Terraform for GCP | Built |
 | Reproducibility | DVC test pipeline, deterministic outputs, manifests with sha256s, CI on Python 3.11 and 3.12 | Built |
-| Release gate | `check_release`: run only when CMS publishes something new | Planned |
+| Release gate | `check_release`: run only when CMS publishes something new | Done: DAG `cms_nh_release_check`, hourly, paused until production |
 | ML phase | Training, calibration, batch scoring, monitoring, agents, API and dashboard | Next |
 
 **Latest real run (gold V = 2026-08):** 578,975 home-months × 107 columns, 15,274 homes, 39 monthly partitions
@@ -171,7 +171,7 @@ Rows that did not change come out byte-identical, so a full rebuild is cheap to 
 
 ## 5. The Airflow DAG
 
-One DAG, `cms_nh_pipeline` (Airflow 3, `max_active_runs=1`): manual on a laptop, daily on the GCP VM.
+One DAG, `cms_nh_pipeline` (Airflow 3, `max_active_runs=1`): manual on a laptop; on the GCP VM, started by the hourly release check `cms_nh_release_check` when CMS has new data (or by hand).
 
 ![Airflow DAG cms_nh_pipeline](docs/img/dag_cms_nh_pipeline.svg)
 
@@ -200,7 +200,7 @@ release_lock = teardown of acquire_lock (runs after a failure too)
 | Exit codes | 0 ok · 1 error (retried 2 × 5 min) · 2 bad data / validation · 3 bad config (2 and 3 fail at once) |
 | Mapping | `extract_inventory` is mapped, one copy per pending zip, up to 3 in parallel |
 | Assets | `cms_nh_landing` → `cms_nh_bronze` → `cms_nh_silver` → `cms_nh_gold` (only when gold publishes and validates) |
-| Alerts | Email (`PI_ALERT_EMAIL_TO`): every failed run, a failed `release_lock`, new error anomalies |
+| Alerts | Email (`PI_ALERT_EMAIL_TO`): every failed run, a failed `release_lock`, new error anomalies, a CMS release stuck partial for 3 days or a release the pipeline never started (`cms_nh_release_check`) |
 | Params | `mode` (monthly / backfill), `calibrate`, `stop_after` (node by node), `entry_ids` (development) |
 | Run modes | Monthly: only new or changed inputs; gold rebuilds and recomputes every label. Backfill: everything plus calibration |
 
@@ -288,13 +288,13 @@ reports/<node>/run=<run_id>/  reports/<node>/latest/   metadata/<layer>/run_date
 
 **Metadata:** Postgres database `precursor_meta` (SQLite only for single-process CLI runs and unit tests):
 catalog, source_datasets, download_log, extracted_files, inventory, anomalies, bronze_files, vintage_flags,
-silver_partitions, dq_results, run_log, run_lock. Airflow keeps its own state in a separate database.
+silver_partitions, dq_results, run_log, run_lock, vintage_registry. Airflow keeps its own state in a separate database.
 
 | Setting | Laptop | GCP VM |
 |---|---|---|
 | `PI_PIPELINE_ENV` | `dev` → `configs/dev.yaml` (local disk) | `prod` → `configs/prod.yaml` (GCS, object versioning) |
 | Credentials | none, or `PI_GCP_CREDENTIALS_FILE` to run against the bucket | the VM's service account `sa-pipeline` (no key files) |
-| Schedule | manual | daily |
+| Schedule | manual | `cms_nh_release_check` (hourly) starts a run when CMS has new data |
 | Task memory | no limit | 6 GB per task container |
 
 Task containers sit on their own Docker network: they reach only Postgres and the internet (they open untrusted
@@ -351,7 +351,6 @@ AIRFLOW_FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 AIRFLOW_UID=$(id -u)
 PI_PIPELINE_ENV=dev
 PI_HOST_DATA_DIR=$HOME/pi-data
-PI_DAG_SCHEDULE=
 PI_TASK_MEM_LIMIT=
 PI_AUTO_REMOVE=success
 EOF
@@ -361,7 +360,7 @@ docker compose exec airflow-scheduler airflow dags unpause cms_nh_pipeline
 ```
 
 - `PI_PIPELINE_ENV=dev` keeps all data in the `PI_HOST_DATA_DIR` folder; no cloud credentials are needed.
-- `PI_DAG_SCHEDULE=` (empty) means manual runs only; the daily schedule would start a full-archive run when unpaused.
+- Nothing starts a run on its own: `cms_nh_pipeline` runs on the `cms_nh_release` asset, which only the hourly `cms_nh_release_check` emits, and that DAG is created paused. Keep it paused on a laptop and trigger runs by hand.
 - The UI is at http://localhost:8080, user `admin`; the password:
   `docker compose exec airflow-apiserver cat /opt/airflow/config/simple_auth_manager_passwords.json`.
 
@@ -550,7 +549,7 @@ The course's example structure maps onto this repository as follows:
 
 ## 14. Known limitations and next steps
 
-- **Release gate:** `check_release` (run only when CMS publishes something new) is a TODO slot in the DAG.
+- **Release gate:** `cms_nh_release_check` (hourly) runs `check_release` and starts `cms_nh_pipeline` when CMS publishes something new. It stays paused until production starts.
 - **Gold is validated after promotion:** `validate_gold` holds back the `cms_nh_gold` asset, but a bad gold is
   already in `gold/`; validating `gold/_staging/` first is the top follow-up (`docs/VALIDATION.md`).
 - **Quality-measure features:** MDS and Claims are in silver; the family joins gold after the measure selection is

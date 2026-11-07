@@ -29,7 +29,6 @@ CONTAINER_TASKS = {
 @pytest.fixture(scope="module")
 def dag(dags_dir, monkeypatch_module):
     monkeypatch_module.setenv("PI_PIPELINE_ENV", "dev")
-    monkeypatch_module.delenv("PI_DAG_SCHEDULE", raising=False)  # the production default
     bag = DagBag(dag_folder=str(dags_dir), include_examples=False)
     assert bag.import_errors == {}
     return bag.dags[DAG_ID]
@@ -105,7 +104,8 @@ def test_node_order_and_lock(dag):
 
 def test_schedule_and_params(dag):
     assert dag.max_active_runs == 1 and dag.catchup is False
-    assert dag.timetable.summary == "0 0 * * *"  # @daily: production polls CMS once a day
+    # started by cms_nh_release_check through the asset (spec §2.0), or by hand; never on a clock
+    assert [a.name for _, a in dag.timetable.asset_condition.iter_assets()] == ["cms_nh_release"]
     assert set(dag.params) == {"mode", "calibrate", "stop_after", "entry_ids"}
     assert dag.params["mode"] == "monthly" and dag.params["entry_ids"] == ""
 
