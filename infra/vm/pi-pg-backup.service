@@ -1,0 +1,19 @@
+# Backstop for pi-down and the idle shutdown, which dump before they stop the VM: dump again whenever the OS shuts
+# down, e.g. after a stop from the console or gcloud. Best effort: GCE gives a stopping VM about 90 seconds.
+# Stopping happens in reverse start order, so this runs while Docker and the network are still up. Also wanted by
+# docker.service: stopping Docker by hand stops this unit first (and dumps), and starting Docker re-arms it.
+[Unit]
+Description=Dump the Postgres databases to the backups bucket at shutdown
+Requires=docker.service
+Wants=network-online.target
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/local/bin/pi-pg-backup
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target docker.service

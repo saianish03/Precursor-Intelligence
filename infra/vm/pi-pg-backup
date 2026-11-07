@@ -1,0 +1,74 @@
+#!/bin/bash
+# Dump both Postgres databases of the Airflow stack to the backups bucket (spec §14 decision 27). pi-down and the
+# idle shutdown run it before they stop the VM, and stop only if it exits 0; pi-pg-backup.service runs it again at
+# OS shutdown as a backstop. Runs as root on the VM, where gcloud uses the VM's identity (sa-pipeline).
+#
+# The VM may create objects in the backups bucket but not read, list, overwrite or delete them. `gcloud storage cp`
+# reads the destination's metadata, which that refuses, so each dump goes up in one Storage JSON API request:
+# ifGenerationMatch=0 fails on an existing name, and the MD5 the bucket reports back must equal the local file's.
+# Names carry a random suffix, so nobody can pre-create the next one; both databases of one run share it.
+#
+#   pi-pg-backup
+#
+# Needs docker, gcloud, curl, openssl and python3. PI_COMPOSE_PROJECT (default pi-airflow) and PI_BACKUP_URI
+# (default gs://precursor-intel-mlops-backups/postgres) exist for tests on a laptop.
+set -euo pipefail
+
+project="${PI_COMPOSE_PROJECT:-pi-airflow}"
+dest="${PI_BACKUP_URI:-gs://precursor-intel-mlops-backups/postgres}"
+case "$dest" in
+  gs://?*) ;;
+  *) echo "pi-pg-backup: PI_BACKUP_URI must start with gs://, got '$dest'" >&2; exit 1 ;;
+esac
+bucket="${dest#gs://}"
+bucket="${bucket%%/*}"
+prefix="${dest#gs://"$bucket"}"
+prefix="${prefix#/}"
+prefix="${prefix%/}"
+
+container=$(docker ps -q --filter "label=com.docker.compose.project=${project}" \
+  --filter "label=com.docker.compose.service=postgres" --filter "label=com.docker.compose.oneoff=False")
+if [ -z "$container" ]; then
+  echo "pi-pg-backup: no running postgres container in compose project ${project}" >&2
+  exit 1
+fi
+
+umask 077
+name="$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 4)"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# airflow first: the pipeline state (precursor_meta) is then never older than what Airflow thinks has finished, so
+# a task caught mid-run is simply run again (tasks are idempotent). Inside the container, over the local socket:
+# Postgres refuses airflow from the task network (init-db.sh). A lock held by a migration fails the dump after 30 s
+# instead of hanging the stop.
+for db in airflow precursor_meta; do
+  docker exec "$container" pg_dump --username airflow --format custom --lock-wait-timeout=30s --dbname "$db" \
+    > "$tmp/$db.dump"
+done
+
+# The token goes to curl from a private file, piped there so it is never in a shell variable, argv or output.
+gcloud auth print-access-token --quiet | sed 's/^/Authorization: Bearer /' > "$tmp/auth"
+
+upload() { # <local file> <object name>
+  local enc resp remote local_md5
+  enc=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$2")
+  # No retry: if a request succeeded but its reply was lost, a retry gets 412 and cannot check; rerun instead.
+  if ! resp=$(curl --silent --show-error --fail-with-body --connect-timeout 10 --max-time 120 -X POST \
+      -H @"$tmp/auth" -H "Content-Type: application/octet-stream" --data-binary @"$1" \
+      "https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o?uploadType=media&ifGenerationMatch=0&name=${enc}"); then
+    echo "pi-pg-backup: upload of gs://${bucket}/$2 failed: ${resp}" >&2
+    return 1
+  fi
+  remote=$(printf '%s' "$resp" | python3 -c 'import json, sys; print(json.load(sys.stdin)["md5Hash"])')
+  local_md5=$(openssl dgst -md5 -binary "$1" | base64)
+  if [ "$remote" != "$local_md5" ]; then
+    echo "pi-pg-backup: gs://${bucket}/$2 has MD5 ${remote}, the local dump ${local_md5}" >&2
+    return 1
+  fi
+  echo "pi-pg-backup: gs://${bucket}/$2 ($(wc -c < "$1" | tr -d ' ') bytes, MD5 ${local_md5})"
+}
+
+for db in airflow precursor_meta; do
+  upload "$tmp/$db.dump" "${prefix:+$prefix/}$db/$name.dump"
+done

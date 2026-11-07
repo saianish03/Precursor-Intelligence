@@ -1,0 +1,56 @@
+#!/bin/bash
+# Restore one database from a pi-pg-backup dump into the running stack's Postgres. The target must be empty: a new
+# data disk or volume, with only the postgres service started (infra/vm/README.md has the steps). The VM cannot read
+# the backups bucket, so a person downloads the dump with their own login and copies it to the VM first.
+#
+#   pi-pg-restore airflow|precursor_meta <file.dump>
+#
+# Exit 0 restored, 1 error, 2 refused (bad arguments, a dump of another database, or a database that is not empty).
+# PI_COMPOSE_PROJECT (default pi-airflow) exists for tests on a laptop.
+set -euo pipefail
+
+usage="usage: pi-pg-restore airflow|precursor_meta <file.dump>"
+db="${1:-}"
+file="${2:-}"
+case "$db" in
+  airflow | precursor_meta) ;;
+  *) echo "pi-pg-restore: $usage" >&2; exit 2 ;;
+esac
+if [ ! -s "$file" ]; then
+  echo "pi-pg-restore: '$file' is missing or empty; $usage" >&2
+  exit 2
+fi
+
+project="${PI_COMPOSE_PROJECT:-pi-airflow}"
+container=$(docker ps -q --filter "label=com.docker.compose.project=${project}" \
+  --filter "label=com.docker.compose.service=postgres" --filter "label=com.docker.compose.oneoff=False")
+if [ -z "$container" ]; then
+  echo "pi-pg-restore: no running postgres container in compose project ${project}" >&2
+  exit 1
+fi
+
+# The file must be a readable dump of this database: swapping the two files would otherwise restore Airflow's
+# tables into precursor_meta (and leave the pipeline state empty).
+if ! toc=$(docker exec -i "$container" pg_restore --list < "$file"); then
+  echo "pi-pg-restore: '$file' is not a readable pg_dump archive" >&2
+  exit 2
+fi
+if ! grep -Eq "^;[[:space:]]+dbname: ${db}\$" <<< "$toc"; then
+  echo "pi-pg-restore: '$file' is not a dump of $db ($(grep -Em1 '^;[[:space:]]+dbname:' <<< "$toc" || echo 'no dbname'))" >&2
+  exit 2
+fi
+
+# Never restore over data: a dump loaded into a database that already has tables would mix the two.
+if ! tables=$(docker exec "$container" psql --username airflow --dbname "$db" -Atc \
+    "select count(*) from pg_tables where schemaname not in ('pg_catalog', 'information_schema')"); then
+  echo "pi-pg-restore: cannot read database $db (if Postgres has just started, wait a few seconds)" >&2
+  exit 1
+fi
+if [ "$tables" != 0 ]; then
+  echo "pi-pg-restore: $db already has $tables tables; restore only into an empty database" >&2
+  exit 2
+fi
+
+# One transaction: a dump that fails halfway leaves the database empty, not half restored.
+docker exec -i "$container" pg_restore --username airflow --dbname "$db" --single-transaction < "$file"
+echo "pi-pg-restore: $db restored from $file"

@@ -55,10 +55,12 @@ resource "google_storage_bucket_iam_member" "pipeline_bucket_reader" {
   member = "serviceAccount:${google_service_account.pipeline.email}"
 }
 
-# The VM may upload a dump and list or download one for a restore, but not delete or overwrite one (no objectAdmin):
-# a broken or compromised VM cannot destroy its own backups.
+# The VM may only upload dumps, not read, list, overwrite or delete them: a broken or compromised VM cannot destroy its
+# backups, and a compromised task container (it gets the VM's identity) cannot read them. A person restores with their
+# own login (infra/vm/README.md). objectViewer was dropped by hand first, since CI refuses deletes; the for_each of
+# one keeps objectCreator's existing state address.
 resource "google_storage_bucket_iam_member" "pipeline_backups" {
-  for_each = toset(["roles/storage.objectCreator", "roles/storage.objectViewer"])
+  for_each = toset(["roles/storage.objectCreator"])
 
   bucket = module.backups_bucket.name
   role   = each.key
