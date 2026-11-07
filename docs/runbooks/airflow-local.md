@@ -168,11 +168,11 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
   - the laptop's four secrets plus `AIRFLOW_API_SECRET_KEY`, all from Secret Manager;
   - `PI_RELEASE_SHA`: the full git sha of the release. Both images come from Artifact Registry with that tag, so they can't come from different commits;
   - `PI_ALERT_SMTP_USER`, `PI_ALERT_SMTP_PASSWORD` and `PI_ALERT_EMAIL_TO`, from the secrets `alert-smtp-user`, `smtp-password` and `alert-email-to`, so a failed run emails someone. The two addresses aren't secret, but email addresses stay out of this public repository.
-- **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` run or an SSH session.
+- **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The scripts are `infra/vm/pi-pg-backup` and `pi-pg-restore`; a restore is done by a person with their own login (steps in `infra/vm/README.md`). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` run or an SSH session.
 - **Credentials:** the VM runs as `sa-pipeline`, with no key file: gcsfs and gcloud get its tokens from the GCE metadata server. Its roles (Terraform, #41):
   - `storage.objectAdmin` on the data bucket;
   - `secretmanager.secretAccessor` on each VM secret (the only service account with access);
-  - `storage.objectCreator` + `storage.objectViewer` on the backups bucket;
+  - `storage.objectCreator` on the backups bucket: upload only, it can't read, list, overwrite or delete a dump;
   - `artifactregistry.reader` on the `precursor` repository;
   - `logging.logWriter` and `monitoring.metricWriter` on the project.
 

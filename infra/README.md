@@ -10,12 +10,14 @@ One project, `precursor-intel-mlops`, one environment: `envs/prod`. The reusable
 
 `bigquery`, `cloud_run_job`, `cloud_run_service` and `composer` are still empty placeholders.
 
+`infra/vm/` holds the scripts and systemd units that run on the VM itself (Postgres backup and restore).
+
 `envs/prod` creates:
 - the data, DVC, state and backups buckets;
-- `sa-pipeline` (the VM's identity) and its access: the data bucket, upload and read (never delete) on the backups bucket, pull from
-  the image repository, read on each VM secret, and writing logs and metrics;
+- `sa-pipeline` (the VM's identity) and its access: the data bucket, upload only on the backups bucket (never read, list,
+  overwrite or delete), pull from the image repository, read on each VM secret, and writing logs and metrics;
 - the image repository `precursor` and `sa-deployer`, which only runs on `dev` or `main` can act as (CD pushes);
-- six empty Secret Manager secrets for the VM (values are added by hand, never by Terraform);
+- eight empty Secret Manager secrets for the VM (values are added by hand, never by Terraform);
 - the VM network: `pi-vpc`, `pi-subnet` with Private Google Access, Cloud NAT, and SSH from IAP as the only
   inbound rule;
 - the `wif` module.
