@@ -1,0 +1,41 @@
+{
+  "experiment": "exp4",
+  "model": "lgbm_te_empirical_bayes",
+  "smoke": false,
+  "calib_gap": "h",
+  "calib": {
+    "n": 44205,
+    "base_rate": 0.27462956679108697,
+    "roc_auc": 0.7190595349078568,
+    "pr_auc": 0.5105067427702846,
+    "p_at_5": 0.6886877828054299,
+    "p_at_10": 0.6208144796380091,
+    "brier": 0.1736838296332077
+  },
+  "test": {
+    "n": 29324,
+    "base_rate": 0.26374300913927157,
+    "roc_auc": 0.6947885056785645,
+    "pr_auc": 0.4702618589719142,
+    "p_at_5": 0.6466575716234653,
+    "p_at_10": 0.5620736698499318,
+    "brier": 0.17539241386556995
+  },
+  "extra": {
+    "encoding": "te_empirical_bayes",
+    "te_folds": 5,
+    "te_dropped_no_signal": [
+      "turnover_rn_fn",
+      "reported_staffing_fn",
+      "pt_staffing_fn",
+      "era"
+    ],
+    "inner_folds": null,
+    "best_iteration": 70,
+    "fit_s": 9.9,
+    "n_features": 129,
+    "elapsed_s_total": 24.3,
+    "peak_rss_gb": 0.913
+  },
+  "written": "2026-11-03T13:10:32"
+}

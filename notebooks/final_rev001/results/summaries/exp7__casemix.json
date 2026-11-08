@@ -1,0 +1,42 @@
+{
+  "experiment": "exp7",
+  "model": "casemix",
+  "smoke": false,
+  "calib_gap": "h",
+  "calib": {},
+  "test": {
+    "n": 29324,
+    "base_rate": 0.26374300913927157,
+    "roc_auc": 0.6968081184325559,
+    "pr_auc": 0.4704752296724788,
+    "p_at_5": 0.6343792633015006,
+    "p_at_10": 0.5661664392905866,
+    "brier": 0.1752414244428508
+  },
+  "extra": {
+    "seeds": [
+      42,
+      7,
+      2026
+    ],
+    "params": {
+      "objective": "binary",
+      "metric": "average_precision",
+      "learning_rate": 0.05,
+      "num_leaves": 31,
+      "min_child_samples": 100,
+      "feature_fraction": 0.8,
+      "num_threads": 4,
+      "verbosity": -1
+    },
+    "new": [
+      "cm_hprd_aide",
+      "cm_hprd_lpn",
+      "cm_hprd_rn",
+      "cm_hprd_total",
+      "staff_vs_cm_total",
+      "staff_vs_cm_rn"
+    ]
+  },
+  "written": "2026-11-04T00:23:48"
+}

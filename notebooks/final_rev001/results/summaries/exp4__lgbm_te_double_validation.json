@@ -1,0 +1,41 @@
+{
+  "experiment": "exp4",
+  "model": "lgbm_te_double_validation",
+  "smoke": false,
+  "calib_gap": "h",
+  "calib": {
+    "n": 44205,
+    "base_rate": 0.27462956679108697,
+    "roc_auc": 0.7182228425014983,
+    "pr_auc": 0.5095357133838498,
+    "p_at_5": 0.6886877828054299,
+    "p_at_10": 0.6135746606334842,
+    "brier": 0.17394109252134998
+  },
+  "test": {
+    "n": 29324,
+    "base_rate": 0.26374300913927157,
+    "roc_auc": 0.6939146461196526,
+    "pr_auc": 0.46829463603402516,
+    "p_at_5": 0.6466575716234653,
+    "p_at_10": 0.5569577080491133,
+    "brier": 0.17549797189693228
+  },
+  "extra": {
+    "encoding": "te_double_validation",
+    "te_folds": 5,
+    "te_dropped_no_signal": [
+      "turnover_rn_fn",
+      "reported_staffing_fn",
+      "pt_staffing_fn",
+      "era"
+    ],
+    "inner_folds": 3,
+    "best_iteration": 60,
+    "fit_s": 5.6,
+    "n_features": 129,
+    "elapsed_s_total": 30.2,
+    "peak_rss_gb": 0.913
+  },
+  "written": "2026-11-03T13:10:38"
+}

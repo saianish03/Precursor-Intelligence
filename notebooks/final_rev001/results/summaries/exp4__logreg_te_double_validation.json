@@ -1,0 +1,44 @@
+{
+  "experiment": "exp4",
+  "model": "logreg_te_double_validation",
+  "smoke": false,
+  "calib_gap": "h",
+  "calib": {
+    "n": 44205,
+    "base_rate": 0.27462956679108697,
+    "roc_auc": 0.7135199891283434,
+    "pr_auc": 0.5044810058277792,
+    "p_at_5": 0.6895927601809955,
+    "p_at_10": 0.6144796380090498,
+    "brier": 0.17616062315667425
+  },
+  "test": {
+    "n": 29324,
+    "base_rate": 0.26374300913927157,
+    "roc_auc": 0.687307999074843,
+    "pr_auc": 0.4686422481612095,
+    "p_at_5": 0.6739427012278308,
+    "p_at_10": 0.569918144611187,
+    "brier": 0.17732619205959302
+  },
+  "extra": {
+    "encoding": "te_double_validation",
+    "te_dropped_no_signal": [
+      "turnover_rn_fn",
+      "reported_staffing_fn",
+      "pt_staffing_fn",
+      "era"
+    ],
+    "C": 0.01,
+    "C_grid": [
+      0.01,
+      0.1,
+      1.0
+    ],
+    "fit_s": 3.1,
+    "n_features": 129,
+    "elapsed_s_total": 61.3,
+    "peak_rss_gb": 0.913
+  },
+  "written": "2026-11-03T13:11:09"
+}

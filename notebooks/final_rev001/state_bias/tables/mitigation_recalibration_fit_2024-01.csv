@@ -1,0 +1,11 @@
+model,roc_auc,pr_auc,brier,ece_overall,threshold,accuracy,flag_rate,"state_oe_sd_pp (eligible, unweighted)","state_mean_abs_oe_pp (eligible, n-weighted)","state_ece_mean (eligible, n-weighted)",n_states_oe_sig_BH,tpr_gap_max_min (thr),fpr_gap_max_min (thr),precision_gap_max_min (thr),tpr_gap_max_min (top10),"within_state_auc_mean (eligible, n-weighted)","corr(state mean pred, state base rate)",n_state_thresholds
+M0 original (no recalibration),0.7092,0.4802,0.1690,0.0275,0.5046,0.7580,0.1064,7.6186,4.7605,0.0625,18.0000,0.8734,0.5857,1.0000,0.8630,0.6678,0.7886,
+M1 per-state intercept (unshrunk) @ original threshold,0.7125,0.4812,0.1685,0.0246,0.5046,0.7585,0.1084,6.5109,4.1600,0.0577,15.0000,0.8475,0.5250,0.6905,0.8320,0.6678,0.8299,
+M1 per-state intercept (unshrunk) @ threshold re-chosen on 2024-01,0.7125,0.4812,0.1685,0.0246,0.4884,0.7563,0.1214,6.5109,4.1600,0.0577,15.0000,0.8682,0.5714,1.0000,0.8320,0.6678,0.8299,
+M2 per-state intercept (EB-shrunk) @ original threshold,0.7117,0.4822,0.1685,0.0258,0.5046,0.7579,0.1077,7.1036,4.4818,0.0600,16.0000,0.8605,0.5607,0.7778,0.8475,0.6678,0.8075,
+M2 per-state intercept (EB-shrunk) @ threshold re-chosen on 2024-01,0.7117,0.4822,0.1685,0.0258,0.4919,0.7563,0.1182,7.1036,4.4818,0.0600,16.0000,0.8734,0.5857,0.4511,0.8475,0.6678,0.8075,
+M3 global Platt + EB-shrunk state intercept @ original threshold,0.7115,0.4821,0.1685,0.0249,0.5046,0.7591,0.1040,7.0581,4.4358,0.0601,15.0000,0.8605,0.5607,0.7500,0.8501,0.6678,0.8071,
+M3 global Platt + EB-shrunk state intercept @ threshold re-chosen on 2024-01,0.7115,0.4821,0.1685,0.0249,0.4882,0.7562,0.1184,7.0581,4.4358,0.0601,15.0000,0.8760,0.5929,0.4509,0.8501,0.6678,0.8071,
+M4 global Platt only (no state term) @ original threshold,0.7092,0.4802,0.1689,0.0251,0.5046,0.7587,0.1035,7.5121,4.6488,0.0623,14.0000,0.8708,0.5714,1.0000,0.8630,0.6678,0.7887,
+M4 global Platt only (no state term) @ threshold re-chosen on 2024-01,0.7092,0.4802,0.1689,0.0251,0.5003,0.7580,0.1067,7.5121,4.6488,0.0623,14.0000,0.8734,0.5857,1.0000,0.8630,0.6678,0.7887,
+M5 per-state thresholds equalising TPR (fit 2024-01),,,,,,0.7392,0.1193,,,,,0.3846,0.1959,0.8120,,,,33.0000
