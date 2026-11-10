@@ -46,3 +46,13 @@ output "vm_network_tag" {
   description = "The VM must carry this tag, or the IAP SSH rule does not reach it."
   value       = one(google_compute_firewall.iap_ssh.target_tags)
 }
+
+output "vm" {
+  description = "Reach it with: gcloud compute ssh <name> --zone <zone> --tunnel-through-iap"
+  value       = { name = google_compute_instance.airflow.name, zone = google_compute_instance.airflow.zone }
+}
+
+output "vm_data_disk" {
+  description = "Postgres's data disk; it outlives the VM."
+  value       = google_compute_disk.pgdata.name
+}

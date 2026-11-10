@@ -7,11 +7,13 @@ on:
   pull_request:
     paths:
       - "infra/terraform/**"
+      - "infra/vm/**" # main.tf puts these files in the VM's metadata
       - ".github/workflows/terraform.yml"
   push:
     branches: [dev, main]
     paths:
       - "infra/terraform/**"
+      - "infra/vm/**"
       - ".github/workflows/terraform.yml"
 
 # Third-party actions are pinned to full commit SHAs (the tag is kept as a comment): a moved tag could otherwise
