@@ -144,7 +144,7 @@ There is no online model server: CMS publishes once a month and every score chan
 | Skills and data spec §15.1: separate DAGs `train_evaluate`, `batch_score`, `monitor` | one DAG `cms_nh_ml` | one run = one pinned gold, one decision, one audit trail (data spec §14 #19 reasoning) |
 | `ml-engineering`: `promote-model.yml` for manual override | `cms_nh_ml` run with `mode=promote` (§9.4) | GitHub Actions can't reach the VM (IAP only) |
 | `mlops-deployment`: e2-standard-2, instance schedule, nightly dump | e2-standard-4, started by hand, dump before every stop | data spec §14 #26, #27 |
-| `CLAUDE.md`: "star ratings are never features" | `staffing_rating`, `qm_rating` may be features (subject to the 2025-07 check, §1.4); `overall_rating`, `health_inspection_rating` never | ML-17: registry and data spec §8 decide. **`CLAUDE.md` wording to fix (O6)** |
+| `CLAUDE.md` (older copies): "star ratings are never features" | `staffing_rating`, `qm_rating` may be features (subject to the 2025-07 check, §1.4); `overall_rating`, `health_inspection_rating` never | ML-17: registry and data spec §8 decide; the wording is fixed (O6) |
 | Data spec §9.5: purge rows "are not used at all"; gold's purge is H | the refit trains on purge and test months; the ML evaluation gap is H + B | the refit is never evaluated on them (§3.3); the production lag is H + B (§3.1) |
 | Data spec §11.5: the dataset is frozen at Checkpoint 5 (`training_dataset_vN`) | every RETRAIN trains on the newest gold; the pinned input of each **registered** model version is kept and tagged as its `training_dataset` | monthly retraining (ML-2) needs each month's data; pinning gives the same reproducibility per version |
 | `GOLD_HANDOFF.md`, `AIRFLOW_PIPELINE.md`: ML must refuse `verified: false` | allowed and tagged until the §11 gate exists (ML-9) | every gold is unverified today |
@@ -674,7 +674,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 ### 18.3 Packages
 | WP | Phase | Scope | Modules / files | Depends on | Done when |
 |---|---|---|---|---|---|
-| **P0 Data** | 1 | `spine_start: "2022-01"`; full `cms_nh_pipeline` backfill on a laptop stack into `ml-dev/`; note the data-spec §14 #10 decision | `configs/splits.yaml`, data spec §14 | — | `ml-dev/gold/` current, spine 2022-01, V = 2026-10 |
+| **P0 Data** | 1 | `spine_start: "2022-01"` (data spec §14 #10, recorded); full `cms_nh_pipeline` backfill on a laptop stack into `ml-dev/`, including the 2026-10-28 release | `configs/splits.yaml` | — | `ml-dev/gold/` current, spine 2022-01, V = 2026-10 |
 | **W0 Foundation** | 1 | `configs/ml.yaml` + `MlConfig`/`load_ml_config`; the `ml` typer sub-app with stubs (exit 3 "not built"); `training/data.py` (pin, checks, `to_model_frame`, windows, frames, folds); `ml_runs` in `common/io/schemas.py`; run-folder JSON contracts; `configs/reason_labels.yaml` skeleton; the synthetic fixture `tests/ml/make_ml_gold.py` | `common/config.py`, `training/{cli,data}.py`, `harmonize/cli.py` | — | window, fold and pin tests (incl. leakage tests 2, 4, 5, 12) pass on the fixture |
 | **W1 Training** | 1 | LR pipeline, LightGBM member, log-odds ensemble, OOF + Platt, selection, `PrecursorModel` pyfunc, MLflow logging helper, `ml train`; `ml tune` with the proposal and plots; the PR #49 reproduction check; the PSI check of the two sub-ratings (§1.4) | `training/{members,ensemble,calibration,select,train,tune,mlflow_log}.py` | W0 | model tests pass; a real eval fit and refit are logged |
 | **W2 Evaluation, bias, gates** | 1 | metrics, paired bootstrap, baselines, sanity checks, Fairlearn slices + per-state EB, reweighting (with the `fit_rows` parameter), plots, `model_card.md`, `gates.py`, `ml evaluate`, `ml gate` (registration, aliases, `ml_runs`), `ml promote` | `evaluation/{metrics,bootstrap,baselines,sanity,slices,gates,report}.py`, `bias/mitigation.py` | W0, W1's fit interface | gate tests pass; a real model card exists |
@@ -741,8 +741,8 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | O3 | Rolling-origin folds | facility-grouped | try after spine 2022-01 is live |
 | O4 | Reweighting | off | decide at Checkpoint ML-A from the OOF trade-off table |
 | O5 | MLflow authentication | none (tasks network + 127.0.0.1 + IAP) | revisit if anything outside the VM needs MLflow |
-| O6 | `CLAUDE.md` star-rating wording | — | "overall and health-inspection star ratings are never features" (ML-17) |
-| O7 | Data spec edits | — | §14 #10 → decided 2022-01 (P0); §9.5 open #16 → resolved by ML-24; §15.1's three ML DAGs → one `cms_nh_ml` |
+| O6 | `CLAUDE.md` star-rating wording | changed 2026-11-10 in the maintainer's local copy | teammates update their local `CLAUDE.md` (it is not in git): "overall and health-inspection star ratings are never features" (ML-17) |
+| O7 | Data spec edits | §14 #10 recorded (2022-01) on 2026-11-10 | still to do when the team agrees: §9.5 open #16 → resolved by ML-24; §15.1's three ML DAGs → one `cms_nh_ml` |
 | O8 | Regime-invariant enforcement features | — | a data-side idea (counts per revision group or per survey) so the 2025-10 fine-count jump doesn't skew scores |
 
 ---
