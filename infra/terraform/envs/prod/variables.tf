@@ -30,3 +30,15 @@ variable "apply_branches" {
   type        = list(string)
   default     = ["dev", "main"]
 }
+
+variable "zone" {
+  description = "The VM and its data disk; a disk can only attach to a VM in its own zone."
+  type        = string
+  default     = "us-central1-a"
+}
+
+variable "vm_machine_type" {
+  description = "Spec §14 decision 26: e2-standard-4 (16 GB), since gold holds the whole dataset in memory."
+  type        = string
+  default     = "e2-standard-4"
+}

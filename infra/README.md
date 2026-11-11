@@ -20,11 +20,48 @@ One project, `precursor-intel-mlops`, one environment: `envs/prod`. The reusable
 - eight empty Secret Manager secrets for the VM (values are added by hand, never by Terraform);
 - the VM network: `pi-vpc`, `pi-subnet` with Private Google Access, Cloud NAT, and SSH from IAP as the only
   inbound rule;
+- the VM `pi-airflow` (e2-standard-4, Debian 12, Shielded VM, OS Login, no external IP, runs as `sa-pipeline`) and its
+  Postgres data disk `pi-airflow-pgdata` (section "The VM");
 - the `wif` module.
 
 The data and state buckets, `sa-pipeline`, the CI accounts and one `sa-tf-apply` role were created by hand
 before Terraform could manage them (`docs/runbooks/gcp-bootstrap.md`); `imports.tf` adopts them so nothing is
 recreated.
+
+## The VM
+- **What Terraform builds:** the machine only. A 30 GB boot disk, plus a 10 GB data disk for Postgres that outlives the
+  VM (`prevent_destroy`). The startup script (`infra/vm/startup.sh`) installs Docker and the backup scripts at every boot.
+  What runs on it comes from the release pointer `pi-release`, which the Deploy workflow sets (T20, T22). Terraform
+  ignores that pointer and new Debian images, so neither ever replaces the VM. CI refuses any replacement anyway.
+- **Created running:** the apply that creates it starts it. Stop it when you're done: until the idle shutdown exists
+  (T21) nothing stops it for you, and it costs about $0.13 an hour ($3.22 a day). A stopped VM costs only its disks
+  (about $4 a month).
+  ```bash
+  gcloud compute instances stop pi-airflow --zone us-central1-a      # start: ... start ...
+  gcloud compute ssh pi-airflow --zone us-central1-a --tunnel-through-iap
+  ```
+- **An apply never stops it:** a change to the machine type, service account, scopes or Shielded VM settings fails while
+  the VM runs. Stop the VM and re-run the apply job. Metadata changes (the files in `infra/vm/`) apply while it runs and
+  take effect at the next boot.
+- **Re-running the startup script** (`sudo google_metadata_script_runner startup`) after a change to the Docker pins
+  restarts Docker and everything in it: do it only when nothing is running.
+- **Until the deploy exists (T20),** every stop logs a failed `pi-pg-backup` ("no running postgres container"). That is
+  expected: there is no database yet.
+- **Check it after a change** (on the VM):
+  ```bash
+  sudo journalctl -u google-startup-scripts.service -b | grep pi-startup   # contains "pi-startup: ready: ..."
+  findmnt /mnt/disks/pgdata && sudo ls -ld /mnt/disks/pgdata/data
+  systemctl show docker -p RequiresMountsFor
+  sudo docker info --format '{{.ServerVersion}} {{.SecurityOptions}}' && docker compose version   # 28.5.2, apparmor
+  systemctl is-enabled pi-pg-backup && systemctl is-active pi-pg-backup
+  sudo journalctl --list-boots | tail -3                             # the journal survives reboots
+  apt-config dump APT::Periodic::Unattended-Upgrade                  # "1": Debian security updates in place
+  systemctl is-enabled apt-daily-upgrade.timer
+  sudo true && echo sudo-ok                                          # OS Login gives you sudo (roles/compute.osAdminLogin)
+  ```
+  The next CI plan after the apply must show no changes for the instance and the disk.
+- **When SSH fails:** the startup script also logs to the serial console:
+  `gcloud compute instances get-serial-port-output pi-airflow --zone us-central1-a | grep pi-startup`.
 
 ## How changes reach GCP
 

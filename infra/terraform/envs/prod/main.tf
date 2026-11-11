@@ -225,3 +225,100 @@ resource "google_compute_firewall" "iap_ssh" {
     ports    = ["22"]
   }
 }
+
+# Postgres's data disk (spec §14 decision 27). A disk of its own, outside the VM, so the database survives a replaced
+# VM or boot disk; the VM's startup script formats it once and mounts it at /mnt/disks/pgdata. Backups are the
+# pg_dumps in the backups bucket (infra/vm/README.md), not snapshots.
+resource "google_compute_disk" "pgdata" {
+  name   = "pi-airflow-pgdata"
+  zone   = var.zone
+  type   = "pd-balanced"
+  size   = 10
+  labels = { app = "precursor", role = "postgres-data" }
+
+  lifecycle {
+    prevent_destroy = true
+
+    # One region for everything: the subnet and NAT are in var.region.
+    precondition {
+      condition     = startswith(var.zone, "${var.region}-")
+      error_message = "var.zone must be a zone of var.region."
+    }
+  }
+}
+
+# The Airflow VM (spec §14 decisions 26–27). It only builds the machine: what runs on it comes from the images that
+# the release pointer pi-release names (set by the Deploy workflow, T22, never by Terraform). It is started and
+# stopped by people; a stopped VM costs only its disks.
+resource "google_compute_instance" "airflow" {
+  name         = "pi-airflow"
+  zone         = var.zone
+  machine_type = var.vm_machine_type
+  tags         = [one(google_compute_firewall.iap_ssh.target_tags)] # the only rule that lets anything in: IAP SSH
+  labels       = { app = "precursor", role = "airflow" }
+
+  deletion_protection = true
+  # A new machine type, service account, scope or Shielded VM setting needs a stopped VM. Never let an apply stop it:
+  # it would kill a running backfill. On a running VM such an apply fails instead; stop the VM and re-run the job.
+  allow_stopping_for_update = false
+
+  boot_disk {
+    auto_delete = true
+    initialize_params {
+      image = "debian-cloud/debian-12"
+      size  = 30
+      type  = "pd-balanced"
+    }
+  }
+
+  attached_disk {
+    source      = google_compute_disk.pgdata.id
+    device_name = "pgdata" # /dev/disk/by-id/google-pgdata in infra/vm/startup.sh
+  }
+
+  # No access_config, so no external IP: egress through Cloud NAT, Google APIs through Private Google Access.
+  network_interface {
+    subnetwork = google_compute_subnetwork.main.id
+  }
+
+  # Tokens from the metadata server for sa-pipeline; what it may do is set by IAM alone.
+  service_account {
+    email  = google_service_account.pipeline.email
+    scopes = ["cloud-platform"]
+  }
+
+  shielded_instance_config {
+    enable_secure_boot          = true
+    enable_vtpm                 = true
+    enable_integrity_monitoring = true
+  }
+
+  scheduling {
+    provisioning_model  = "STANDARD" # never Spot: a preemption would kill a backfill
+    automatic_restart   = true
+    on_host_maintenance = "MIGRATE"
+  }
+
+  # Files go to the VM as metadata values, read by the startup script at every boot. Changing one updates the
+  # metadata in place; metadata_startup_script would replace the VM instead. No secret may go here: every process on
+  # the VM, task containers included, can read the instance metadata.
+  metadata = {
+    enable-oslogin         = "TRUE" # people log in with their Google identity through IAP; no SSH keys
+    block-project-ssh-keys = "TRUE"
+    startup-script         = file("${path.module}/../../../vm/startup.sh")
+    pi-pg-backup           = file("${path.module}/../../../vm/pi-pg-backup")
+    pi-pg-restore          = file("${path.module}/../../../vm/pi-pg-restore")
+    pi-pg-backup-service   = file("${path.module}/../../../vm/pi-pg-backup.service")
+  }
+  # (terraform.yml also runs on infra/vm/**, so a change to one of these files gets its own plan and apply.)
+
+  lifecycle {
+    ignore_changes = [
+      # The image family moves on; a new Debian image must not replace the VM. Packages are updated in place on the VM
+      # (apt; check that unattended-upgrades is enabled, infra/README.md "The VM").
+      boot_disk[0].initialize_params[0].image,
+      # The release pointer belongs to the Deploy workflow (T22).
+      metadata["pi-release"],
+    ]
+  }
+}

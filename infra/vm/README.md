@@ -1,10 +1,14 @@
 # infra/vm/
 
-Scripts and systemd units that run on the Airflow VM itself, outside the containers. The VM's startup script (task
-T19) installs the scripts in `/usr/local/bin` and the units in `/etc/systemd/system`.
+Scripts and systemd units that run on the Airflow VM itself, outside the containers. Terraform puts each file in a
+metadata value of the VM (`infra/terraform/envs/prod/main.tf`), and the startup script installs them at every boot:
+scripts in `/usr/local/bin`, units in `/etc/systemd/system`. A merged change therefore reaches the VM at its next start,
+or at once with `sudo google_metadata_script_runner startup`. No file here may hold a secret: every process on the VM
+can read its metadata.
 
 | File | What |
 |---|---|
+| `startup.sh` | The VM's startup script (metadata `startup-script`), idempotent, run at every boot: a persistent journal; formats the Postgres data disk only when it holds nothing, mounts it at `/mnt/disks/pgdata` and creates `data/` only then; makes Docker wait for that mount; installs Docker CE and Compose at pinned versions (held); installs the files below. Log: `journalctl -u google-startup-scripts.service` |
 | `pi-pg-backup` | Dumps `airflow` and `precursor_meta` (`pg_dump -Fc`, over the Postgres container's local socket) to `gs://precursor-intel-mlops-backups/postgres/<db>/<UTC time>-<random>.dump`, the same name for both. Prints each dump's MD5. Exits 0 only when both uploaded. |
 | `pi-pg-restore` | `pi-pg-restore airflow\|precursor_meta <file.dump>`: restores a dump of that database into an **empty** database; refuses anything else (exit 2). |
 | `pi-pg-backup.service` | Runs `pi-pg-backup` whenever the OS shuts down or Docker stops, while both are still up. A backstop: best effort within GCE's ~90 s. |

@@ -151,7 +151,7 @@ docker compose exec postgres psql -U airflow -d precursor_meta -c "select status
 - **Postgres from the host:** `127.0.0.1:${PI_POSTGRES_HOST_PORT}`.
 
 ## 5. On the GCP VM
-Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
+The VM `pi-airflow` and its Postgres data disk are in Terraform (T19; `infra/README.md` "The VM"). It doesn't run the stack yet: the deploy script comes with T20. What to set and check:
 
 - **Two compose files, from the compose bundle in the Airflow image** (`/opt/precursor/compose/`):
   ```bash
