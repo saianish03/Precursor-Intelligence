@@ -30,8 +30,9 @@ recreated.
 
 ## The VM
 - **What Terraform builds:** the machine only. A 30 GB boot disk, plus a 10 GB data disk for Postgres that outlives the
-  VM (`prevent_destroy`). The startup script (`infra/vm/startup.sh`) installs Docker and the backup scripts at every boot.
-  What runs on it comes from the release pointer `pi-release`, which the Deploy workflow sets (T20, T22). Terraform
+  VM (`prevent_destroy`). The startup script (`infra/vm/startup.sh`) installs Docker and the files of `infra/vm/` at
+  every boot. What runs on it is the release that the instance metadata `pi-release` names: `pi-deploy` deploys it at
+  boot and whenever it changes (`infra/vm/README.md` "Deploys"); the Deploy workflow (T22) will set it. Terraform
   ignores that pointer and new Debian images, so neither ever replaces the VM. CI refuses any replacement anyway.
 - **Created running:** the apply that creates it starts it. Stop it when you're done: until the idle shutdown exists
   (T21) nothing stops it for you, and it costs about $0.13 an hour ($3.22 a day). A stopped VM costs only its disks
@@ -45,7 +46,7 @@ recreated.
   take effect at the next boot.
 - **Re-running the startup script** (`sudo google_metadata_script_runner startup`) after a change to the Docker pins
   restarts Docker and everything in it: do it only when nothing is running.
-- **Until the deploy exists (T20),** every stop logs a failed `pi-pg-backup` ("no running postgres container"). That is
+- **Until the first deploy,** every stop logs a failed `pi-pg-backup` ("no running postgres container"). That is
   expected: there is no database yet.
 - **Check it after a change** (on the VM):
   ```bash
@@ -54,6 +55,7 @@ recreated.
   systemctl show docker -p RequiresMountsFor
   sudo docker info --format '{{.ServerVersion}} {{.SecurityOptions}}' && docker compose version   # 28.5.2, apparmor
   systemctl is-enabled pi-pg-backup && systemctl is-active pi-pg-backup
+  systemctl is-active pi-deploy && sudo pi-deploy status             # the watcher, and what it deployed
   sudo journalctl --list-boots | tail -3                             # the journal survives reboots
   apt-config dump APT::Periodic::Unattended-Upgrade                  # "1": Debian security updates in place
   systemctl is-enabled apt-daily-upgrade.timer

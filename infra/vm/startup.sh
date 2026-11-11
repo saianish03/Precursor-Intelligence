@@ -136,8 +136,15 @@ put() { # metadata key, destination, mode
 put pi-pg-backup /usr/local/bin/pi-pg-backup 0755
 put pi-pg-restore /usr/local/bin/pi-pg-restore 0755
 put pi-pg-backup-service /etc/systemd/system/pi-pg-backup.service 0644
+put pi-busy /usr/local/bin/pi-busy 0755
+put pi-alert /usr/local/bin/pi-alert 0755
+put pi-deploy /usr/local/bin/pi-deploy 0755
+put pi-deploy-service /etc/systemd/system/pi-deploy.service 0644
 systemctl daemon-reload
 # --now: systemd runs ExecStop (the dump) only for a unit that was started.
 systemctl enable --now pi-pg-backup.service
+# The deploy watcher starts after this script (After=google-startup-scripts.service): queue it, never wait for it.
+systemctl enable pi-deploy.service
+systemctl start --no-block pi-deploy.service
 
 log "ready: $(docker --version); $(docker compose version); $(gcloud --version 2>/dev/null | head -1)"

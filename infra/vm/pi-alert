@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Email an alert from the VM itself (not from a container): pi-alert SUBJECT < BODY.
+
+Exit 0 sent, 1 not sent. Used by pi-deploy (T20) and the idle shutdown (T21) when something outside
+Airflow fails. Same sender, recipients and server as the pipeline's alerts (alerts.py,
+docker-compose.vm.yaml): the addresses and the app password come from /etc/precursor/.env, which
+pi-deploy writes from Secret Manager. Never prints a credential.
+"""
+
+import smtplib
+import ssl
+import sys
+from email.message import EmailMessage
+
+ENV_FILE = "/etc/precursor/.env"
+SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587  # as docker-compose.vm.yaml and alerts.py: STARTTLS
+
+
+def read_env(path: str) -> dict[str, str]:
+    """pi-deploy writes KEY='value' lines (values never contain a quote or a newline)."""
+    env = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            key, sep, value = line.rstrip("\n").partition("=")
+            if sep and not key.startswith("#"):
+                env[key] = (
+                    value[1:-1] if len(value) >= 2 and value[0] == value[-1] == "'" else value
+                )
+    return env
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        print("usage: pi-alert SUBJECT < BODY", file=sys.stderr)
+        return 1
+    subject, body = sys.argv[1], sys.stdin.read()
+    try:
+        env = read_env(ENV_FILE)
+    except OSError as exc:
+        print(
+            f"pi-alert: not sent, no {ENV_FILE} ({exc.__class__.__name__}): {subject}",
+            file=sys.stderr,
+        )
+        return 1
+    to = [a.strip() for a in env.get("PI_ALERT_EMAIL_TO", "").split(",") if a.strip()]
+    user, password = env.get("PI_ALERT_SMTP_USER", ""), env.get("PI_ALERT_SMTP_PASSWORD", "")
+    if not (to and user and password):
+        print(
+            f"pi-alert: not sent, alert settings missing in {ENV_FILE}: {subject}", file=sys.stderr
+        )
+        return 1
+    try:
+        msg = EmailMessage()
+        msg["Subject"], msg["From"], msg["To"] = f"[pi-airflow VM] {subject}", user, ", ".join(to)
+        msg.set_content(body or subject)
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
+            # Verify the certificate and host name, as alerts.py does (bare starttls() doesn't)
+            smtp.starttls(context=ssl.create_default_context())
+            smtp.login(user, password)
+            smtp.send_message(msg)
+    except Exception as exc:  # noqa: BLE001 (only the class: the message may hold settings)
+        print(f"pi-alert: not sent ({exc.__class__.__name__}): {subject}", file=sys.stderr)
+        return 1
+    print(f"pi-alert: sent to {len(to)} recipient(s): {subject}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

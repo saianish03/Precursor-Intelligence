@@ -1,0 +1,384 @@
+#!/bin/bash
+# Runs the release the VM's instance metadata `pi-release` names (task T20; VM plan D5): one full git sha, whose two
+# images CD pushed to Artifact Registry. Runs as root on the VM.
+#
+#   pi-deploy watch          the service (pi-deploy.service): deploy at start, then whenever pi-release changes
+#   pi-deploy now [SHA]      deploy once, by hand (default: what pi-release names), even a sha that failed before
+#   pi-deploy status         the pointer, the deployed sha, the last results, paused or not
+#   pi-deploy pause|resume   no deploy at all until resumed (e.g. during a restore, infra/vm/README.md) / deploy again
+#
+# A deploy:
+#   1. pull both images by sha (unless already here); each image's revision label must equal the sha;
+#   2. stage: the compose bundle out of the Airflow image, its env file from Secret Manager, `docker compose config -q`;
+#   3. wait while a pipeline run is running or queued (pi-busy), unless nothing would change for running containers;
+#   4. put the staged files in place and `docker compose up -d --wait`;
+#   5. check that the Airflow containers run that image and that Postgres's task-network rule matches the network.
+# A failure in 1-3 changes nothing and is tried twice more. A failure from 4 on puts back the last good release's
+# files (kept from its deploy, secrets included) at once. Every failure emails (pi-alert). The watcher doesn't retry
+# a failed sha until pi-release names another one.
+set -euo pipefail
+
+REGISTRY=us-central1-docker.pkg.dev/precursor-intel-mlops/precursor
+GCP_PROJECT=precursor-intel-mlops
+# One stable folder: the base compose file's ./init-db.sh bind mount resolves against it, so a folder per sha would
+# recreate Postgres at every deploy (T18 review). Compose project name pi-airflow comes from the file (no -p): the
+# backup scripts find Postgres by that label.
+COMPOSE_DIR=/opt/precursor/compose
+ENV_FILE=/etc/precursor/.env
+STATE=/var/lib/precursor
+GOOD="$STATE/good" # the last good release's bundle and env file, for a rollback
+PAUSED="$STATE/deploy.paused"
+LOCK=/run/pi-deploy.lock
+MD=http://metadata.google.internal/computeMetadata/v1/instance
+# Secret Manager secret -> the variable the compose files read (infra/terraform/envs/prod/main.tf, vm_secrets).
+SECRETS=(
+  airflow-db-password:AIRFLOW_DB_PASSWORD
+  pi-meta-db-password:PI_META_DB_PASSWORD
+  airflow-fernet-key:AIRFLOW_FERNET_KEY
+  airflow-jwt-secret:AIRFLOW_JWT_SECRET
+  airflow-api-secret-key:AIRFLOW_API_SECRET_KEY
+  smtp-password:PI_ALERT_SMTP_PASSWORD
+  alert-smtp-user:PI_ALERT_SMTP_USER
+  alert-email-to:PI_ALERT_EMAIL_TO
+)
+# What a deploy waits for. The release check counts here (a deploy would kill its task), unlike for the idle shutdown.
+BUSY_DAGS="cms_nh_pipeline cms_nh_ml cms_nh_release_check"
+
+log() { echo "pi-deploy: $*"; }
+err() { echo "pi-deploy: $*" >&2; }
+
+# Compose with only PATH and HOME from the caller: a variable in the caller's environment would override the env file.
+# Never `config` without -q: it prints the secrets (T18 review).
+compose() { # bundle folder, env file, compose arguments...
+  local dir=$1 env=$2
+  shift 2
+  env -i PATH="$PATH" HOME="${HOME:-/root}" docker compose -f "$dir/docker-compose.yaml" \
+    -f "$dir/docker-compose.vm.yaml" --project-directory "$dir" --env-file "$env" "$@"
+}
+dc() { compose "$COMPOSE_DIR" "$ENV_FILE" "$@"; }
+
+running() { # compose service -> container id, if running
+  docker ps -q --filter "label=com.docker.compose.project=pi-airflow" \
+    --filter "label=com.docker.compose.service=$1" --filter "label=com.docker.compose.oneoff=False"
+}
+
+read_state() { cat "$STATE/$1" 2>/dev/null || true; }
+put_state() { printf '%s\n' "$2" > "$STATE/$1.new" && mv -f "$STATE/$1.new" "$STATE/$1"; }
+
+guest_attr() { # informational only: anything on the VM can write these (`gcloud compute instances get-guest-attributes`)
+  curl -sf -m 5 -X PUT --data "$2" -H "Metadata-Flavor: Google" "$MD/guest-attributes/precursor/$1" >/dev/null || true
+}
+
+record() { # sha, result
+  printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >> "$STATE/history"
+  guest_attr last-result "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1 $2"
+}
+
+alert() { # subject, body
+  printf '%s\n' "$2" | /usr/local/bin/pi-alert "$1" || err "the alert was not sent: $1"
+}
+
+# The env file, from Secret Manager, as KEY='value' lines (single quotes: compose takes them literally, no $ expansion).
+# Refused instead of written wrong: a quote, a backslash (compose reads \' as an escaped quote, and its parse error
+# would print the next line, a secret), a newline or a carriage return; in a database password, anything a URL can't
+# hold as is.
+write_env() { # sha, file (umask 077)
+  local entry secret var value
+  : > "$2" || return 1
+  for entry in "${SECRETS[@]}"; do
+    secret=${entry%%:*} var=${entry#*:}
+    value=$(gcloud secrets versions access latest --secret="$secret" --project="$GCP_PROJECT" --quiet) \
+      || { err "can't read secret $secret"; return 1; }
+    if [ -z "$value" ] || [[ "$value" == *[\'\\$'\n\r']* ]]; then
+      err "secret $secret is empty or holds a quote, backslash, newline or carriage return"; return 1
+    fi
+    if [[ "$var" == *_DB_PASSWORD && ! "$value" =~ ^[A-Za-z0-9_-]+$ ]]; then
+      err "secret $secret goes into a database URL: only letters, digits, _ and -"; return 1
+    fi
+    printf "%s='%s'\n" "$var" "$value" >> "$2" || return 1
+  done
+  printf "PI_RELEASE_SHA='%s'\n" "$1" >> "$2"
+}
+
+# This sha's compose bundle (from its Airflow image) and env file, in a new folder, checked together.
+stage() { # sha, empty folder
+  local cid f
+  mkdir "$2/compose" || return 1
+  cid=$(docker create "$REGISTRY/airflow:$1" true) || { err "can't create a container from airflow:$1"; return 1; }
+  if ! docker cp "$cid:/opt/precursor/compose/." "$2/compose/" >/dev/null; then
+    docker rm -f "$cid" >/dev/null; err "no compose bundle in airflow:$1"; return 1
+  fi
+  docker rm -f "$cid" >/dev/null || true
+  for f in docker-compose.yaml docker-compose.vm.yaml init-db.sh; do
+    [ -f "$2/compose/$f" ] || { err "the bundle has no $f: older than the VM floor (#43)"; return 1; }
+  done
+  # The rollback floor (L11, #46): a release without the task-network rule must never start on this data disk.
+  grep -q PI_TASKS_SUBNET "$2/compose/init-db.sh" || { err "the bundle's init-db.sh predates L11 (#46)"; return 1; }
+  write_env "$1" "$2/.env" || return 1
+  compose "$2/compose" "$2/.env" config -q || { err "the compose files don't validate with the env file"; return 1; }
+}
+
+same_files() { # staged folder: the live files are the same, so `up` changes no running container
+  local f
+  cmp -s "$1/.env" "$ENV_FILE" || return 1
+  for f in docker-compose.yaml docker-compose.vm.yaml init-db.sh; do cmp -s "$1/compose/$f" "$COMPOSE_DIR/$f" || return 1; done
+}
+
+promote() { # staged folder -> the stable folder and the env file (the folder keeps its copy)
+  install -d -m 0755 "$(dirname "$COMPOSE_DIR")" "$COMPOSE_DIR" &&
+    install -m 0644 "$1/compose/docker-compose.yaml" "$1/compose/docker-compose.vm.yaml" "$COMPOSE_DIR/" &&
+    install -m 0755 "$1/compose/init-db.sh" "$COMPOSE_DIR/init-db.sh" &&
+    install -m 0600 "$1/.env" "$ENV_FILE.new" && mv -f "$ENV_FILE.new" "$ENV_FILE"
+}
+
+# After `up`: the Airflow containers run this sha's image and tell tasks to use this sha's pipeline image, and
+# Postgres's first two pg_hba.conf lines name the task network's real subnet (L11 review: else the rule silently
+# stops matching). The services are docker-compose.yaml's.
+check_running() { # sha
+  local want_img svc cid vars subnet top
+  want_img=$(docker image inspect --format '{{.Id}}' "$REGISTRY/airflow:$1")
+  for svc in airflow-apiserver airflow-scheduler airflow-dag-processor airflow-triggerer; do
+    cid=$(running "$svc")
+    [ -n "$cid" ] || { err "$svc is not running"; return 1; }
+    [ "$(docker inspect --format '{{.Image}}' "$cid")" = "$want_img" ] || { err "$svc runs another image"; return 1; }
+  done
+  vars=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$(running airflow-scheduler)")
+  grep -qx "PI_PIPELINE_IMAGE=$REGISTRY/pipeline:$1" <<< "$vars" \
+    || { err "the scheduler points tasks at another pipeline image"; return 1; }
+  subnet=$(docker network inspect pi-airflow-tasks --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}')
+  # shellcheck disable=SC2016 # $PGDATA is the container's
+  top=$(dc exec -T postgres sh -c 'head -n 2 "$PGDATA/pg_hba.conf"')
+  [ "$top" = "host precursor_meta pi_meta $subnet scram-sha-256"$'\n'"host all all $subnet reject" ] \
+    || { err "pg_hba.conf's task-network rule doesn't match the network's subnet ($subnet)"; return 1; }
+}
+
+# Don't replace the stack under a running or queued run. Returns 3 when paused meanwhile.
+wait_until_idle() { # sha
+  local n=0 unsure=0 rc
+  while true; do
+    [ ! -f "$PAUSED" ] || return 3
+    rc=0
+    PI_BUSY_DAGS="$BUSY_DAGS" /usr/local/bin/pi-busy || rc=$?
+    [ "$rc" -ne 1 ] || return 0
+    if [ "$rc" -ne 0 ]; then # can't tell, e.g. Postgres still starting at boot: wait, but not forever
+      unsure=$((unsure + 1))
+      if [ "$unsure" -gt 10 ]; then log "pi-busy couldn't tell for 10 minutes (exit $rc); deploying anyway"; return 0; fi
+    fi
+    if [ $((n % 15)) -eq 0 ]; then log "waiting: a pipeline run is running or queued (or pi-busy can't tell yet)"; fi
+    if [ "$n" -eq 360 ]; then
+      alert "deploy of ${1:0:12} has waited 6 hours for a pipeline run" \
+        "pi-deploy deploys $1 once no run of $BUSY_DAGS is running or queued (pi-busy). If a run is stuck, end it in Airflow; to deploy anyway, stop the scheduler."
+    fi
+    n=$((n + 1))
+    sleep 60
+  done
+}
+
+# Returns 0 deployed, 1 failed before anything changed, 2 failed after the files or the stack changed, 3 paused.
+deploy() { # sha
+  local sha=$1 img ref label dir
+  [ ! -f "$PAUSED" ] || return 3
+  log "deploying $sha"
+  gcloud auth configure-docker "${REGISTRY%%/*}" --quiet >/dev/null 2>&1 || err "gcloud auth configure-docker failed"
+  for img in airflow pipeline; do
+    ref="$REGISTRY/$img:$sha"
+    # Tags are immutable: an image already here is that release, even after the registry's cleanup deleted it.
+    docker image inspect "$ref" >/dev/null 2>&1 || docker pull --quiet "$ref" >/dev/null || { err "can't pull $img:$sha"; return 1; }
+    label=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$ref")
+    [ "$label" = "$sha" ] || { err "$img:$sha says it was built from '$label'"; return 1; }
+  done
+  rm -rf "$STATE"/stage.* # left by a deploy that was killed
+  dir=$(mktemp -d "$STATE/stage.XXXXXX") || return 1
+  stage "$sha" "$dir" || { rm -rf "$dir"; return 1; }
+  if same_files "$dir"; then
+    log "nothing changes for running containers: not waiting for the pipeline"
+  else
+    wait_until_idle "$sha" || { rm -rf "$dir"; return 3; }
+  fi
+  [ ! -f "$PAUSED" ] || { rm -rf "$dir"; return 3; }
+  promote "$dir" || { rm -rf "$dir"; err "can't put the files in place"; return 2; }
+  rm -rf "$dir"
+  log "starting the stack"
+  dc up -d --wait --wait-timeout 900 --remove-orphans --quiet-pull || { err "docker compose up failed"; return 2; }
+  if [ "${PI_DEPLOY_FAIL_AFTER_UP:-}" = "$sha" ]; then
+    err "PI_DEPLOY_FAIL_AFTER_UP names $sha: failing on purpose (rollback test)"; return 2
+  fi
+  check_running "$sha" || return 2
+}
+
+save_good() { # the files that run now, for the next rollback
+  rm -rf "$GOOD.new" && mkdir "$GOOD.new" && cp -a "$COMPOSE_DIR" "$GOOD.new/compose" &&
+    cp -a "$ENV_FILE" "$GOOD.new/.env" && rm -rf "$GOOD" && mv "$GOOD.new" "$GOOD"
+}
+
+roll_back() { # sha of the last good release: its saved files, so no pull and no new secret read
+  [ -d "$GOOD" ] || { err "no saved files of the last good release"; return 1; }
+  promote "$GOOD" || return 1
+  dc up -d --wait --wait-timeout 900 --remove-orphans --quiet-pull || { err "docker compose up failed"; return 1; }
+  check_running "$1"
+}
+
+prune() { # keep the images of the current and the previous release, for a rollback; drop the rest
+  local keep="$1 $2" repo tag
+  docker image ls --format '{{.Repository}} {{.Tag}}' | while read -r repo tag; do
+    case "$repo" in "$REGISTRY"/*) ;; *) continue ;; esac
+    [[ " $keep " == *" $tag "* ]] || docker image rm "$repo:$tag" >/dev/null 2>&1 || true
+  done
+  docker image prune -f >/dev/null 2>&1 || true
+}
+
+# Deploy a sha; on a failure after anything changed, go back to the last good release. Call it with the lock held.
+deploy_or_roll_back() { # sha
+  local sha=$1 prev rc try
+  prev=$(read_state deployed-sha)
+  if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+    err "'$sha' is not a full git sha"; rc=1
+  else
+    for try in 1 2 3; do # a failure before anything changed may be passing: the registry, Secret Manager
+      rc=0
+      deploy "$sha" || rc=$?
+      if [ "$rc" -ne 1 ] || [ "$try" -eq 3 ]; then break; fi
+      log "try $try failed before anything changed; trying again in 60 s"
+      sleep 60
+    done
+  fi
+  case $rc in
+    0)
+      put_state deployed-sha "$sha"
+      [ "$(read_state failed-sha)" != "$sha" ] || rm -f "$STATE/failed-sha"
+      if [ -n "$prev" ] && [ "$prev" != "$sha" ]; then put_state previous-sha "$prev"; fi
+      save_good || err "couldn't save this release's files for a rollback"
+      record "$sha" deployed
+      guest_attr deployed-sha "$sha"
+      prune "$sha" "$(read_state previous-sha)"
+      log "deployed $sha"
+      return 0
+      ;;
+    3) log "paused: $sha not deployed ('pi-deploy resume' deploys it)"; return 3 ;;
+  esac
+  [ "$sha" = "$prev" ] || put_state failed-sha "$sha"
+  if [ "$rc" -eq 1 ]; then
+    record "$sha" failed-nothing-changed
+    alert "deploy of ${sha:0:12} failed; nothing changed" \
+      "pi-deploy could not deploy $sha (see 'journalctl -u pi-deploy' on the VM). The running release, ${prev:-none}, was not touched."
+    return 1
+  fi
+  record "$sha" failed-after-up
+  if [ -n "$prev" ]; then
+    log "rolling back to $prev"
+    if roll_back "$prev"; then
+      record "$prev" rolled-back
+      guest_attr deployed-sha "$prev"
+      alert "deploy of ${sha:0:12} failed; rolled back to ${prev:0:12}" \
+        "pi-deploy started $sha, which failed (see 'journalctl -u pi-deploy' on the VM), and put back the files of $prev, which runs again."
+    else
+      record "$prev" rollback-failed
+      alert "deploy of ${sha:0:12} failed, and so did the rollback to ${prev:0:12}" \
+        "The stack may be down. See 'journalctl -u pi-deploy' on the VM and infra/vm/README.md."
+    fi
+  else
+    alert "deploy of ${sha:0:12} failed; no earlier release to go back to" \
+      "The stack may be down. See 'journalctl -u pi-deploy' on the VM and infra/vm/README.md."
+  fi
+  return 1
+}
+
+# pi-release as "<etag> <value>": the value is empty when the key doesn't exist, the etag when the server sent none.
+# With an etag, waits until the value changes (at most 10 minutes; then prints the same). Fails on any other answer.
+pointer() { # [last etag]
+  local url="$MD/attributes/pi-release" hdr body code etag value
+  [ -z "${1:-}" ] || url="$url?wait_for_change=true&timeout_sec=600&last_etag=$1"
+  hdr=$(mktemp) && body=$(mktemp) || return 1
+  code=$(curl -s -m 660 -D "$hdr" -o "$body" -w '%{http_code}' -H "Metadata-Flavor: Google" "$url") || code=000
+  etag=$(awk 'tolower($1) == "etag:" {print $2}' "$hdr" | tr -d '\r')
+  value=$(tr -d '[:space:]' < "$body")
+  rm -f "$hdr" "$body"
+  case $code in
+    200) echo "$etag $value" ;;
+    404) echo "$etag " ;;
+    *) err "the metadata server answered $code for pi-release"; return 1 ;;
+  esac
+}
+
+# What to run for this pointer value, then run it under the lock. Returns 3 when paused meanwhile.
+act() { # pointer value
+  local want=$1 current failed
+  current=$(read_state deployed-sha) failed=$(read_state failed-sha)
+  if [ -z "$want" ]; then log "no pi-release set"; return 0; fi
+  if [ "$want" = "$failed" ] && [ "$want" != "$current" ]; then
+    log "pi-release names $want, which failed; keeping ${current:-nothing} until it names another sha"
+    [ -n "$current" ] || return 0
+    want=$current # (failed-sha stays: the next boot keeps the current release too)
+  else
+    rm -f "$STATE/failed-sha" # the pointer moved on: a failure of the new sha is a new one
+  fi
+  ( flock 9 || exit 1; deploy_or_roll_back "$want" ) 9> "$LOCK"
+}
+
+main() {
+  [ "$(id -u)" = 0 ] || { err "run it as root (sudo)"; exit 1; }
+  umask 077
+  install -d -m 0700 "$STATE" "$(dirname "$ENV_FILE")"
+  case "${1:-}" in
+    watch)
+      local line etag="" value last="" first=1 paused=0 rc
+      while true; do
+        if [ -f "$PAUSED" ]; then
+          [ "$paused" = 1 ] || log "paused ($PAUSED); 'pi-deploy resume' to deploy again"
+          paused=1
+          sleep 60
+          continue
+        fi
+        paused=0
+        line=$(pointer "$etag") || { sleep 30; continue; }
+        [ ! -f "$PAUSED" ] || continue # paused during the wait: this change counts after the resume
+        etag=${line%% *} value=${line#* }
+        # At start (a boot: bring the stack up with the current secrets), then only when the pointer changes.
+        if [ "$first" = 1 ] || [ "$value" != "$last" ]; then
+          rc=0
+          act "$value" || rc=$?
+          if [ "$rc" -eq 3 ]; then first=1 etag=""; continue; fi # paused mid-deploy: act again after the resume
+        fi
+        first=0 last=$value
+        if [ -z "$value" ] || [ -z "$etag" ]; then sleep 60; fi # nothing to wait on: the next read returns at once
+      done
+      ;;
+    now)
+      local sha=${2:-} line
+      [ ! -f "$PAUSED" ] || { err "paused: 'pi-deploy resume' first"; exit 1; }
+      if [ -z "$sha" ]; then
+        line=$(pointer) || exit 1
+        sha=${line#* }
+      fi
+      [ -n "$sha" ] || { err "no sha given and no pi-release set"; exit 1; }
+      (
+        flock -w 60 9 || { err "another pi-deploy holds $LOCK (the watcher may be waiting for a pipeline run)"; exit 1; }
+        deploy_or_roll_back "$sha"
+      ) 9> "$LOCK"
+      ;;
+    status)
+      local line
+      line=$(pointer) || line=" (can't read it)"
+      echo "pi-release:   ${line#* }"
+      echo "deployed:     $(read_state deployed-sha)"
+      echo "previous:     $(read_state previous-sha)"
+      echo "failed:       $(read_state failed-sha)"
+      echo "paused:       $([ -f "$PAUSED" ] && echo yes || echo no)"
+      echo "last results:"
+      tail -n 5 "$STATE/history" 2>/dev/null | sed 's/^/  /' || true
+      ;;
+    pause)
+      touch "$PAUSED"
+      # A deploy that hasn't changed anything yet stops within a minute; one that has must finish first.
+      if (flock -w 120 9) 9> "$LOCK"; then
+        log "paused: no deploy is running, and none starts until 'pi-deploy resume'"
+      else
+        err "paused, but a deploy is still running: run 'pi-deploy pause' again until it says none is"; exit 1
+      fi
+      ;;
+    resume) rm -f "$PAUSED"; log "resumed" ;;
+    *) err "usage: pi-deploy watch | now [SHA] | status | pause | resume"; exit 2 ;;
+  esac
+}
+
+main "$@"

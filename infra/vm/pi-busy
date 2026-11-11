@@ -1,0 +1,37 @@
+#!/bin/bash
+# Is the pipeline working? Exit 0 = busy, 1 = idle, 2 = can't tell. Used by pi-deploy (T20) before it replaces a
+# running release, and by the idle shutdown and pi-down (T21) before they stop the VM.
+#
+# Busy = a run of one of PI_BUSY_DAGS is running or queued, or an asset event is queued for one of them (a run about
+# to be created, e.g. the release check just emitted cms_nh_release), or one of their tasks is running. Runs of a
+# paused DAG don't count otherwise: Airflow leaves them as they are. Release-check runs count only if listed (pi-deploy
+# lists them; the idle shutdown doesn't). Read from Airflow's own database, over the Postgres container's local
+# socket. With no scheduler running, nothing can run: idle, even if the database still lists runs from before.
+set -euo pipefail
+
+project="${PI_COMPOSE_PROJECT:-pi-airflow}"
+dags="${PI_BUSY_DAGS:-cms_nh_pipeline cms_nh_ml}"
+
+running() { # compose service -> container id, if running
+  docker ps -q --filter "label=com.docker.compose.project=${project}" \
+    --filter "label=com.docker.compose.service=$1" --filter "label=com.docker.compose.oneoff=False"
+}
+
+[ -n "$(running airflow-scheduler)" ] || exit 1
+postgres=$(running postgres)
+[ -n "$postgres" ] || exit 1
+
+list=""
+for d in $dags; do
+  [[ "$d" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "pi-busy: bad DAG id '$d'" >&2; exit 2; }
+  list="${list:+$list,}'$d'"
+done
+sql="select (select count(*) from dag_run r join dag d using (dag_id)
+             where r.state in ('running', 'queued') and not d.is_paused and r.dag_id in ($list))
+          + (select count(*) from task_instance where state = 'running' and dag_id in ($list))
+          + (select count(*) from asset_dag_run_queue q join dag d on d.dag_id = q.target_dag_id
+             where not d.is_paused and q.target_dag_id in ($list))"
+n=$(docker exec "$postgres" psql --username airflow --dbname airflow -XAtc "$sql" 2>/dev/null) || exit 2
+[[ "$n" =~ ^[0-9]+$ ]] || exit 2
+[ "$n" -gt 0 ] && exit 0
+exit 1
