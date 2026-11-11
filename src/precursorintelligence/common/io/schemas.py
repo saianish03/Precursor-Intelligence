@@ -234,4 +234,27 @@ dq_results = Table(
     Column("checked_at", String(32)),
 )
 
+# Release checks (spec §2.0): one row per recorded check_release run, append-only. `target` is the month a decision
+# is about (READY: the new month; RESUME: the vintage; PARTIAL: the newest month; else empty). BLOCKED compares the
+# last proceed's target and backlog_json with the current check.
+vintage_registry = Table(
+    "vintage_registry",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("run_id", String(64)),
+    Column("checked_at", String(32)),
+    Column(
+        "decision", String(16)
+    ),  # READY | RESUME | CHANGED | PARTIAL | BUSY | BLOCKED | NO_CHANGE
+    Column("target", String(64)),
+    Column("proceed", Boolean),
+    Column("alerted", Boolean),  # the check flagged its one alert (partial, or no run started)
+    Column("git_sha", String(64)),  # the deployed commit (PI_GIT_SHA)
+    Column("latest_ingested", String(7)),
+    Column("latest_published", String(7)),
+    Column("reason", Text),
+    Column("modified_json", Text),  # dataset id -> month, as the metastore reported it
+    Column("backlog_json", Text),  # the landing backlog it saw, "<entry id>@<catalog size>"
+)
+
 TABLES = {t.name: t for t in metadata.sorted_tables}

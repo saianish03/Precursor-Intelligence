@@ -139,6 +139,8 @@ class FakeCMS:
         self.current: list[dict] = []
         self.requests: list[tuple[str, str, dict]] = []
         self.overrides: dict[str, FakeResponse] = {}
+        # dataset id -> the metastore's `modified` (default 2026-08-01)
+        self.modified: dict[str, str] = {}
 
     def add(
         self,
@@ -205,7 +207,7 @@ class FakeCMS:
                 {
                     "identifier": ds,
                     "title": ds,
-                    "modified": "2026-08-01",
+                    "modified": self.modified.get(ds, "2026-08-01"),
                     "released": "2026-08-26",
                     "nextUpdateDate": "2026-09-30",
                     "distribution": [{"data": {"downloadURL": f"{BASE}/x/{ds}.csv"}}],

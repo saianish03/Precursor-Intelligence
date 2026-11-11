@@ -52,7 +52,6 @@ x-airflow-common: &airflow-common
     # Leave empty on the VM (the metadata server's identity) and for local-disk runs.
     PI_GCP_CREDENTIALS_FILE: ${PI_GCP_CREDENTIALS_FILE:-}
     PI_GCP_PROJECT: ${PI_GCP_PROJECT:-precursor-intel-mlops}
-    PI_DAG_SCHEDULE: ${PI_DAG_SCHEDULE-@daily}
     PI_TASK_MEM_LIMIT: ${PI_TASK_MEM_LIMIT:-}
     PI_AUTO_REMOVE: ${PI_AUTO_REMOVE:-success}
     PI_GOLD_TIMEOUT_MINUTES: ${PI_GOLD_TIMEOUT_MINUTES:-}

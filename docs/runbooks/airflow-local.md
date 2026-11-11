@@ -26,13 +26,13 @@ Rebuild `precursor-pipeline` after any change to `src/` or `configs/`; a task ru
 ## 2. Configure and start
 ```bash
 cd docker/airflow-local
-cp .env.example .env && chmod 600 .env   # set the 4 secrets (required; commands in the file), PI_HOST_DATA_DIR, PI_DAG_SCHEDULE
+cp .env.example .env && chmod 600 .env   # set the 4 secrets (required; commands in the file), PI_HOST_DATA_DIR
 mkdir -p "$PI_HOST_DATA_DIR"
 docker compose up -d --wait --pull never     # --pull never: the two precursor-* images are local builds
 ```
 - **UI:** http://localhost:8080. User `admin`; the password is in the `airflow-config` volume:
   `docker compose exec airflow-apiserver cat /opt/airflow/config/simple_auth_manager_passwords.json`
-- **Laptop:** set `PI_DAG_SCHEDULE=` (empty), so runs are manual only. With `@daily`, unpausing starts a run over **every** in-scope zip (about 2.5 GB).
+- **Nothing runs on its own:** `cms_nh_pipeline` starts only from the `cms_nh_release` asset, which only `cms_nh_release_check` emits, and that DAG is created paused. Keep it paused on a laptop and trigger runs by hand.
 - **The DAG starts paused.** Unpause it: `docker compose exec airflow-scheduler airflow dags unpause cms_nh_pipeline`.
 - **Once after the task network got its fixed subnet** (`172.16.77.0/24`): with no DAG run in flight, run `docker compose down`, then `up` again. Compose can't change an existing network's subnet; volumes are kept. Several compose projects on one laptop (e.g. `-p dp_gcp_test`) share the network names, so take all of them down first. Check: `docker network inspect pi-airflow-tasks -f '{{(index .IPAM.Config 0).Subnet}}'` prints `172.16.77.0/24`. An existing database keeps its old access rules: only a new Postgres volume gets the task-network rule (the VM's database is created new).
 
@@ -106,6 +106,8 @@ Empty `PI_ALERT_EMAIL_TO` = nothing is sent; each alert is then only logged (`al
 | A run fails | the DAG's `on_failure_callback` (after the last retry) | failed tasks, each with its exit code and a log link |
 | `release_lock` fails (the run may still be green) | `release_lock`'s `on_failure_callback` | the error and the command that frees the lock |
 | Error anomalies the previous successful resolve did not have (e.g. `no_vintage`) | `ingestion.check_anomalies` (`precursor-ingest anomalies --severity error --new-only`) → `ingestion.alert_anomalies` | one line per anomaly (up to 20) |
+| A CMS release partial for 3 days, or 3 proceeds in a row that started no pipeline run | `cms_nh_release_check`'s `alert` (from `check-release`'s JSON) | what the check saw; once per streak |
+| A release check fails (CMS unreachable, after 2 retries) | `cms_nh_release_check`'s `on_failure_callback` | as for a failed run; one per failed hourly check |
 
 A `stop_after` run and a clean run send nothing. An unfixed anomaly alerts once, not on every run.
 
@@ -160,7 +162,6 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
   - `PI_PIPELINE_ENV=prod`;
   - `PI_HOST_DATA_DIR` and `PI_GCP_CREDENTIALS_FILE` empty;
   - `PI_BUCKET_URI` defaults to `gs://precursor-intel-mlops-data`. Set it only for a trial prefix, and reset `precursor_meta` afterwards: the metadata database records keys relative to the bucket root, so a later run on the root would trust objects that are only under the prefix;
-  - `PI_DAG_SCHEDULE` empty: releases will start runs through the `cms_nh_release_check` DAG (spec §14 #24);
   - `PI_TASK_MEM_LIMIT=10g` (e2-standard-4, 16 GB), `PI_AUTO_REMOVE=force`;
   - `PI_ALERT_SMTP_HOST=smtp.gmail.com`: the alert sender is a Gmail account (port 587, the default);
   - Postgres data in `${PI_PGDATA_DIR:-/mnt/disks/pgdata}/data` on the data disk, instead of the named volume. The disk's setup creates that folder once; compose never does, so an unmounted disk stops Postgres instead of starting an empty database on the boot disk.
@@ -178,6 +179,8 @@ Not yet run on the VM: there is no VM in Terraform yet. What to set and check:
 
   **Task containers reach the metadata server too, so they get the same identity.** A compromised task could therefore read the secrets as well, including the Postgres superuser password (`airflow-db-password`). So Postgres refuses every login from the task network except `pi_meta` on `precursor_meta` (`init-db.sh`, on the network's fixed subnet `172.16.77.0/24`), and that password is useless from a task. The other secrets stay readable from a task but are of little use there: the Airflow API is unreachable from the task network, the Fernet key is useless without the Airflow database, and the SMTP password could only send email as the alert sender.
 - **Images:** CD (`.github/workflows/cd.yml`) pushes both on every merge into `dev` or `main` that changes an image input, tagged with the full commit sha: `us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/{pipeline,airflow}:<sha>` (immutable tags, never `latest`; run it by hand from the Actions tab to publish the current tip of `dev` or `main`, e.g. a commit whose push changed no image input). The VM pre-pulls by sha on deploy (`gcloud auth configure-docker us-central1-docker.pkg.dev`, `docker pull`). The Docker proxy sends no registry credentials, and `force_pull` is off.
+- **Release check (production):** unpause it only once gold is published, and pause it during a backfill or a node-by-node (`stop_after`) run: a RESUME starts the default monthly run, which neither calibrates nor re-validates every month. Unpause `cms_nh_pipeline` first, then `cms_nh_release_check`. Airflow does not queue an asset event for a paused DAG, so a release found while the pipeline is paused starts nothing until the pipeline is unpaused (each check emits it again, since no run started). While developing, keep the release check paused and trigger runs by hand. The checks so far: `select checked_at, decision, target, reason from vintage_registry order by id desc limit 24;` in `precursor_meta`.
+- **A failure that keeps happening reruns about once a day:** e.g. new penalties headers (they fail closed, #44) or validation errors after gold give RESUME → the run fails and emails → BLOCKED for `release_check.repeat_after_hours` (24 h) → RESUME again. So while the VM is up, expect one rerun and one failure email a day until a fix is deployed (a new commit proceeds at the next check), CMS publishes something new, or you pause `cms_nh_release_check`.
 - **Access:** no firewall rule for 8080. Reach the UI with `gcloud compute ssh <vm> --tunnel-through-iap -- -L 8080:127.0.0.1:8080`.
 - **Alert log links:** they use Airflow's `[api] base_url`, `http://localhost:8080` when unset. That works only through the tunnel above on local port 8080; for any other address, set `AIRFLOW__API__BASE_URL` for the Airflow containers.
 - **Disk:**

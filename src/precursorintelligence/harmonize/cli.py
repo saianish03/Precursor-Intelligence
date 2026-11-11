@@ -4,6 +4,7 @@ One command per DAG task (docs/DATA_PIPELINE_SPEC.md §15.3), all sharing the DA
   precursor-pipeline bronze --run-id R
   precursor-pipeline silver --run-id R     (last stdout line: JSON list of new headers, for the alert)
   precursor-pipeline validate --layer silver --run-id R   (read-only data checks; validation/cli.py)
+  precursor-pipeline check-release --run-id R   (the hourly release check; last stdout line: JSON decision)
 
 Exit codes follow the pipeline contract: 0 ok, 1 error (retried), 2 data or validation failure,
 3 config or usage error. The DAG fails 2 and 3 without retry.
@@ -16,6 +17,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import requests
 import typer
 
 from ..bias.cli import bias_report
@@ -24,12 +26,25 @@ from ..common.io.run_lock import RunLockHeldError, RunLockNotHeldError
 from ..gold.cli import gold, snapshot_gold_command
 from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init, _ship_log
 from ..ingestion.context import build_context
+from ..ingestion.http import DownloadValidationError, RetryableHTTPError, UnsafeUrlError
 from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR, EXIT_OK, EXIT_VALIDATION
+from ..ingestion.release_check import ReleaseCheckError, run_release_check
+from ..ingestion.sources.base import CatalogContractError
 from ..validation.cli import validate
 from .columns import load_silver_config
 from .pipeline import run_bronze
 from .silver_pipeline import CHECK_NAME, run_silver
 from .verify import verify_bronze
+
+# CMS unreachable or answering in an unexpected shape: exit 1, so the DAG retries and then alerts (spec §2.0)
+RELEASE_CHECK_ERRORS = (
+    requests.RequestException,
+    RetryableHTTPError,
+    DownloadValidationError,
+    UnsafeUrlError,
+    CatalogContractError,
+    ReleaseCheckError,
+)
 
 app = typer.Typer(
     add_completion=False,
@@ -141,6 +156,30 @@ def silver(
         for f in res.failures[:20]:
             typer.echo(f"  - {f}", err=True)
         raise typer.Exit(res.exit_code)
+
+
+@app.command("check-release")
+def check_release(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = typer.Option(None, help="override the configured log level"),
+) -> None:
+    """Decide whether the pipeline should run: READY, RESUME or CHANGED proceed; PARTIAL, BUSY, BLOCKED and
+    NO_CHANGE skip (spec §2.0). Read-only apart from the decision row in vintage_registry, written only with
+    --run-id (the DAG task), so a check by hand never counts as a proceed. Last stdout line: the decision as
+    JSON. Exit 1 when CMS can't be read as expected (the DAG retries)."""
+    record = run_id is not None
+    settings, run_id, _ = _init(env, env_file, log_level, run_id, label="check_release")
+    ctx = build_context(settings, run_id=run_id)
+    try:
+        out = run_release_check(ctx, record=record)
+    except RELEASE_CHECK_ERRORS as exc:
+        typer.echo(f"error: {exc.__class__.__name__}: {exc}", err=True)
+        raise typer.Exit(EXIT_ERROR) from None
+    # No log shipping (unlike the nodes): it runs hourly, and the Airflow task log already holds the output.
+    typer.echo(f"check_release: {out['decision']}: {out['reason']}")
+    typer.echo(json.dumps(out, sort_keys=True))
 
 
 def main() -> None:

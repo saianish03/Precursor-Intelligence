@@ -617,6 +617,6 @@ lock.release(run_id)    # last task, trigger_rule="all_done"
 | `precursor-pipeline` image | `docker/ingestion.Dockerfile` (planned) | uv, `uv sync --frozen --no-dev --extra pipeline`, non-root, `PI_PROJECT_ROOT` pointing at the copied `configs/`, `PYTHONUNBUFFERED=1` |
 | Local Airflow + Postgres | `docker/airflow-local/docker-compose.yaml` (planned) | Postgres databases `airflow` and `precursor_meta`; the DockerOperator needs the Docker socket and the compose network (`PI_DOCKER_NETWORK` in the reference DAG) |
 | The DAG | `dags/cms_nh_pipeline.py` + `tests/dags/` | Spec §15.5 sketch; every task, including the mapped `extract_inventory`, as `PipelineDockerOperator`. The exit-code test plan is in `STEP1_DATA_INGESTION_PIPELINE.md` §12.6. |
-| `check_release` node | spec §2.0 | Replaces plain `@daily`; uses `landing_backlog()` for CHANGED / RESUME |
+| `check_release` node | spec §2.0 | Replaces plain `@daily`; uses `landing_backlog()` for CHANGED |
 | Layer naming | §12 #8 | Decided: `landing/` + `bronze/` (spec §14 #6) |
 

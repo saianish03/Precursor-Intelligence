@@ -23,8 +23,8 @@ stages:
       size: 2410
     - path: configs/ingestion/sources.yaml
       hash: md5
-      md5: 9dd4d485c05075ce3b9d7673d5022afc
-      size: 4759
+      md5: 9f5809af995e37d193446cff63e5d54e
+      size: 5103
     - path: configs/keep_columns.yaml
       hash: md5
       md5: fb9661ad175c929c92e1ec700610b78e
@@ -47,8 +47,8 @@ stages:
       size: 1718
     - path: src/precursorintelligence/common
       hash: md5
-      md5: beb1464e004d270ea0dd06dd7205ff7f.dir
-      size: 62195
+      md5: 998d818c8304daee694a4521fae29a12.dir
+      size: 63935
       nfiles: 11
     - path: src/precursorintelligence/gold
       hash: md5
@@ -57,14 +57,14 @@ stages:
       nfiles: 16
     - path: src/precursorintelligence/harmonize
       hash: md5
-      md5: dd0e856c8071431dcd7e148378f1863c.dir
-      size: 111319
+      md5: b6de57a73f9107b9f77b1f6d0ac32b25.dir
+      size: 113229
       nfiles: 18
     - path: src/precursorintelligence/ingestion
       hash: md5
-      md5: d86f9a6b6fbbcf244abf679c83deb7ce.dir
-      size: 119233
-      nfiles: 18
+      md5: c90c8bc2bf235c6188d860e523b1d244.dir
+      size: 136096
+      nfiles: 19
     - path: tests/gold/make_toy_silver.py
       hash: md5
       md5: f9051ca7a8adc131d63a7d601bbc4dfa

@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any
 
+from ..common.config import ScopeCfg
 from .context import Context, utc_now, utc_stamp
 from .sources.base import CatalogEntry, CatalogSource
 from .sources.cms_pdc import CmsPdcArchiveSource
@@ -111,6 +112,15 @@ def _row_to_entry(r: dict[str, Any]) -> CatalogEntry:
     )
 
 
+def in_scope(scope: ScopeCfg, e: CatalogEntry) -> bool:
+    """The configured scope: entry type and zip date. ``select`` and ``check_release`` share it."""
+    return (
+        e.type in scope.include_types
+        and e.zip_date >= scope.min_zip_date
+        and (scope.max_zip_date is None or e.zip_date <= scope.max_zip_date)
+    )
+
+
 def select(
     ctx: Context,
     *,
@@ -123,12 +133,7 @@ def select(
     scope = ctx.cfg.scope
     entries = [_row_to_entry(r) for r in ctx.metadata.read("catalog", {"active": True})]
     chosen = [
-        e
-        for e in entries
-        if e.type in scope.include_types
-        and e.zip_date >= scope.min_zip_date
-        and (scope.max_zip_date is None or e.zip_date <= scope.max_zip_date)
-        and (not zip_dates or e.zip_date in zip_dates)
+        e for e in entries if in_scope(scope, e) and (not zip_dates or e.zip_date in zip_dates)
     ]
     if entry_ids is not None:
         wanted = set(entry_ids)

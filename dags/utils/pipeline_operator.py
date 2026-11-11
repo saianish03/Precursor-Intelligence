@@ -68,6 +68,21 @@ def last_json_list(output: str | list[str] | None) -> list[str]:
     return []
 
 
+def last_json_object(output: str | list[str] | None, required: tuple[str, ...]) -> dict[str, Any]:
+    """The last JSON object with all ``required`` keys a command printed (e.g. `check-release`), found like
+    last_json_list; the keys tell it from a JSON log record (prod logs JSON to stderr, interleaved). A command
+    that printed none failed to decide, so that is an error rather than an empty answer."""
+    lines = output if isinstance(output, list) else (output or "").splitlines()
+    for line in reversed(lines):
+        try:
+            value = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(value, dict) and all(k in value for k in required):
+            return value
+    raise ValueError(f"the command printed no JSON object with the keys {list(required)}")
+
+
 def pipeline_env() -> str:
     """`dev` = local object store under /app/data; `prod` = GCS (PI_BUCKET_URI). Both use PI_DATABASE_URL."""
     return os.environ.get("PI_PIPELINE_ENV", "prod")

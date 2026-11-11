@@ -39,7 +39,7 @@
 - **A run that hangs.** `build_gold` has no `execution_timeout`. A hanging run holds the lock, and with `max_active_runs=1` the next runs queue.
   - Airflow 3 removed SLA-miss callbacks.
   - Use `execution_timeout`; the failure callback then fires. Or check Airflow 3.1.8's deadline alerts.
-- **A partial CMS release stuck for N days** (from the ticket) needs `check_release` (spec §2.0), which is **not built**. Note it as blocked.
+- **A partial CMS release stuck for N days** (from the ticket): `check_release` (spec §2.0) alerts once per partial streak, after `release_check.partial_alert_days` (3), through `cms_nh_release_check`'s `alert` task (built 2026-11-07). The same task alerts once when 3 proceeds in a row start no pipeline run.
 - **Not alerts, notices at most:** `stale_refresh` and `revised_after_publication` flags.
 
 **Destination and secrets:**
@@ -74,7 +74,7 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
 | 7 | A failed `release_lock` leaves the run green (teardowns don't set the run state) | By design; needs an alert | alerts | **yes** |
 | 8 | `cms_nh_gold` means published, not verified (`verified: false` until spec §11) | Open: downstream training must check `_current.json` | ML phase | no |
 | 9 | Error anomalies `no_vintage` / `download_*` don't fail the run | By design; needs an alert | alerts | **yes** |
-| 10 | `check_release` not built: the DAG runs daily and rebuilds gold each time, and "partial release stuck" can't be detected | Open (spec §2.0) | pipeline | blocked |
+| 10 | `check_release` not built: the DAG runs daily and rebuilds gold each time, and "partial release stuck" can't be detected | **Fixed** 2026-11-07: `cms_nh_release_check` starts the pipeline only on READY / RESUME / CHANGED, and alerts once on a stuck partial release | pipeline | done |
 | 11 | Not run on GCP yet: no VM in Terraform; the GCS path (`--env prod`, credentials from the VM's metadata server) is untested end to end | Open | infra | no |
 | 12 | Two variables carry the commit (`PI_GIT_SHA` for ingestion, `PI_GIT_COMMIT` for gold) | Open, cosmetic | image | no |
 
@@ -96,6 +96,5 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
 - **Verified in the local stack** (`runbooks/airflow-local.md` §8.3): run G → 1 failure email; a forced `no_vintage` → 1 anomaly email, and 0 on the repeat; `stop_after` and clean runs → 0.
   - Screenshots of the two real emails: `runbooks/img/alert-email-run-failed.png`, `runbooks/img/alert-email-new-anomaly.png` (shown in `runbooks/airflow-local.md` §3.1).
 - **Left to do:**
-  - `check_release` / "partial release stuck for N days": blocked (§2).
   - A timeout is retried like exit 1, so a hang alerts after about 6 h (§9.4 of `AIRFLOW_PIPELINE.md`).
   - A lost anomaly alert (failed send, or no recipient set) is not re-sent on later runs (`runbooks/airflow-local.md` §3.1).

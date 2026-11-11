@@ -176,6 +176,17 @@ class SecurityCfg(BaseModel):
         return v
 
 
+class ReleaseCheckCfg(BaseModel):
+    """check_release (spec §2.0)."""
+
+    # A partial CMS release (not all 7 datasets at one new month) alerts once after this long.
+    partial_alert_days: float = Field(default=3, gt=0)
+    # A proceed that would only repeat the last one (same deployed commit, its run started, nothing new at CMS)
+    # is BLOCKED within this window, so a failure that repeats does not start a failing run, and an email,
+    # every hour.
+    repeat_after_hours: float = Field(default=24, gt=0)
+
+
 class SourcesConfig(BaseModel):
     source: SourceCfg
     scope: ScopeCfg
@@ -184,6 +195,7 @@ class SourcesConfig(BaseModel):
     extract: ExtractCfg = Field(default_factory=ExtractCfg)
     http: HttpCfg
     security: SecurityCfg = Field(default_factory=SecurityCfg)
+    release_check: ReleaseCheckCfg = Field(default_factory=ReleaseCheckCfg)
 
     @field_validator("out_of_scope_patterns")
     @classmethod

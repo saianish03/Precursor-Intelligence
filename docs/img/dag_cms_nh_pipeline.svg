@@ -67,7 +67,7 @@
   <rect width="1800" height="520" fill="#ffffff"/>
   <text x="40" y="36" class="ttl">Airflow DAG · cms_nh_pipeline</text>
   <text x="40" y="508" class="cap">Status dots replay a simulated run in DAG order.</text>
-  <text x="1760" y="36" class="sub" text-anchor="end">daily on the GCP VM · manual on a laptop · max_active_runs = 1</text>
+  <text x="1760" y="36" class="sub" text-anchor="end">release-triggered on the GCP VM · manual on a laptop · max_active_runs = 1</text>
   <line x1="40" y1="52" x2="1760" y2="52" stroke="#dadce0"/>
 
   <!-- task group frames -->

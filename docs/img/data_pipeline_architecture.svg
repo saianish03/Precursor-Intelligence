@@ -76,7 +76,7 @@
   <text x="302" y="140" class="grp">ORCHESTRATION · APACHE AIRFLOW 3</text>
   <g>
     <rect x="320" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-clock" x="330" y="162" width="36" height="36"/>
-    <text x="390" y="176" class="lbl">Scheduler</text><text x="390" y="194" class="cap">daily / on demand</text>
+    <text x="390" y="176" class="lbl">Scheduler</text><text x="390" y="194" class="cap">on release / on demand</text>
     <rect x="620" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-dag" x="630" y="162" width="36" height="36"/>
     <text x="690" y="176" class="lbl">cms_nh_pipeline</text><text x="690" y="194" class="cap">one run at a time</text>
     <rect x="920" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-container" x="930" y="162" width="36" height="36"/>
