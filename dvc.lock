@@ -15,8 +15,8 @@ stages:
       size: 27659
     - path: configs/feature_registry.yaml
       hash: md5
-      md5: 7745db765ad63bdccabdab32bf3860ca
-      size: 20699
+      md5: 3e682c95c53b9e0742cc63ce640ff834
+      size: 29335
     - path: configs/features.yaml
       hash: md5
       md5: 669bbe90752d1584cdf464de0bb7d3ba
@@ -37,6 +37,10 @@ stages:
       hash: md5
       md5: 9e23c8e1b1be1a0467fe43293b667350
       size: 1117
+    - path: configs/qm_measures.yaml
+      hash: md5
+      md5: 3f387bee8758cad4136a51891f7fefb4
+      size: 2694
     - path: configs/splits.yaml
       hash: md5
       md5: 58fd46a9b5f4b65e2a0a74c748a85f41
@@ -47,14 +51,14 @@ stages:
       size: 1718
     - path: src/precursorintelligence/common
       hash: md5
-      md5: 71538c3da1feb41d9c8c095740f9384c.dir
-      size: 72437
+      md5: 67a4043b354f406b7beca71b80ae1831.dir
+      size: 74330
       nfiles: 11
     - path: src/precursorintelligence/gold
       hash: md5
-      md5: a2345ae412fe5107ad3a08458b175692.dir
-      size: 83904
-      nfiles: 16
+      md5: e9be42984d530ec16c12bf3a6ddeb795.dir
+      size: 89546
+      nfiles: 17
     - path: src/precursorintelligence/harmonize
       hash: md5
       md5: d72266e7c90cd8eb9f27bbdb34e290fe.dir
@@ -85,13 +89,13 @@ stages:
       nfiles: 1
     - path: data/toy/gold/facility_month_dataset
       hash: md5
-      md5: 1feceac07ee6bdd6d9d8525cde3b0ae8.dir
-      size: 995781
+      md5: 3ade1f398630ed94e395df0e6bc38880.dir
+      size: 1361543
       nfiles: 26
     - path: data/toy/gold/facility_month_dataset.parquet
       hash: md5
-      md5: a6ea283edf40f796ebe98a48136de0b0
-      size: 42535
+      md5: 082ed671569b5abe03cee65be1d8367a
+      size: 58653
     - path: data/toy/gold/features_citations
       hash: md5
       md5: e6acc98b82984fd8831287a8c47f93d1.dir
@@ -111,6 +115,11 @@ stages:
       hash: md5
       md5: 2f42092f09f5c4b4e66535c1a41dc3e3.dir
       size: 440400
+      nfiles: 26
+    - path: data/toy/gold/features_quality
+      hash: md5
+      md5: 75853a9967a775b33215537b04869c5d.dir
+      size: 381963
       nfiles: 26
     - path: data/toy/gold/features_survey_timing
       hash: md5
@@ -137,8 +146,8 @@ stages:
     deps:
     - path: data/toy/gold/facility_month_dataset
       hash: md5
-      md5: 1feceac07ee6bdd6d9d8525cde3b0ae8.dir
-      size: 995781
+      md5: 3ade1f398630ed94e395df0e6bc38880.dir
+      size: 1361543
       nfiles: 26
     - path: data/toy/gold/labels
       hash: md5
@@ -157,5 +166,5 @@ stages:
     outs:
     - path: metrics/toy_gold.json
       hash: md5
-      md5: d09b1700b8bc5e6670b26b2ccf03f997
-      size: 566
+      md5: f978a0768dc820c842b19576e3363071
+      size: 628

@@ -30,6 +30,7 @@ stages:
       - configs/keep_columns.yaml
       - configs/labels.yaml
       - configs/logging.yaml
+      - configs/qm_measures.yaml
       - configs/splits.yaml
       - configs/value_maps.yaml
     outs:
@@ -41,6 +42,7 @@ stages:
       - data/toy/gold/features_context
       - data/toy/gold/features_enforcement
       - data/toy/gold/features_facility_staffing
+      - data/toy/gold/features_quality
       - data/toy/gold/features_survey_timing
       - data/toy/gold/facility_month_dataset
       - data/toy/gold/facility_month_dataset.parquet
