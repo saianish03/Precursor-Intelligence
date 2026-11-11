@@ -8,7 +8,16 @@ allow_unverified: true              # false once the data spec's §11 gate exist
 features:
   # Taken out of the registry's model list (§1.4). Regime flags until training covers both values (ML-21).
   # O9: W1 decides whether d12_turnover_total (empty for all of 2022) joins this list for Phase 1.
-  exclude: [era, penalty_regime_2025_10]
+  # Quality (W5), measured on the ml-dev silver 2022-06..2026-10:
+  # - qm_def_post_* and qm_age_months_*: one value per t for every facility (CMS sets the measure period
+  #   nationally), so each is a month key, like era;
+  # - four measures change scale with a new definition that no refit window has learned yet (national means):
+  #   pressure ulcers 453 -> 479 in 2025-02 (7.9 -> 5.6), antipsychotics 419 -> 481 in 2026-02 (14.6 -> 16.7),
+  #   ADL decline 401 and mobility decline 451 in 2025-02 (14.1 -> 17.7, 15.3 -> 22.6). Their _fn and d6_qm_*
+  #   stay in. Take them back once the refit window holds about 6 months of the new definition.
+  exclude: [era, penalty_regime_2025_10, qm_def_post_2025_02, qm_def_post_2026_02, qm_age_months_mds,
+            qm_age_months_claims, qm_ls_pressure_ulcer, qm_ls_antipsychotic, qm_ls_adl_decline,
+            qm_ls_mobility_decline]
   # Checked by prepare's regime-coverage flags (§1.4); the quality family's qm_def_post_* flags join when they land.
   regime_sensitive: [staffing_rating, qm_rating, staffing_rating_fn, qm_rating_fn]
 

@@ -8,6 +8,10 @@
 #   incontinence", so a bridge would join two different measures), the vaccination process measures 415, 430,
 #   454 and 472, and 471 (ended 2024-11).
 #
+# - 401 (ADL decline) and 451 (mobility decline; "move" became "walk independently") keep their codes but
+#   jump in level in 2025-02 (CMS's new function items): kept, with qm_def_post_2025_02 marking the month; the
+#   model leaves their values out until it has trained on the new definition (configs/ml.yaml).
+#
 # Codes are text, as in silver. A bridge lists the old code first; the Δ is null where t-6 and t differ in code.
 
 measures:

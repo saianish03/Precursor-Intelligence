@@ -8,6 +8,7 @@ from precursorintelligence.common.config import (
     load_feature_registry,
     load_labels_config,
     load_ml_config,
+    load_qm_measures_config,
     project_root,
 )
 
@@ -31,7 +32,7 @@ def test_the_repo_config_has_the_spec_defaults():
         "production_lag",
     )
     assert cfg.folds.k == 5 and cfg.tuning.folds == 3
-    assert cfg.features.exclude == ["era", "penalty_regime_2025_10"]
+    assert cfg.features.exclude[:2] == ["era", "penalty_regime_2025_10"]
     assert cfg.calibration.method == "platt" and cfg.ensemble.weights == {"lgbm": 0.5, "lr": 0.5}
     assert cfg.outputs.root_prefix == "" and cfg.outputs.run_prefix == "ml/runs"
     assert cfg.allow_unverified is True  # until the data spec's §11 gate exists (ML-9)
@@ -86,3 +87,14 @@ def test_a_nested_prefix_is_accepted(tmp_path):
     data = _repo()
     data["outputs"]["root_prefix"] = "ml-dev/trial/"
     assert load_ml_config(_write(tmp_path, data)).outputs.root_prefix == "ml-dev/trial/"
+
+
+def test_quality_features_that_act_as_a_month_key_or_change_scale_stay_out():
+    # Measured on the ml-dev silver (ml.yaml): qm_def_post_* and qm_age_months_* are one value per t; the
+    # bridged measures and 401 / 451 change scale with their 2025-02 / 2026-02 definitions.
+    cfg, qm = load_ml_config(), load_qm_measures_config()
+    bridged = {f"qm_{n}" for n, m in qm.measures.items() if len(m.codes) > 1}
+    month_keys = {*qm.definition_changes, "qm_age_months_mds", "qm_age_months_claims"}
+    assert month_keys | bridged | {"qm_ls_adl_decline", "qm_ls_mobility_decline"} <= set(
+        cfg.features.exclude
+    )
