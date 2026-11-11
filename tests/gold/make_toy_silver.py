@@ -52,10 +52,12 @@ def make_toy(root: Path, stale: tuple[str, ...] = ()) -> Path:
         "logging": {"log_dir": (root / "logs").as_posix()},
     }
     env_file.write_text(yaml.safe_dump(env, sort_keys=False), encoding="utf-8")
-    splits = load_splits_config().model_copy(update={"required_labels": ["g6"]})
+    splits = load_splits_config().model_copy(
+        update={"required_labels": ["g6"], "spine_start": VINTAGES[0]}
+    )
     (root / TOY_SPLITS).write_text(
         "# The repo's configs/splits.yaml, but only g6 is required: at the toy V (2025-03) y_g12 has no\n"
-        "# training month, so with g12 required gold would stop (exit 2).\n"
+        "# training month, so with g12 required gold would stop (exit 2). The spine starts with the toy world.\n"
         + yaml.safe_dump(splits.model_dump(), sort_keys=False),
         encoding="utf-8",
     )

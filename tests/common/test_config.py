@@ -149,7 +149,7 @@ SPLITS = 'spine_start: "2023-01"\ntest_months: 3\ncalib_months: 3\nrequired_labe
 
 def test_repo_splits_config_has_the_spec_settings():
     cfg = load_splits_config()
-    assert (cfg.spine_start, cfg.test_months, cfg.calib_months) == ("2023-01", 3, 3)
+    assert (cfg.spine_start, cfg.test_months, cfg.calib_months) == ("2022-01", 3, 3)
     assert cfg.required_labels == ["g12", "g6"]
 
 

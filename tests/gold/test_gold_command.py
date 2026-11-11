@@ -6,14 +6,14 @@ import sys
 
 import polars as pl
 import pytest
-from make_toy_silver import TOY_SPLITS, make_toy, no_gate_splits
+import yaml
+from make_toy_silver import TOY_SPLITS, VINTAGES, make_toy, no_gate_splits
 
 from precursorintelligence.common.config import (
     ConfigError,
     load_labels_config,
     load_settings,
     load_splits_config,
-    project_root,
 )
 from precursorintelligence.common.io.metadata_store import SqlAlchemyMetadataStore
 from precursorintelligence.common.io.object_store import LocalObjectStore
@@ -370,9 +370,11 @@ def test_a_missing_splits_config_is_a_config_error(toy, monkeypatch, capsys):
 
 
 def test_gold_stops_when_a_required_label_has_no_training_month(toy, monkeypatch, capsys):
-    toy.splits_file = str(
-        project_root() / "configs" / "splits.yaml"
-    )  # g12 required: no train month at toy V
+    # The repo's settings (g12 required: no train month at toy V), on the toy world's spine start.
+    path = toy.root / "splits_repo.yaml"
+    cfg = load_splits_config().model_copy(update={"spine_start": VINTAGES[0]})
+    path.write_text(yaml.safe_dump(cfg.model_dump(), sort_keys=False), encoding="utf-8")
+    toy.splits_file = str(path)
     assert toy.gold(monkeypatch) == EXIT_VALIDATION
     err = capsys.readouterr().err
     assert "no training month for the required labels g12 (train window None)" in err
