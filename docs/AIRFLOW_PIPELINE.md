@@ -175,7 +175,7 @@ catalog                       one row per CMS catalog entry               (entry
 
 standalone:  anomalies (run_id, entry_id)    run_log (run_id, task)
              run_lock (lock_name)            source_datasets (dataset_id)
-             vintage_registry (id)
+             vintage_registry (id)           ml_runs (id)
 
 ─<  one-to-many
 ```
@@ -196,6 +196,7 @@ standalone:  anomalies (run_id, entry_id)    run_log (run_id, task)
 | `run_log` | `id` (append-only) | every node (`task_scope`) | one row per step of a run: start, end, duration, status, details (JSON) | run_id, task, entry_id, status, started_at, finished_at, duration_s, detail |
 | `run_lock` | `lock_name` | lock commands | the `data_pipeline` lock (0 or 1 row) | run_id, holder, acquired_at |
 | `vintage_registry` | `id` (append-only) | `check-release --run-id` (the DAG task; a check by hand, without `--run-id`, records nothing) | one row per release check: the decision, why, and what it saw (spec §2.0) | run_id, checked_at, decision, target, proceed, alerted, git_sha, latest_ingested, latest_published, reason, modified_json, backlog_json |
+| `ml_runs` | `id` (append-only) | the ML pipeline's `cms_nh_ml` tasks (docs/ML_PIPELINE_SPEC.md §15.2) | one row per ML run and per promotion action; `ml prepare` reads the last scored `v` | ml_run_id, at, mode, decision, action, reason, actor, gold_run_id, v, v_labels, dataset_version, gold_config_sha, gold_verified, recipe_hash, champion_version_before, champion_version_after, candidate_version, gate_outcome, gate_results_json, scores_published, flags_json, retune_requested |
 
 **Useful queries:**
 ```sql

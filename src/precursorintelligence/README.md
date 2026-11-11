@@ -9,7 +9,7 @@ One installable package; each stage is a subpackage. Stages talk to storage only
 | `validation/` | `precursor-pipeline validate`: schema (Pandera) and month-over-month drift checks of silver and gold (docs/VALIDATION.md) |
 | `gold/` | gold node, run as `precursor-pipeline gold`: spine and labels (Steps 6 and 8), the feature families in `gold/features/` behind a leakage-safe reader (Step 7; `quality` waits for `configs/qm_measures.yaml`) and the assembled dataset with its manifest (Step 9); splits, verification and publish to follow |
 | `features/` | preprocessing and feature engineering (silver → gold) |
-| `training/` | model training, calibration, tuning |
+| `training/` | model training, calibration, tuning; `precursor-pipeline ml <command>` (`cli.py`), the run-folder contracts (`contracts.py`) and `ml prepare`'s data rules (`data.py`; docs/ML_PIPELINE_SPEC.md) |
 | `evaluation/` | metrics, promotion gates, slice checks |
 | `serving/` | batch scoring and prediction helpers used by the backend |
 | `alerts.py` | pipeline alert emails (failed run, failed `release_lock`, new error anomalies); stdlib only, imported by the Airflow DAGs |

@@ -4,8 +4,8 @@ Two files make up the settings:
   * ``configs/ingestion/sources.yaml`` - what to download and the security rules (same in every environment)
   * ``configs/<env>.yaml``             - which storage / database backends to use (dev, prod)
 
-The gold node also reads ``configs/labels.yaml`` and ``configs/splits.yaml`` (their own loaders below), and the
-validate command ``configs/validation.yaml``.
+The gold node also reads ``configs/labels.yaml`` and ``configs/splits.yaml`` (their own loaders below), the
+validate command ``configs/validation.yaml``, and the ML pipeline ``configs/ml.yaml``.
 
 ``${VAR}`` and ``${VAR:-default}`` placeholders are expanded from the process environment, so secrets
 (database URLs, bucket names) never have to be written into a config file.
@@ -479,6 +479,259 @@ def load_labels_config(path: str | Path | None = None) -> LabelsConfig:
 def load_splits_config(path: str | Path | None = None) -> SplitsConfig:
     """Load and validate ``configs/splits.yaml``."""
     return _load_model(SplitsConfig, path or project_root() / "configs" / "splits.yaml")
+
+
+# --------------------------------------------------------------------------- ml.yaml (docs/ML_PIPELINE_SPEC.md)
+
+_KEY_PART = r"[A-Za-z0-9._-]+"
+_Positive = Annotated[float, Field(gt=0)]
+_NonNegative = Annotated[float, Field(ge=0)]
+_Fraction = Annotated[float, Field(gt=0, lt=1)]
+
+
+def _unique(v: list[str], what: str) -> list[str]:
+    if len(set(v)) != len(v):
+        raise ValueError(f"{what} repeats an entry: {v}")
+    return v
+
+
+def _ordered_pair(v: tuple[float, float], what: str) -> tuple[float, float]:
+    if not v[0] < v[1]:
+        raise ValueError(f"{what} must be [low, high] with low < high, got {list(v)}")
+    return v
+
+
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class MlFeaturesCfg(_Strict):
+    exclude: list[str] = []
+    regime_sensitive: list[str] = []
+
+    @field_validator("exclude", "regime_sensitive")
+    @classmethod
+    def _no_repeats(cls, v: list[str]) -> list[str]:
+        return _unique(v, "features list")
+
+
+class MlWindowsCfg(_Strict):
+    train_months: int = Field(ge=1)
+    min_train_months: int = Field(ge=1)
+    eval_gap: Literal["production_lag", "purge"]
+
+    @model_validator(mode="after")
+    def _min_fits(self) -> MlWindowsCfg:
+        if self.min_train_months > self.train_months:
+            raise ValueError("windows.min_train_months is larger than windows.train_months")
+        return self
+
+
+class MlFoldsCfg(_Strict):
+    k: int = Field(ge=2)
+
+
+class LrParams(_Strict):
+    C: _Positive
+    max_iter: int = Field(ge=1)
+    onehot_min_frequency: int = Field(ge=1)
+
+
+class MlMembersCfg(_Strict):
+    lgbm: dict[
+        str, bool | int | float | str
+    ]  # passed to LightGBM as they are (W1); tuning proposes new ones
+    lr: LrParams
+
+
+class MlEnsembleCfg(_Strict):
+    weights: dict[Literal["lgbm", "lr"], _Positive]
+
+
+class MlSelectionCfg(_Strict):
+    candidates: list[Literal["ensemble", "lgbm", "lr"]] = Field(min_length=1)
+    tie_margin: _NonNegative
+
+    @field_validator("candidates")
+    @classmethod
+    def _no_repeats(cls, v: list[str]) -> list[str]:
+        return _unique(v, "selection.candidates")
+
+
+class MlCalibrationCfg(_Strict):
+    method: Literal["platt"]
+    fit_recent_months: int = Field(ge=1)
+
+
+class LeakageFlagCfg(_Strict):
+    pr_auc_max: Annotated[float, Field(gt=0, le=1)]
+    base_rate_multiple: _Positive
+
+
+class LeakageCleared(_Strict):
+    feature: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+
+
+class MlChecksCfg(_Strict):
+    min_score_facilities: int = Field(ge=1)
+    leakage_flag: LeakageFlagCfg
+    leakage_cleared: list[LeakageCleared] = []
+
+
+class BootstrapCfg(_Strict):
+    replicates: int = Field(ge=1)
+    seed: int
+
+
+class ShuffledLabelCfg(_Strict):
+    n_estimators: int = Field(ge=1)
+    roc_range: tuple[float, float]
+
+    @field_validator("roc_range")
+    @classmethod
+    def _ordered(cls, v: tuple[float, float]) -> tuple[float, float]:
+        return _ordered_pair(v, "shuffled_label.roc_range")
+
+
+class MlEvaluationCfg(_Strict):
+    precision_at: list[_Fraction] = Field(min_length=1)
+    ece_bins: int = Field(ge=2)
+    bootstrap: BootstrapCfg
+    shuffled_label: ShuffledLabelCfg
+    development_months: list[str] = []
+
+    @field_validator("development_months")
+    @classmethod
+    def _yyyy_mm(cls, v: list[str]) -> list[str]:
+        bad = [m for m in v if not re.fullmatch(_YYYY_MM_RE, m)]
+        if bad:
+            raise ValueError(f"development_months must be YYYY-MM, got {bad}")
+        return v
+
+
+class CalibrationGateCfg(_Strict):
+    ece_max: _Positive
+    slope_range: tuple[float, float]
+
+    @field_validator("slope_range")
+    @classmethod
+    def _ordered(cls, v: tuple[float, float]) -> tuple[float, float]:
+        return _ordered_pair(v, "gates.calibration.slope_range")
+
+
+class VsChampionGateCfg(_Strict):
+    pr_auc_worse_max: _NonNegative
+    brier_worse_max: _NonNegative
+
+
+class RefitGateCfg(_Strict):
+    oof_lift_ratio_min: _Positive
+    mean_p_band: _Positive
+    spearman_min: Annotated[float, Field(ge=-1, le=1)]
+
+
+class MlGatesCfg(_Strict):
+    first_run: Literal["challenger", "promote"]
+    calibration: CalibrationGateCfg
+    vs_champion: VsChampionGateCfg
+    refit: RefitGateCfg
+
+
+class MlBiasCfg(_Strict):
+    slices_config: str
+    gate_slices: list[str] = Field(min_length=1)
+    gate_min_facilities: int = Field(ge=1)
+    gate_min_positives: int = Field(ge=1)
+    oe_worse_max: _Positive
+    pr_auc_worse_max: _Positive
+    oe_abs_max: _Positive
+    fdr_alpha: _Fraction
+    mitigation: Literal["none", "reweight"]
+
+
+class MlExplainCfg(_Strict):
+    top_raise: int = Field(ge=1)
+    top_lower: int = Field(ge=0)
+    labels: str
+    key_features: int = Field(ge=1)
+
+
+class MlMonitorCfg(_Strict):
+    psi_bins: int = Field(ge=2)
+    feature_psi_max: _Positive
+    score_psi_max: _Positive
+    mean_shift_max: _Positive
+    lift_drop_max: _Positive
+    champion_lag_months_max: int = Field(ge=0)
+
+
+class MlTuningCfg(_Strict):
+    n_trials: int = Field(ge=1)
+    folds: int = Field(ge=2)
+    timeout_minutes: _Positive
+    early_stopping_rounds: int = Field(ge=1)
+    seed: int
+
+
+class MlRegistryCfg(_Strict):
+    model_name: str = Field(min_length=1)
+    experiment: str = Field(min_length=1)
+    champion_alias: str = Field(min_length=1)
+    challenger_alias: str = Field(min_length=1)
+
+
+class MlOutputsCfg(_Strict):
+    # Object-store keys: root_prefix is "" or "a/b/" (ends with "/"); the others have no leading or trailing "/".
+    root_prefix: str = ""
+    run_prefix: str
+    scores_prefix: str
+    status_key: str
+
+    @field_validator("root_prefix")
+    @classmethod
+    def _prefix(cls, v: str) -> str:
+        if v and not re.fullmatch(rf"({_KEY_PART}/)+", v):
+            raise ValueError(f"outputs.root_prefix must be empty or like 'ml-dev/', got {v!r}")
+        return v
+
+    @field_validator("run_prefix", "scores_prefix", "status_key")
+    @classmethod
+    def _key(cls, v: str) -> str:
+        if not re.fullmatch(rf"{_KEY_PART}(/{_KEY_PART})*", v) or ".." in v.split("/"):
+            raise ValueError(
+                f"must be a relative object key without leading or trailing '/', got {v!r}"
+            )
+        return v
+
+
+class MlConfig(_Strict):
+    """``configs/ml.yaml``: every setting of the ML pipeline (docs/ML_PIPELINE_SPEC.md, Appendix B)."""
+
+    version: Literal[1]
+    label: str = Field(min_length=1)
+    allow_unverified: bool
+    features: MlFeaturesCfg
+    windows: MlWindowsCfg
+    folds: MlFoldsCfg
+    members: MlMembersCfg
+    ensemble: MlEnsembleCfg
+    selection: MlSelectionCfg
+    calibration: MlCalibrationCfg
+    checks: MlChecksCfg
+    evaluation: MlEvaluationCfg
+    gates: MlGatesCfg
+    bias: MlBiasCfg
+    explain: MlExplainCfg
+    monitor: MlMonitorCfg
+    tuning: MlTuningCfg
+    registry: MlRegistryCfg
+    outputs: MlOutputsCfg
+
+
+def load_ml_config(path: str | Path | None = None) -> MlConfig:
+    """Load and validate ``configs/ml.yaml``."""
+    return _load_model(MlConfig, path or project_root() / "configs" / "ml.yaml")
 
 
 _M = TypeVar("_M", bound=BaseModel)
