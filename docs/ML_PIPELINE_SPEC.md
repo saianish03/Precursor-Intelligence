@@ -177,10 +177,15 @@ Every later task reads only the pinned copy, so `cms_nh_ml` needs no run lock an
 Gold writes `verified: false` until the data spec's §11 gate and Checkpoint 5 exist (`gold/build.py: VERIFIED = False`). With `allow_unverified: true` (the default until then) the pipeline trains and scores; every MLflow run, model version, score row and `status/latest.json` carries `gold_verified = false`. Once the gate exists, prod sets `allow_unverified: false` and an unverified gold is refused (exit 2, alert).
 
 ### 1.4 Features
-- **The feature list** = every `configs/feature_registry.yaml` entry with `model_use: model` (`common/config.py: load_feature_registry`), in registry order, minus `ml.yaml: features.exclude`. Today 90 − 2 = 88 features; the quality family adds 43 (W5, Phase 2).
+- **The feature list** = every `configs/feature_registry.yaml` entry with `model_use: model` (`common/config.py: load_feature_registry`), in registry order, minus `ml.yaml: features.exclude`. Today 90 − 2 = 88 features (87 if W1 also excludes `d12_turnover_total`, below); the quality family adds 43 (W5, Phase 2).
 - **Never features:** `ablation_only` (`overall_rating`, `health_inspection_rating`, their `_fn` footnotes), used only as the star-rating benchmark (§6.2); `product_only` (`chain_id`), used only by the roll-up (§10.3); `label_aux` columns; `y_*`, `status_*`, `split_*`; `ccn`, `t`, `cutoff_date`.
 - **Regime flags are excluded until training has seen both values (ML-21).** `era` (2025-07 rating-method change) and `penalty_regime_2025_10` are pure functions of `t` (`gold/features/context.py`). Every eval and refit window until `V_L` ≈ 2027-03 / 2027-06 sees only the old value, while every scored month has the new one: the columns are constant in training, LightGBM never splits on them and LR gives them ~0 weight. They are listed in `features.exclude`. `prepare` runs a **regime-coverage check** on every remaining `t`-derived or regime-sensitive feature (`features.regime_sensitive`, default `[staffing_rating, qm_rating, staffing_rating_fn, qm_rating_fn]` plus the quality family's `qm_def_post_*` flags when they land): any level or range in the score frame that the refit window doesn't cover is a monitoring flag (§12.1) and a model-card line.
 - **The two star sub-ratings (ML-17 + ML-21):** CMS changed the rating method in 2025-07, so `staffing_rating` and `qm_rating` are trained on the old method and scored on the new one. W1 measures their PSI between the refit window and the score month; above 0.25 they go into `features.exclude` until the refit window covers the new method. Checkpoint ML-A confirms.
+- **A late-starting feature: `d12_turnover_total` (O9; W1 decides).** It is the 12-month change in staff turnover, so it needs turnover at `t − 12`, which CMS publishes from 2022-01 (registry `first_available_vintage: "2023-01"`).
+  - **Measured on the P0 gold** (2026-11-11): null in every 2022 month, 74 % filled in 2023-01, rising to 88 % by 2026-10.
+  - **Why it matters:** the eval window at `V_L` = 2026-10 (2022-04..2023-03) has it empty in 9 of its 11 months, while the refit window and every scored month have it. The eval fit and the champion would learn it differently, and LR's missing indicator would act as a time flag.
+  - **Recommended:** list it in `features.exclude` for Phase 1, like the regime flags (ML-21). Take it back once the eval window starts in 2023-01 or later (about `V_L` = 2027-06). State the choice in the model card.
+  - It is the only `model_use: model` feature that starts after 2022-03.
 - **Model frame.** One function, `training/data.py: to_model_frame(df, features)`, builds every model input (training, OOF, scoring, signature): numeric and bool columns cast to float64 (bool → 0/1, nulls stay NaN), categoricals to string with null as its own level. The same function everywhere avoids schema mismatches between training and scoring (e.g. an all-non-null sample inferred as `long` that later receives a null).
 
 ### 1.5 Input checks (`prepare`)
@@ -601,7 +606,7 @@ All changes only add resources (the CI apply guard refuses deletes); `sa-tf-appl
 ### 16.4 Phase 1 runtime: a laptop stack against GCS
 - Each developer runs the compose stack (with the `mlflow` service) on a laptop, as the data pipeline was tested (T13, `dp_gcp_test`): `PI_PIPELINE_ENV=prod`, the gcloud ADC file of an account allowed to impersonate `sa-pipeline`.
 - **Prefix:** Phase 1 reads and writes under `gs://precursor-intel-mlops-data/ml-dev/` (`outputs.root_prefix` for ML; `PI_BUCKET_URI` for the data pipeline), never the bucket root (D11: laptop stacks don't write to the root).
-- **Gold for Phase 1** (P0, ML-23): set `spine_start: "2022-01"` in `configs/splits.yaml` and run `cms_nh_pipeline` with `mode=backfill` on one laptop stack (its own compose project and metadata DB) into `ml-dev/`. That run includes the 2026-10-28 release (V = 2026-10).
+- **Gold for Phase 1** (P0, ML-23): set `spine_start: "2022-01"` in `configs/splits.yaml` and run `cms_nh_pipeline` with `mode=backfill` on one laptop stack (its own compose project and metadata DB) into `ml-dev/`. That run includes the 2026-10-28 release (V = 2026-10). **Done 2026-11-11** (§18.0).
 - One shared MLflow is better than five: the person who runs P0 hosts the integration stack; others develop against `file:`/`sqlite:` stores and the fixture, and run real-gold jobs on the integration stack.
 
 ### 16.5 Phase 2 on the VM
@@ -643,6 +648,43 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 
 ## 18. Work plan (5 people, all using Claude Code)
 
+### 18.0 Before you start (everyone, once)
+**What exists already (P0, done 2026-11-11):**
+- `configs/splits.yaml` starts the spine at 2022-01 (#53, merged).
+- **The Phase 1 gold** is `gs://precursor-intel-mlops-data/ml-dev/gold/`:
+  - `dataset_version` `2e915b7287400bec`, V = `v_labels` = 2026-10;
+  - 52 months (2022-01 → 2026-10), 775,400 rows, `verified: false`;
+  - feature families survey_timing, citations, enforcement, facility_staffing and context (quality pending, W5).
+  - It was built by the `ml_dev` laptop stack, which has its own metadata database. **Nobody else writes to `ml-dev/gold/`.** If gold must change, ask the P0 owner, who rebuilds it.
+
+**Prerequisites:**
+1. **Read** §0, §1, §3, §17, §18 and §20 of this spec, plus the gold contract in the data spec (§9, §11). Every package's names come from here.
+2. **Update your repo:** pull `dev`, run `uv sync --frozen --all-extras`, and rebuild `precursor-pipeline` and `precursor-airflow` if you run the laptop stack. They now carry the 2022-01 spine.
+3. **Fix your local `CLAUDE.md`** (not in git; O6). The star-rating rule reads: "the overall and health-inspection star ratings are never features (`staffing_rating` and `qm_rating` may be, per `configs/feature_registry.yaml`)".
+4. **GCP access as `sa-pipeline`, never your personal account:** `gcloud auth application-default login --impersonate-service-account=sa-pipeline@precursor-intel-mlops.iam.gserviceaccount.com` (the T13 setup; `docs/runbooks/airflow-local.md`, the GCS section).
+   - Read gold through its pinned `_current.json` (§1.2).
+   - Write ML outputs only under `ml-dev/` (`outputs.root_prefix`), never the bucket root (D11).
+5. **Code against W0.** Until W0 merges, prototype in notebooks only.
+   - Package code uses W0's config keys, `ml` commands, frames and run-folder JSON contracts.
+   - Unit tests use the synthetic fixture `tests/ml/make_ml_gold.py`: no network, no real gold.
+6. **One branch from `dev`, and one PR per package** (§20). Before opening it:
+   - run `uv run ruff check .`, `uv run mypy src` and `uv run pytest`;
+   - run the `leakage-reviewer` agent on window, fold, feature or label code;
+   - run the `infra-reviewer` agent on W4's Docker, Terraform and CI changes.
+7. **One shared MLflow:** the P0 owner hosts the integration stack (§16.4).
+   - Develop with a local tracking store (`MLFLOW_TRACKING_URI=sqlite:///mlruns.db` or `file:`).
+   - Run real-gold jobs on the integration stack, so the registry has one history.
+8. **Memory:** the full gold frame (775k rows × 107 columns) and the gold build need several GB. P0's gold build reached a ~6 GB footprint.
+   - Docker Desktop's default 8 GB is too small for real-gold jobs in containers. Raise it to 12 GB or more, or run those jobs on the integration stack.
+   - Unit tests on the fixture are unaffected.
+9. **Known data caveats to keep in mind:**
+   - `d12_turnover_total` is empty for all of 2022 (§1.4, O9);
+   - the regime flags are excluded (ML-21);
+   - 2025-02 is a development month (§3.2, §21);
+   - 2024-12 and 2025-01 are empty CMS months;
+   - the quality features arrive later (W5).
+10. **The must-nots in §20 apply to every package,** above all: nothing is chosen on the test frame, no secret goes into MLflow, and nothing reads `dim_facility_latest`.
+
 ### 18.1 Phases (ML-22)
 | Phase | When | Scope |
 |---|---|---|
@@ -674,9 +716,9 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 ### 18.3 Packages
 | WP | Phase | Scope | Modules / files | Depends on | Done when |
 |---|---|---|---|---|---|
-| **P0 Data** | 1 | `spine_start: "2022-01"` (data spec §14 #10, recorded); full `cms_nh_pipeline` backfill on a laptop stack into `ml-dev/`, including the 2026-10-28 release | `configs/splits.yaml` | — | `ml-dev/gold/` current, spine 2022-01, V = 2026-10 |
+| **P0 Data** ✅ done 2026-11-11 (§18.0) | 1 | `spine_start: "2022-01"` (data spec §14 #10, recorded); full `cms_nh_pipeline` backfill on a laptop stack into `ml-dev/`, including the 2026-10-28 release | `configs/splits.yaml` | — | `ml-dev/gold/` current, spine 2022-01, V = 2026-10 |
 | **W0 Foundation** | 1 | `configs/ml.yaml` + `MlConfig`/`load_ml_config`; the `ml` typer sub-app with stubs (exit 3 "not built"); `training/data.py` (pin, checks, `to_model_frame`, windows, frames, folds); `ml_runs` in `common/io/schemas.py`; run-folder JSON contracts; `configs/reason_labels.yaml` skeleton; the synthetic fixture `tests/ml/make_ml_gold.py` | `common/config.py`, `training/{cli,data}.py`, `harmonize/cli.py` | — | window, fold and pin tests (incl. leakage tests 2, 4, 5, 12) pass on the fixture |
-| **W1 Training** | 1 | LR pipeline, LightGBM member, log-odds ensemble, OOF + Platt, selection, `PrecursorModel` pyfunc, MLflow logging helper, `ml train`; `ml tune` with the proposal and plots; the PR #49 reproduction check; the PSI check of the two sub-ratings (§1.4) | `training/{members,ensemble,calibration,select,train,tune,mlflow_log}.py` | W0 | model tests pass; a real eval fit and refit are logged |
+| **W1 Training** | 1 | LR pipeline, LightGBM member, log-odds ensemble, OOF + Platt, selection, `PrecursorModel` pyfunc, MLflow logging helper, `ml train`; `ml tune` with the proposal and plots; the PR #49 reproduction check; the PSI check of the two sub-ratings (§1.4); the `d12_turnover_total` decision (§1.4, O9) | `training/{members,ensemble,calibration,select,train,tune,mlflow_log}.py` | W0 | model tests pass; a real eval fit and refit are logged |
 | **W2 Evaluation, bias, gates** | 1 | metrics, paired bootstrap, baselines, sanity checks, Fairlearn slices + per-state EB, reweighting (with the `fit_rows` parameter), plots, `model_card.md`, `gates.py`, `ml evaluate`, `ml gate` (registration, aliases, `ml_runs`), `ml promote` | `evaluation/{metrics,bootstrap,baselines,sanity,slices,gates,report}.py`, `bias/mitigation.py` | W0, W1's fit interface | gate tests pass; a real model card exists |
 | **W3 Explain and score** | 1 | `serving/explain.py` (§8.1), reason codes and all model-feature labels, global SHAP helpers for W2, `ml score`, roll-up, the scores layout and manifest, `ml publish` (Phase 1: verify + asset) | `serving/{explain,score,rollup,publish}.py`, `configs/reason_labels.yaml` | W0, W1's pyfunc | additivity tests pass; real scores and reasons written |
 | **W4 Platform** | 1 | §16.1 service + Dockerfile + `postgres-setup` + `pg_hba` line; MLflow bucket (Terraform PR); extras split + image; `docker_kwargs` (`MLFLOW_TRACKING_URI`, `PI_PIPELINE_IMAGE`); pool `heavy` in `airflow-init` + `build_gold`; CI smoke stage `toy_ml` and image jobs; runbook | `docker/`, `infra/terraform/`, `.github/workflows/ci.yml`, `dags/utils/pipeline_operator.py`, `dvc.yaml`, docs | W0 (names) | a task container on the laptop stack logs a run (`curl` from the tasks network to `mlflow:5000` returns 200); CI green |
@@ -744,6 +786,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | O6 | `CLAUDE.md` star-rating wording | changed 2026-11-10 in the maintainer's local copy | teammates update their local `CLAUDE.md` (it is not in git): "overall and health-inspection star ratings are never features" (ML-17) |
 | O7 | Data spec edits | §14 #10 recorded (2022-01) on 2026-11-10 | still to do when the team agrees: §9.5 open #16 → resolved by ML-24; §15.1's three ML DAGs → one `cms_nh_ml` |
 | O8 | Regime-invariant enforcement features | — | a data-side idea (counts per revision group or per survey) so the 2025-10 fine-count jump doesn't skew scores |
+| O9 | `d12_turnover_total` is empty for all of 2022 (§1.4) | in the feature list | W1: exclude it for Phase 1 (`features.exclude`); take it back once the eval window starts in 2023-01 or later (about `V_L` = 2027-06) |
 
 ---
 
@@ -790,7 +833,7 @@ version: 1
 label: g12                          # y_g12 / status_g12 / split_g12
 allow_unverified: true              # false once the data spec's §11 gate exists (ML-9)
 features:
-  exclude: [era, penalty_regime_2025_10]      # ML-21; regime flags until training covers both values
+  exclude: [era, penalty_regime_2025_10]      # ML-21; regime flags until training covers both values; + d12_turnover_total if W1 confirms O9
   regime_sensitive: [staffing_rating, qm_rating, staffing_rating_fn, qm_rating_fn]
 windows:
   train_months: 11                  # non-empty months, eval and refit (ML-25)
