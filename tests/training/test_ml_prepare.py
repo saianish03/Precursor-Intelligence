@@ -135,7 +135,7 @@ def test_the_command_prepares_and_prints_a_json_summary(gold, ml_yaml, monkeypat
     assert code == 0, out
     summary = json.loads(out.strip().splitlines()[-1])
     assert summary["ml_run_id"] == "manual__cli" and summary["gold_run_id"] == gold.run_id
-    assert summary["eval"] == ["2022-04", "2023-03"] and summary["refit"] == ["2024-02", "2025-02"]
+    assert summary["eval"] == ["2022-05", "2023-04"] and summary["refit"] == ["2024-02", "2025-02"]
     assert (gold.root / "ml/runs/manual__cli/input/manifest.json").is_file()
 
 

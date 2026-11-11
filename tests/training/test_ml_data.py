@@ -130,8 +130,8 @@ def test_windows_match_the_worked_example():
     assert w.last_labeled_t == "2025-02"
     assert (w.test.first, w.test.last, w.test.months) == ("2024-12", "2025-02", ["2025-02"])
     assert w.eval.months == [
-        "2022-04", "2022-05", "2022-06", "2022-07", "2022-08", "2022-09",
-        "2022-10", "2022-11", "2023-01", "2023-02", "2023-03",
+        "2022-05", "2022-06", "2022-07", "2022-08", "2022-09", "2022-10",
+        "2022-11", "2023-01", "2023-02", "2023-03", "2023-04",
     ]  # fmt: skip
     assert w.refit.months == [
         "2024-02", "2024-03", "2024-04", "2024-05", "2024-06", "2024-07",
@@ -155,9 +155,9 @@ def test_windows_count_only_months_with_rows():
 
 
 def test_a_late_spine_start_leaves_too_few_eval_months():
-    # with gold starting in 2023-01 the eval window holds 3 months (§3.2): below min_train_months
+    # with gold starting in 2023-01 the eval window holds 4 months (§3.2): below min_train_months
     late = SPLITS.model_copy(update={"spine_start": "2023-01"})
-    with pytest.raises(MlInputError, match="eval window holds 3 months"):
+    with pytest.raises(MlInputError, match="eval window holds 4 months"):
         windows("2026-10", splits=late)
 
 

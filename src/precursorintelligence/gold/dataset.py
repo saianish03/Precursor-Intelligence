@@ -61,8 +61,9 @@ def _sha256_file(name: str) -> str:
     return hashlib.sha256((project_root() / "configs" / name).read_bytes()).hexdigest()
 
 
-def _sha256_settings(cfg: LabelsConfig | SplitsConfig) -> str:
-    """The settings themselves, as canonical JSON: the same whichever file (or code) they came from."""
+def settings_sha256(cfg: LabelsConfig | SplitsConfig) -> str:
+    """The settings themselves, as canonical JSON: the same whichever file (or code) they came from. The ML
+    pipeline compares this hash in the manifest with its own configs' (training/data.py: check_gold_settings)."""
     return hashlib.sha256(
         json.dumps(cfg.model_dump(mode="json"), sort_keys=True).encode()
     ).hexdigest()
@@ -166,8 +167,8 @@ def dataset_manifest(
         "flags": _flags(meta, v),
         "config_sha256": {name: _sha256_file(name) for name in HASHED_CONFIGS}
         | {
-            "labels.yaml": _sha256_settings(labels_cfg),
-            "splits.yaml": _sha256_settings(splits_cfg),
+            "labels.yaml": settings_sha256(labels_cfg),
+            "splits.yaml": settings_sha256(splits_cfg),
         },
         "git_commit": commit,
         "git_dirty": dirty,

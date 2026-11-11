@@ -58,8 +58,14 @@ def test_no_training_month_reaches_the_test_window(label, eval_gap):
             assert "min_train_months" in str(exc) or "holds no rows" in str(exc)
             continue
         built += 1
-        gap = h + b if eval_gap == "production_lag" else h
-        assert shift(w.eval.last, gap) < w.test.first, (v_labels, w.eval.last, w.test.first)
+        # no training outcome window (t, t + H] reaches the test window, whatever the gap
+        assert shift(w.eval.last, h) < w.test.first, (v_labels, w.eval.last, w.test.first)
+        if (
+            eval_gap == "production_lag"
+        ):  # and the newest eval labels are known by the first test month, as in prod
+            assert shift(w.eval.last, h + b) <= w.test.first
+            # ... and it ends at the latest month with rows that allows (no extra month of gap)
+            assert w.eval.last == max(m for m in months if m <= shift(w.test.first, -(h + b)))
         assert max(w.eval.months) < min(w.test.months)
         assert w.refit.last <= w.last_labeled_t == shift(v_labels, -(h + b))
         assert min(w.eval.months + w.refit.months) >= SPLITS.spine_start
@@ -96,7 +102,8 @@ def test_a_stale_refresh_takes_every_window_from_v_labels(label):
             continue
         built += 1
         assert w.last_labeled_t == shift(v_labels, -(h + b))  # not from V
-        assert w.refit.last <= w.last_labeled_t and shift(w.eval.last, h + b) < w.test.first
+        assert w.refit.last <= w.last_labeled_t and shift(w.eval.last, h + b) <= w.test.first
+        assert shift(w.eval.last, h) < w.test.first
         assert (w.score_month, w.v, w.v_labels) == (v, v, v_labels)
     assert built > 10
 

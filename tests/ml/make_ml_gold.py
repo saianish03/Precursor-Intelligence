@@ -32,7 +32,7 @@ from precursorintelligence.common.config import (
     load_ml_config,
     load_splits_config,
 )
-from precursorintelligence.gold.dataset import _sha256_settings as settings_sha256
+from precursorintelligence.gold.dataset import settings_sha256
 from precursorintelligence.gold.splits import add_splits, last_labeled_t, shift
 
 V = "2026-10"

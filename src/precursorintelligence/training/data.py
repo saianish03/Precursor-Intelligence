@@ -34,8 +34,7 @@ from ..common.config import (
 )
 from ..common.io.metadata_store import MetadataStore
 from ..common.io.object_store import ObjectStore, sha256_of
-from ..gold.dataset import MANIFEST_NAME, MERGED
-from ..gold.dataset import _sha256_settings as settings_sha256  # the settings hash gold records
+from ..gold.dataset import MANIFEST_NAME, MERGED, settings_sha256
 from ..gold.splits import last_labeled_t, shift, split_windows
 from . import GoldPinError, MlInputError
 from .contracts import (
@@ -195,10 +194,11 @@ def compute_windows(
     if not expected_test:
         raise MlInputError(f"the {label} test window {test_from}..{test_to} holds no rows")
     w = cfg.windows
-    if (
-        w.eval_gap == "production_lag"
-    ):  # the production lag H + B before the first test month (ML-20)
-        eval_last = shift(test_from, -(h + b + 1))
+    if w.eval_gap == "production_lag":
+        # Exactly production's lag (ML-20): the refit trains up to L = V_L - (H + B) and scores V_L, so the eval fit
+        # trains up to H + B months before the first test month. Its newest labels are known when the test month is,
+        # and no training outcome window (t, t + H] reaches the test window.
+        eval_last = shift(test_from, -(h + b))
     else:  # "purge": end before gold's purge window (reproducing PR #49)
         eval_last = shift(calendar["purge"][0], -1)
     floor = splits_cfg.spine_start
