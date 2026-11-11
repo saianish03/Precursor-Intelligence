@@ -16,6 +16,9 @@
 # A failure in 1-3 changes nothing and is tried twice more. A failure from 4 on puts back the last good release's
 # files (kept from its deploy, secrets included) at once. Every failure emails (pi-alert). The watcher doesn't retry
 # a failed sha until pi-release names another one.
+#
+# Test hook, for the rollback test only: `sudo env PI_DEPLOY_FAIL_AFTER_UP=<sha> pi-deploy now <sha>` fails that
+# deploy right after `up`, so it rolls back. Nothing sets it otherwise (the unit doesn't).
 set -euo pipefail
 
 REGISTRY=us-central1-docker.pkg.dev/precursor-intel-mlops/precursor

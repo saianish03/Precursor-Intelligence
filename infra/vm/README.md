@@ -12,7 +12,7 @@ can read its metadata.
 | `pi-deploy` | Runs the release that the instance metadata `pi-release` names (below, "Deploys"): `watch` (the service), `now [SHA]`, `status`, `pause`, `resume`. |
 | `pi-deploy.service` | Runs `pi-deploy watch`: deploys at boot, after the startup script, and whenever `pi-release` changes. Log: `journalctl -u pi-deploy` |
 | `pi-busy` | Exit 0 while a run of `PI_BUSY_DAGS` (default `cms_nh_pipeline cms_nh_ml`) is running or queued, an asset event is queued for one, or one of their tasks runs; runs of a paused DAG count only by a running task. 1 when idle (also when no scheduler runs); 2 when it can't tell. Used by `pi-deploy` (which adds the release check) and later by the idle shutdown (T21). |
-| `pi-alert` | `pi-alert SUBJECT < BODY`: emails the alert recipients from the VM itself (subject prefix `[pi-airflow VM]`), with the settings in `/etc/precursor/.env`. For failures outside Airflow. |
+| `pi-alert` | `pi-alert SUBJECT < BODY`: emails the alert recipients from the VM itself (subject prefix `[pi-airflow VM]`), with the settings in `/etc/precursor/.env`, or straight from Secret Manager when that file is missing or lacks them (e.g. before the first deploy). For failures outside Airflow. |
 | `pi-pg-backup` | Dumps `airflow` and `precursor_meta` (`pg_dump -Fc`, over the Postgres container's local socket) to `gs://precursor-intel-mlops-backups/postgres/<db>/<UTC time>-<random>.dump`, the same name for both. Prints each dump's MD5. Exits 0 only when both uploaded. |
 | `pi-pg-restore` | `pi-pg-restore airflow\|precursor_meta <file.dump>`: restores a dump of that database into an **empty** database; refuses anything else (exit 2). |
 | `pi-pg-backup.service` | Runs `pi-pg-backup` whenever the OS shuts down or Docker stops, while both are still up. A backstop: best effort within GCE's ~90 s. |
@@ -40,8 +40,7 @@ can read its metadata.
     secrets too) at once. That also covers a redeploy of the same sha broken by a new secret.
   - A release that upgrades Airflow migrates its database, which a rollback can't undo: dump first
     (`sudo pi-pg-backup`) and deploy it by hand.
-  - Every failure emails `[pi-airflow VM] deploy of … failed …`, from the second deploy on: `pi-alert` reads the
-    settings from the env file, which the first successful deploy writes.
+  - Every failure emails `[pi-airflow VM] deploy of … failed …`.
   - The watcher doesn't retry a failed sha until `pi-release` names another one, or a person runs `pi-deploy now`.
     Setting `pi-release` to the value it already has wakes nothing; use `now`.
 - **Refused releases:** a sha whose bundle has no `docker-compose.vm.yaml` (before #43), or no task-network rule in
