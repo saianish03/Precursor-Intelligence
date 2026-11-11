@@ -11,7 +11,7 @@ from collections.abc import Callable
 import polars as pl
 
 from ...common.config import FeaturesConfig, load_features_config
-from . import citations, context, enforcement, facility_staffing, survey_timing
+from . import citations, context, enforcement, facility_staffing, quality, survey_timing
 from .reader import FeatureReader
 
 # family -> builder(reader, spine rows of one t, t, cfg) -> one row per spine row, keyed by (ccn, t)
@@ -21,9 +21,10 @@ FAMILIES: dict[str, FamilyBuilder] = {
     "citations": citations.build,
     "enforcement": enforcement.build,
     "facility_staffing": facility_staffing.build,
+    "quality": quality.build,
     "context": context.build,
 }
-# spec §10 join order; quality waits for configs/qm_measures.yaml (Checkpoint 4)
+# spec §10 join order
 FAMILY_ORDER = (
     "survey_timing", "citations", "enforcement", "facility_staffing", "quality", "context",
 )  # fmt: skip

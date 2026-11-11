@@ -366,15 +366,11 @@ def test_late_posted_citation_still_labels_earlier_months(labels):
     assert maple.select("t", "y_g12").rows() == [("2023-02", 0), ("2023-03", 1)]
 
 
-# ------------------------------------------------------------------ gold features (not built yet)
-
-not_built = pytest.mark.xfail(
-    raises=NotImplementedError, strict=True, reason="gold feature family not implemented yet"
-)
+# ------------------------------------------------------------------ gold features
 
 
 def _features(silver, spine, family: str) -> pl.DataFrame:
-    """gold/features_<family> (§8). Point this at the real builder when features land."""
+    """gold/features_<family> (§8)."""
     from precursorintelligence.gold.features import build_features
 
     return build_features(family, silver, spine)
@@ -390,7 +386,6 @@ def test_fine_counts_use_only_what_was_posted_at_t(silver, spine):
     assert got == EXPECTED_N_FINES_24M
 
 
-@not_built
 def test_d6_antipsychotic_is_null_across_the_code_change(silver, spine):
     qual = _features(silver, spine, "quality").filter(pl.col("ccn") == "015001").sort("t")
     null_months = qual.filter(pl.col("d6_qm_ls_antipsychotic").is_null())["t"].to_list()

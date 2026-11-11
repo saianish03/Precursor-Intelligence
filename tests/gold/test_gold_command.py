@@ -115,7 +115,7 @@ def test_gold_builds_the_features_and_the_dataset(toy, monkeypatch, capsys):
     oak = ds.filter(pl.col("ccn") == "015002").row(0, named=True)
     assert (oak["n_fines_24m"], oak["y_g12"]) == (2, None)  # immature at t = 2024-01
     manifest = json.loads((toy.root / "gold" / "dataset_manifest.json").read_text())
-    assert manifest["feature_families_pending"] == ["quality"]
+    assert manifest["feature_families_pending"] == []
     assert manifest["flags"] == {} and manifest["rows"] == {"total": 109, "months": 26}
     assert set(manifest["partitions_sha256"]) == {f"facility_month_dataset/t={t}" for t in months}
 

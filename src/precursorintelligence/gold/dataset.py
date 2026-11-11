@@ -29,7 +29,7 @@ DATASET = "facility_month_dataset"
 MANIFEST_NAME = "dataset_manifest.json"
 MERGED = f"{DATASET}.parquet"  # gold/facility_month_dataset.parquet: the t= partitions in one file
 KEYS = ["ccn", "t"]
-HASHED_CONFIGS = ("features.yaml", "feature_registry.yaml")
+HASHED_CONFIGS = ("features.yaml", "feature_registry.yaml", "qm_measures.yaml")
 GIT_COMMIT_ENV = "PI_GIT_COMMIT"  # set in images, which carry no .git
 
 

@@ -38,7 +38,7 @@ def test_assembly_joins_in_the_spec_order(parts):
     spine, features, labels = parts
     ds = assemble(spine, features, labels)
     assert ds.select("ccn", "t").equals(spine.select("ccn", "t"))
-    order = ["survey_timing", "citations", "enforcement", "facility_staffing", "context"]
+    order = ["survey_timing", "citations", "enforcement", "facility_staffing", "quality", "context"]
     expected = list(spine.columns)
     for f in order:
         expected += features[f].columns[2:]
@@ -101,7 +101,8 @@ def test_the_manifest_is_the_same_for_the_same_inputs_but_the_timestamp(parts, t
     }
     assert all(sum(c.values()) == labels.height for c in a["rows_per_split"].values())
     assert "rows_per_label_status" not in a
-    assert a["feature_families_pending"] == ["quality"]
+    assert a["feature_families_pending"] == []
+    assert "qm_measures.yaml" in a["config_sha256"]  # a different QM list is a different gold
     assert a["verified"] is False
     assert set(a) >= {"git_commit", "git_dirty"}
 
