@@ -196,7 +196,7 @@ Gold writes `verified: false` until the data spec's §11 gate and Checkpoint 5 e
 | Labels | eval, test and refit frames each have positive and negative rows; at least `min_train_months` months in the eval window | exit 2 |
 | Score rows | at least `checks.min_score_facilities` (10,000 on real gold; the universe is ~14.7–15.3k) | exit 2 |
 | Order of `V` | `V` is not earlier than the last scored `V` in `ml_runs` (an older gold would overwrite newer scores) | exit 2 |
-| Single-feature leakage flag | on the eval window and on the refit window, each feature's own PR-AUC, taking max(AP(x), AP(−x)), with nulls as their own value and categoricals scored by their in-fold target mean, above min(0.6, 3 × base rate) | **flag**: written to the report; holds promotion at G2 until the feature is listed, with a reason, in `ml.yaml: checks.leakage_cleared` |
+| Single-feature leakage flag | on the eval window and on the refit window, each feature's own PR-AUC, taking max(AP(x), AP(−x)), with nulls as their own value and categoricals scored by their out-of-fold target mean (the level's positive rate in the other facility folds, so a row never scores its own label), above min(0.6, 3 × base rate) | **flag**: written to the report; holds promotion at G2 until the feature is listed, with a reason, in `ml.yaml: checks.leakage_cleared` |
 
 ---
 
