@@ -57,7 +57,7 @@ There is no online model server: CMS publishes once a month and every score chan
 | H, B | label horizon 12 months; posting buffer `B_cit` = 8 months (`configs/labels.yaml`) |
 | `L` | last labelled month: `V_L − (H + B)` = 20 months before `V_L` (`gold/splits.py: last_labeled_t`) |
 | test window | gold's `split_g12 == "test"` months: the last `test_months` calendar months up to `L` |
-| eval window | the `train_months` most recent non-empty months ending at least H + B months before the first test month (§3.2) |
+| eval window | the `train_months` most recent non-empty months ending no later than H + B months before the first test month: production's lag (§3.2) |
 | refit window | the `train_months` most recent non-empty months up to `L` (§3.3) |
 | recipe | everything that defines how a model is built: feature list, member hyperparameters, ensemble rule, calibration, windows, and the ML code and `configs/ml.yaml` (`recipe_hash`, §14.3) |
 | champion / challenger | MLflow registry aliases on model `precursor_y_g12` (§9.2) |
@@ -183,8 +183,8 @@ Gold writes `verified: false` until the data spec's §11 gate and Checkpoint 5 e
 - **The two star sub-ratings (ML-17 + ML-21):** CMS changed the rating method in 2025-07, so `staffing_rating` and `qm_rating` are trained on the old method and scored on the new one. W1 measures their PSI between the refit window and the score month; above 0.25 they go into `features.exclude` until the refit window covers the new method. Checkpoint ML-A confirms.
 - **A late-starting feature: `d12_turnover_total` (O9; W1 decides).** It is the 12-month change in staff turnover, so it needs turnover at `t − 12`, which CMS publishes from 2022-01 (registry `first_available_vintage: "2023-01"`).
   - **Measured on the P0 gold** (2026-11-11): null in every 2022 month, 74 % filled in 2023-01, rising to 88 % by 2026-10.
-  - **Why it matters:** the eval window at `V_L` = 2026-10 (2022-04..2023-03) has it empty in 9 of its 11 months, while the refit window and every scored month have it. The eval fit and the champion would learn it differently, and LR's missing indicator would act as a time flag.
-  - **Recommended:** list it in `features.exclude` for Phase 1, like the regime flags (ML-21). Take it back once the eval window starts in 2023-01 or later (about `V_L` = 2027-06). State the choice in the model card.
+  - **Why it matters:** the eval window at `V_L` = 2026-10 (2022-05..2023-04) has it empty in 7 of its 11 months, while the refit window and every scored month have it. The eval fit and the champion would learn it differently, and LR's missing indicator would act as a time flag.
+  - **Recommended:** list it in `features.exclude` for Phase 1, like the regime flags (ML-21). Take it back once the eval window starts in 2023-01 or later (about `V_L` = 2027-05). State the choice in the model card.
   - It is the only `model_use: model` feature that starts after 2022-03.
 - **Model frame.** One function, `training/data.py: to_model_frame(df, features)`, builds every model input (training, OOF, scoring, signature): numeric and bool columns cast to float64 (bool → 0/1, nulls stay NaN), categoricals to string with null as its own level. The same function everywhere avoids schema mismatches between training and scoring (e.g. an all-non-null sample inferred as `long` that later receives a null).
 
@@ -210,13 +210,13 @@ Gold writes `verified: false` until the data spec's §11 gate and Checkpoint 5 e
 
 ### 3.1 Why these windows
 - Labels mature 20 months after `t` (H 12 + B 8). In production, the model that scores month `V` has training rows up to `L = V − 20`: **the production lag is 20 months.**
-- Models decay with distance in time. PR #49 measured ROC 0.733 → 0.695 and ECE 0.7 → 5.5 points over 7 months out of time. So the evaluation must leave at least the same 20-month gap between training and test (21–23 months, since the gap is counted to the first month of the test window), or the test metrics, and especially the calibration gate, describe a fresher model than the one that ships (ML-20).
+- Models decay with distance in time. PR #49 measured ROC 0.733 → 0.695 and ECE 0.7 → 5.5 points over 7 months out of time. So the evaluation leaves the same 20-month gap between its last training month and the first test month (20–22 months to the test window's three months), or the test metrics, and especially the calibration gate, describe a fresher model than the one that ships (ML-20).
 - PR #49 also found that **recent training months predict better** (2023 only beat 2022-01..08 by +0.016 PR-AUC), so windows are short and recent: 11 non-empty months.
 
 ### 3.2 Frames
 | Frame | Rows | Purpose |
 |---|---|---|
-| `eval_train` | labelled rows in the eval window: the `train_months` most recent non-empty months ending at or before `test_from − (H + B + 1)` (`eval_gap: production_lag`), and not before `spine_start` | the eval fit |
+| `eval_train` | labelled rows in the eval window: the `train_months` most recent non-empty months ending at or before `test_from − (H + B)` (`eval_gap: production_lag`: its newest labels are known by the first test month, as production's are by V_L), and not before `spine_start` | the eval fit |
 | `test` | `split_g12 == "test"`, labelled rows | evaluation and gates |
 | `refit_train` | labelled rows in the refit window: the `train_months` most recent non-empty months up to `L` | the production refit |
 | `score` | every row with `t = V` | scoring |
@@ -224,13 +224,13 @@ Gold writes `verified: false` until the data spec's §11 gate and Checkpoint 5 e
 
 - **Non-empty months:** CMS never published some months (2021-12, 2022-12, 2023-12, 2024-12, 2025-01, 2025-08, 2026-01). Windows count months that have rows. When `spine_start` binds, a window can hold fewer than `train_months`; fewer than `min_train_months` exits 2.
 - **This needs gold to start in 2022-01** (`configs/splits.yaml: spine_start: "2022-01"`, the data spec's own recommendation for its open item #10; ML-20). With 2023-01 the eval window would have 3 months. `eval_gap: purge` (end before gold's purge window, 13+ months) exists for reproducing PR #49 and as a fallback; the model card states which gap was used.
-- **Worked example,** `V_L = 2026-10` (the 2026-10-28 release): `L = 2025-02`; test window 2024-12..2025-02, of which only 2025-02 has rows (14,643 facilities); eval window = 11 non-empty months ending 2023-03 (2022-04..2023-03 without the 2022-12 gap); refit window = 2024-02..2025-02 without 2024-12 and 2025-01. The eval model predicts 2025-02 from data that ends 23 months earlier; the production model predicts 2026-10 from data that ends 20 months earlier.
+- **Worked example,** `V_L = 2026-10` (the 2026-10-28 release): `L = 2025-02`; test window 2024-12..2025-02, of which only 2025-02 has rows (14,643 facilities); eval window = 11 non-empty months ending 2023-04 (2022-05..2023-04 without the 2022-12 gap); refit window = 2024-02..2025-02 without 2024-12 and 2025-01. The eval model predicts 2025-02 from data that ends 22 months earlier; the production model predicts 2026-10 from data that ends 20 months earlier.
 - **2025-02 is a development month.** PR #49 chose its training window, features and parameters by test score on 2025-02, and ML-16 was measured on it. Metrics are reported **per test month**; months in `evaluation.development_months` (default `["2025-02"]`) are marked as such in `evaluation.json` and the model card. Checkpoint ML-A and the threshold review (O2) use 2025-03 or later, which enters the test window with the late-November release (`V_L = 2026-11`).
 
 ### 3.3 Eval fit and refit (ML-15)
 Every RETRAIN fits the recipe twice:
 1. the **eval fit** on `eval_train` → evaluated on `test` (§6), bias-checked (§7), gated (§9): the evidence;
-2. the **refit** on `refit_train` → registered and, if the gates pass, the champion that scores. Its data is about two years newer than the eval fit's (23 months in the example of §3.2).
+2. the **refit** on `refit_train` → registered and, if the gates pass, the champion that scores. Its data is about two years newer than the eval fit's (22 months in the example of §3.2).
 
 The refit is never evaluated on the test window (it trained on it), and **the registered champion (a refit) is never scored on a test frame** (`evaluate` refuses any model whose `meta.json` training months reach the test window minus H). Comparisons with the champion use the **champion's eval fit**, logged with every version: it trained on months that end at least H + B before its own test window, which ends before the current one, so scoring it on the current test frame is leak-free (§9.1 G5).
 
@@ -625,7 +625,7 @@ On top of the data pipeline's ~$10–15/month: MLflow bucket cents; BigQuery loa
 | Unit | `tests/training`, `tests/evaluation`, `tests/serving`, `tests/monitoring` | windows (empty months, `eval_gap` modes, `spine_start` binding, `min_train_months`); stable folds; `to_model_frame`; LR preprocessing; the log-odds ensemble; Platt fit and the degenerate fallback; selection rule; metrics vs scikit-learn; paired bootstrap; roll-up arithmetic; reason ranking; PSI; every row of the decide table, including a hold followed by a no-op gold (SKIP, not RETRAIN) and a failed publish (SCORE); pin refusals; registration idempotency; the integrity check |
 | Model | same | Platt lowers ECE on a miscalibrated fixture; shuffled labels give ROC ≈ 0.5; **SHAP additivity** for LightGBM, LR, the ensemble and after Platt (base + Σ = calibrated log-odds within 1e-6); the pyfunc round-trips; a stored `package_format: 1` package still loads |
 | Gates | `tests/evaluation/test_gates.py` | table-driven: each gate passes and fails at its boundary; "worse" needs both the tolerance and the CI; first-run behaviour; manual-promote rules |
-| Leakage | `tests/leakage` | (1) permuting the test labels leaves the model, calibration, selection, threshold, tuned parameters and mitigation weights byte-identical; (2) window arithmetic for g12, g6, pen12 over many `V_L` incl. gap months: max(eval t) + H + B < min(test t), `refit_train` ≤ `L`, every training frame has status only positive/negative; (3) `evaluate` refuses a model whose training months reach the test window minus H; (4) each `ccn` in exactly one fold, OOF predictions from fits without that facility; (5) the model input equals the registry `model` list minus `features.exclude`, in order, and never contains `_fwd`, `y_*`, `slice__*`, `overall_rating`, `chain_id`, `t`, `cutoff_date`; (6) reordered or unseen categorical levels give the same predictions for seen levels; (7) regime-coverage flags; (8) a stale-refresh fixture (`v ≠ v_labels`); (9) mitigation weights fit on each frame's own rows; (10) G5/G7 compare on identical rows and nothing loads `@champion` to compute test metrics; (11) realized performance only for months with `V' + H + B ≤ V_L`, matched to the publishing version; (12) the pinned run equals the run `decide` evaluated |
+| Leakage | `tests/leakage` | (1) permuting the test labels leaves the model, calibration, selection, threshold, tuned parameters and mitigation weights byte-identical; (2) window arithmetic for g12, g6, pen12 over many `V_L` incl. gap months: max(eval t) + H < min(test t) (no training outcome window reaches the test window), max(eval t) + H + B ≤ the first test month and the eval window ends at the latest month with rows that allows (production's lag, no more), `refit_train` ≤ `L`, every training frame has status only positive/negative; (3) `evaluate` refuses a model whose training months reach the test window minus H; (4) each `ccn` in exactly one fold, OOF predictions from fits without that facility; (5) the model input equals the registry `model` list minus `features.exclude`, in order, and never contains `_fwd`, `y_*`, `slice__*`, `overall_rating`, `chain_id`, `t`, `cutoff_date`; (6) reordered or unseen categorical levels give the same predictions for seen levels; (7) regime-coverage flags; (8) a stale-refresh fixture (`v ≠ v_labels`); (9) mitigation weights fit on each frame's own rows; (10) G5/G7 compare on identical rows and nothing loads `@champion` to compute test metrics; (11) realized performance only for months with `V' + H + B ≤ V_L`, matched to the publishing version; (12) the pinned run equals the run `decide` evaluated |
 | DAG | `tests/dags/test_ml_dag.py` (in the airflow image) | `cms_nh_ml` imports; schedule = `cms_nh_gold`; tasks use the pipeline image; branch wiring and trigger rules; the `heavy` pool shared with `build_gold`; typed params; `last_json_object` keys |
 | Smoke | DVC stage `toy_ml` (CI) | the whole chain on the synthetic fixture writes every artifact in the contract |
 
@@ -786,7 +786,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | O6 | `CLAUDE.md` star-rating wording | changed 2026-11-10 in the maintainer's local copy | teammates update their local `CLAUDE.md` (it is not in git): "overall and health-inspection star ratings are never features" (ML-17) |
 | O7 | Data spec edits | §14 #10 recorded (2022-01) on 2026-11-10 | still to do when the team agrees: §9.5 open #16 → resolved by ML-24; §15.1's three ML DAGs → one `cms_nh_ml` |
 | O8 | Regime-invariant enforcement features | — | a data-side idea (counts per revision group or per survey) so the 2025-10 fine-count jump doesn't skew scores |
-| O9 | `d12_turnover_total` is empty for all of 2022 (§1.4) | in the feature list | W1: exclude it for Phase 1 (`features.exclude`); take it back once the eval window starts in 2023-01 or later (about `V_L` = 2027-06) |
+| O9 | `d12_turnover_total` is empty for all of 2022 (§1.4) | in the feature list | W1: exclude it for Phase 1 (`features.exclude`); take it back once the eval window starts in 2023-01 or later (about `V_L` = 2027-05) |
 
 ---
 
