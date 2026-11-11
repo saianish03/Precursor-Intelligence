@@ -39,8 +39,8 @@ stages:
       size: 1117
     - path: configs/splits.yaml
       hash: md5
-      md5: dc5731c6345bd669ded49050604b23a1
-      size: 792
+      md5: 58fd46a9b5f4b65e2a0a74c748a85f41
+      size: 854
     - path: configs/value_maps.yaml
       hash: md5
       md5: 464378339f3983d764a9af4eb0df89e7
@@ -67,8 +67,8 @@ stages:
       nfiles: 19
     - path: tests/gold/make_toy_silver.py
       hash: md5
-      md5: f9051ca7a8adc131d63a7d601bbc4dfa
-      size: 3931
+      md5: 5f7635ad0f8318717a08932e3ad2dc57
+      size: 4010
     - path: tests/gold/silver_fakes.py
       hash: md5
       md5: cce6e8817980973912e4bb75f00b7e1d

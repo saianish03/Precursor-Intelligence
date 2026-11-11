@@ -5,6 +5,6 @@
 
 spine_start: "2022-01"   # first prediction month t, and where training starts; 2021 is history only
                          # (spec §14 #10, decided 2026-11-10 for the ML eval window: ML_PIPELINE_SPEC.md §5)
-test_months: 3           # §14 #11: 6 only if training starts in 2022-01
+test_months: 3           # §14 #11 considered 6 with a 2022-01 start; kept at 3: the ML spec uses gold's test window as is
 calib_months: 3
 required_labels: [g12, g6]   # gold stops (exit 2) unless each has a positive and a negative training row; pen12 is reported only
