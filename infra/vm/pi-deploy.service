@@ -1,0 +1,17 @@
+# The deploy watcher (T20): runs the release that the instance metadata `pi-release` names, at boot and whenever it
+# changes (infra/vm/pi-deploy). After the startup script, which may be upgrading Docker or refreshing pi-deploy itself.
+# Wants, not Requires, Docker: if Docker can't start (e.g. the data disk didn't mount), the deploy fails and emails.
+[Unit]
+Description=Deploy the release named by the pi-release metadata key
+Wants=docker.service network-online.target
+After=docker.service network-online.target google-startup-scripts.service
+
+[Service]
+Type=simple
+Environment=HOME=/root
+ExecStart=/usr/local/bin/pi-deploy watch
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

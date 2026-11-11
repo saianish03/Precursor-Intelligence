@@ -305,10 +305,16 @@ resource "google_compute_instance" "airflow" {
   metadata = {
     enable-oslogin         = "TRUE" # people log in with their Google identity through IAP; no SSH keys
     block-project-ssh-keys = "TRUE"
-    startup-script         = file("${path.module}/../../../vm/startup.sh")
-    pi-pg-backup           = file("${path.module}/../../../vm/pi-pg-backup")
-    pi-pg-restore          = file("${path.module}/../../../vm/pi-pg-restore")
-    pi-pg-backup-service   = file("${path.module}/../../../vm/pi-pg-backup.service")
+    # pi-deploy reports the deployed sha there; informational only, since anything on the VM may write them.
+    enable-guest-attributes = "TRUE"
+    startup-script          = file("${path.module}/../../../vm/startup.sh")
+    pi-pg-backup            = file("${path.module}/../../../vm/pi-pg-backup")
+    pi-pg-restore           = file("${path.module}/../../../vm/pi-pg-restore")
+    pi-pg-backup-service    = file("${path.module}/../../../vm/pi-pg-backup.service")
+    pi-deploy               = file("${path.module}/../../../vm/pi-deploy")
+    pi-deploy-service       = file("${path.module}/../../../vm/pi-deploy.service")
+    pi-busy                 = file("${path.module}/../../../vm/pi-busy")
+    pi-alert                = file("${path.module}/../../../vm/pi-alert")
   }
   # (terraform.yml also runs on infra/vm/**, so a change to one of these files gets its own plan and apply.)
 

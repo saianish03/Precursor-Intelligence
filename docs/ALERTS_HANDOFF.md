@@ -75,7 +75,7 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
 | 8 | `cms_nh_gold` means published, not verified (`verified: false` until spec §11) | Open: downstream training must check `_current.json` | ML phase | no |
 | 9 | Error anomalies `no_vintage` / `download_*` don't fail the run | By design; needs an alert | alerts | **yes** |
 | 10 | `check_release` not built: the DAG runs daily and rebuilds gold each time, and "partial release stuck" can't be detected | **Fixed** 2026-11-07: `cms_nh_release_check` starts the pipeline only on READY / RESUME / CHANGED, and alerts once on a stuck partial release | pipeline | done |
-| 11 | Not run on GCP yet: the VM is in Terraform (T19) but runs nothing until the deploy script (T20); the GCS path with credentials from the VM's metadata server is untested end to end | Open | infra | no |
+| 11 | Not run on GCP yet: the VM (T19) and its deploy script (T20, which emails its own failures through `infra/vm/pi-alert`) exist, but no pipeline run has happened there; the GCS path with credentials from the VM's metadata server is untested end to end (T23) | Open | infra | no |
 | 12 | Two variables carry the commit (`PI_GIT_SHA` for ingestion, `PI_GIT_COMMIT` for gold) | Open, cosmetic | image | no |
 
 ## 5. Definition of done (from the ticket)

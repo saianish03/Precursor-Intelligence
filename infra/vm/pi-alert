@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""Email an alert from the VM itself (not from a container): pi-alert SUBJECT < BODY.
+
+Exit 0 sent, 1 not sent. Used by pi-deploy (T20) and the idle shutdown (T21) when something outside
+Airflow fails. Same sender, recipients and server as the pipeline's alerts (alerts.py,
+docker-compose.vm.yaml): the addresses and the app password come from /etc/precursor/.env, which
+pi-deploy writes from Secret Manager, or straight from Secret Manager (as the VM's identity) when
+that file is missing or lacks them, e.g. before the first deploy. Never prints a credential.
+"""
+
+import smtplib
+import ssl
+import subprocess
+import sys
+from email.message import EmailMessage
+
+ENV_FILE = "/etc/precursor/.env"
+SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587  # as docker-compose.vm.yaml and alerts.py: STARTTLS
+GCP_PROJECT = "precursor-intel-mlops"
+SECRETS = {  # variable -> Secret Manager secret, as in pi-deploy
+    "PI_ALERT_SMTP_USER": "alert-smtp-user",
+    "PI_ALERT_SMTP_PASSWORD": "smtp-password",
+    "PI_ALERT_EMAIL_TO": "alert-email-to",
+}
+
+
+def read_env(path: str) -> dict[str, str]:
+    """pi-deploy writes KEY='value' lines (values never contain a quote or a newline)."""
+    env = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            key, sep, value = line.rstrip("\n").partition("=")
+            if sep and not key.startswith("#"):
+                env[key] = (
+                    value[1:-1] if len(value) >= 2 and value[0] == value[-1] == "'" else value
+                )
+    return env
+
+
+def read_secrets() -> dict[str, str]:
+    """The three settings from Secret Manager; raises on any failure (gcloud's output unread)."""
+    env = {}
+    for var, secret in SECRETS.items():
+        cmd = ["gcloud", "secrets", "versions", "access", "latest", f"--secret={secret}"]
+        done = subprocess.run(
+            [*cmd, f"--project={GCP_PROJECT}", "--quiet"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        env[var] = done.stdout.rstrip("\n")  # as pi-deploy's $(...)
+    return env
+
+
+def settings(env: dict[str, str]) -> tuple[list[str], str, str]:
+    to = [a.strip() for a in env.get("PI_ALERT_EMAIL_TO", "").split(",") if a.strip()]
+    return to, env.get("PI_ALERT_SMTP_USER", ""), env.get("PI_ALERT_SMTP_PASSWORD", "")
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        print("usage: pi-alert SUBJECT < BODY", file=sys.stderr)
+        return 1
+    subject, body = sys.argv[1], sys.stdin.read()
+    try:
+        env = read_env(ENV_FILE)
+    except OSError:
+        env = {}
+    to, user, password = settings(env)
+    if not (to and user and password):
+        try:
+            to, user, password = settings(read_secrets())
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(
+                f"pi-alert: not sent, no settings in {ENV_FILE} and none from Secret Manager "
+                f"({exc.__class__.__name__}): {subject}",
+                file=sys.stderr,
+            )
+            return 1
+        if not (to and user and password):
+            print(f"pi-alert: not sent, alert settings empty: {subject}", file=sys.stderr)
+            return 1
+    try:
+        msg = EmailMessage()
+        msg["Subject"], msg["From"], msg["To"] = f"[pi-airflow VM] {subject}", user, ", ".join(to)
+        msg.set_content(body or subject)
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
+            # Verify the certificate and host name, as alerts.py does (bare starttls() doesn't)
+            smtp.starttls(context=ssl.create_default_context())
+            smtp.login(user, password)
+            smtp.send_message(msg)
+    except Exception as exc:  # noqa: BLE001 (only the class: the message may hold settings)
+        print(f"pi-alert: not sent ({exc.__class__.__name__}): {subject}", file=sys.stderr)
+        return 1
+    print(f"pi-alert: sent to {len(to)} recipient(s): {subject}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
