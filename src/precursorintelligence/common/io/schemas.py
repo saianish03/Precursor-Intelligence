@@ -257,4 +257,37 @@ vintage_registry = Table(
     Column("backlog_json", Text),  # the landing backlog it saw, "<entry id>@<catalog size>"
 )
 
+# The ML pipeline's run state (docs/ML_PIPELINE_SPEC.md §15.2): one row per cms_nh_ml run and one per promotion action,
+# append-only. `decide` reads it (completed RETRAINs, published scores, re-tune requests); `prepare` reads the last
+# scored `v` (an older gold must not overwrite newer scores).
+ml_runs = Table(
+    "ml_runs",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("ml_run_id", String(64)),  # the Airflow run id of cms_nh_ml
+    Column("at", String(32)),
+    Column("mode", String(16)),  # auto | retrain | retune | score_only | promote
+    Column("decision", String(16)),  # SKIP | RETRAIN | RETUNE | SCORE | PROMOTE | REFUSE
+    Column(
+        "action", String(16)
+    ),  # retrain | retune | score | skip | refuse | promote | hold | manual_promote | rollback
+    Column("reason", Text),
+    Column("actor", String(64)),
+    Column("gold_run_id", String(64)),
+    Column("v", String(7)),
+    Column("v_labels", String(7)),
+    Column("dataset_version", String(64)),
+    Column("gold_config_sha", String(64)),
+    Column("gold_verified", Boolean),
+    Column("recipe_hash", String(64)),
+    Column("champion_version_before", Integer),
+    Column("champion_version_after", Integer),
+    Column("candidate_version", Integer),
+    Column("gate_outcome", String(16)),
+    Column("gate_results_json", Text),
+    Column("scores_published", Boolean),
+    Column("flags_json", Text),
+    Column("retune_requested", Boolean),
+)
+
 TABLES = {t.name: t for t in metadata.sorted_tables}

@@ -5,6 +5,7 @@ One command per DAG task (docs/DATA_PIPELINE_SPEC.md §15.3), all sharing the DA
   precursor-pipeline silver --run-id R     (last stdout line: JSON list of new headers, for the alert)
   precursor-pipeline validate --layer silver --run-id R   (read-only data checks; validation/cli.py)
   precursor-pipeline check-release --run-id R   (the hourly release check; last stdout line: JSON decision)
+  precursor-pipeline ml prepare --run-id R   (the ML tasks: training/cli.py, docs/ML_PIPELINE_SPEC.md §15.3)
 
 Exit codes follow the pipeline contract: 0 ok, 1 error (retried), 2 data or validation failure,
 3 config or usage error. The DAG fails 2 and 3 without retry.
@@ -30,6 +31,7 @@ from ..ingestion.http import DownloadValidationError, RetryableHTTPError, Unsafe
 from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR, EXIT_OK, EXIT_VALIDATION
 from ..ingestion.release_check import ReleaseCheckError, run_release_check
 from ..ingestion.sources.base import CatalogContractError
+from ..training.cli import ml_app
 from ..validation.cli import validate
 from .columns import load_silver_config
 from .pipeline import run_bronze
@@ -57,6 +59,8 @@ app.command("snapshot-gold")(snapshot_gold_command)
 app.command("bias-report")(bias_report)
 # schema and drift checks of silver or gold; src/precursorintelligence/validation/
 app.command()(validate)
+# the ML pipeline's tasks (docs/ML_PIPELINE_SPEC.md §15.3); src/precursorintelligence/training/cli.py
+app.add_typer(ml_app, name="ml")
 
 
 @app.callback()
