@@ -14,7 +14,7 @@
 | `keep_columns.yaml` | ✅ in use | Silver: the columns each silver table keeps, and its within-vintage key |
 | `value_maps.yaml` | ✅ in use | Silver: Y/N, survey-type and enum maps, ownership groups, "not corrected" values |
 | `calibration.yaml` | ✅ in use | Silver calibration (Checkpoints 3-4): lag coverage, left-censoring floors, fully-observed window, QM bridge pairs and drops. Not part of the silver `config_hash`: it only shapes the reports, so editing it rebuilds no partition |
-| `labels.yaml`, `qm_measures.yaml` | planned | Committed by a human from the Checkpoint 3 and 4 proposals (`reports/step4`, `reports/step5`) |
+| `qm_measures.yaml` | ✅ in use | Gold's quality measures (spec §8.6): the 16 measures with their CMS codes (two bridges), the Δ measures and the definition-change months. Committed from the Checkpoint 4 proposal (`reports/step5`); 405 → 480 dropped |
 | `contracts/` | ✅ in use | Pandera data contracts: one baseline schema per validated table (`<table>.yaml`: key, dtype, nullable, ranges, allowed values, patterns, label rules), inferred by `validate --write-schema` and tightened by hand (`# hand`); also `facility_month_dataset_spec_columns.csv` |
 | `prompts/` | planned | Versioned LLM prompt YAML used by `src/precursorintelligence/agents` |
 

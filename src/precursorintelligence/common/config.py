@@ -423,6 +423,45 @@ def load_features_config(path: str | Path | None = None) -> FeaturesConfig:
     return _load_model(FeaturesConfig, path or project_root() / "configs" / "features.yaml")
 
 
+class QmMeasure(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    table: Literal["mds_qm_by_vintage", "claims_qm_by_vintage"]
+    codes: list[str] = Field(min_length=1)  # CMS measure codes, oldest first; two codes = a bridge
+
+
+class QmMeasuresConfig(BaseModel):
+    """``configs/qm_measures.yaml``: the quality measures gold builds (spec §8.6; Checkpoint 4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    measures: dict[str, QmMeasure] = Field(min_length=1)  # feature name -> source; registry order
+    deltas: list[str] = []  # measures that also get d6_qm_<name>
+    definition_changes: dict[str, str] = {}  # flag column -> first month of the new definition
+
+    @model_validator(mode="after")
+    def _check(self) -> QmMeasuresConfig:
+        bad = [n for n in self.measures if not re.fullmatch(r"[a-z][a-z0-9_]*", n)]
+        if bad:
+            raise ValueError(f"measure names must be snake_case column names: {bad}")
+        codes = [c for m in self.measures.values() for c in m.codes]
+        repeated = sorted({c for c in codes if codes.count(c) > 1})
+        if repeated:
+            raise ValueError(f"a measure code may map to one measure only: {repeated}")
+        unknown = [n for n in self.deltas if n not in self.measures]
+        if unknown or len(set(self.deltas)) != len(self.deltas):
+            raise ValueError(f"deltas must name each measure at most once, got {self.deltas}")
+        months = [m for m in self.definition_changes.values() if not re.fullmatch(_YYYY_MM_RE, m)]
+        if months:
+            raise ValueError(f"definition_changes months must be YYYY-MM, got {months}")
+        return self
+
+
+def load_qm_measures_config(path: str | Path | None = None) -> QmMeasuresConfig:
+    """Load and validate ``configs/qm_measures.yaml``."""
+    return _load_model(QmMeasuresConfig, path or project_root() / "configs" / "qm_measures.yaml")
+
+
 class ValidationLayer(BaseModel):
     """Where one layer's monthly tables are and how a month is found (``configs/validation.yaml``)."""
 
