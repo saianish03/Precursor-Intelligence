@@ -197,12 +197,13 @@ gcloud auth print-access-token --impersonate-service-account=sa-pipeline@$PROJEC
 Terraform creates the VM secrets empty, so no value ever passes through Terraform, its state or CI. A teammate
 adds each value once. Editors can add a version but not read one back, which is intended.
 - Generate fresh values; never reuse a laptop `.env`.
-- Hex for the two database passwords: they go into connection URLs, where `/`, `+` and `=` break.
+- Hex for the three database passwords: they go into connection URLs, where `/`, `+` and `=` break.
 - No trailing newline: pipe with `printf %s`.
 ```bash
 add() { printf %s "$2" | gcloud secrets versions add "$1" --data-file=- --project=$PROJECT; }
 add airflow-db-password "$(openssl rand -hex 24)"
 add pi-meta-db-password "$(openssl rand -hex 24)"
+add mlflow-db-password "$(openssl rand -hex 32)"
 add airflow-fernet-key "$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
 add airflow-jwt-secret "$(openssl rand -hex 32)"
 add airflow-api-secret-key "$(openssl rand -hex 32)"

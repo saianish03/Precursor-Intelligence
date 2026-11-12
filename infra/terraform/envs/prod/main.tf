@@ -36,6 +36,16 @@ module "backups_bucket" {
   delete_after_days = 180
 }
 
+# MLflow's artifact store (ML spec §14.1, §16.3): model packages, plots and reports, written through the MLflow server
+# (--serve-artifacts). A bucket of its own with no expiry: registered models must survive a wipe of the data bucket
+# (D11). Versioning keeps an overwritten artifact; GCS's default 7-day soft delete lets a person restore a deleted one
+# (sa-pipeline can delete old versions, so versioning alone doesn't protect against a compromised VM).
+module "mlflow_bucket" {
+  source   = "../../modules/gcs"
+  name     = "${var.project_id}-mlflow"
+  location = var.region
+}
+
 # What the pipeline VM runs as. gcsfs checks the bucket itself before writing, which needs
 # storage.buckets.get; objectAdmin alone makes every write fail with "bucket does not exist".
 resource "google_service_account" "pipeline" {
@@ -63,6 +73,18 @@ resource "google_storage_bucket_iam_member" "pipeline_backups" {
   for_each = toset(["roles/storage.objectCreator"])
 
   bucket = module.backups_bucket.name
+  role   = each.key
+  member = "serviceAccount:${google_service_account.pipeline.email}"
+}
+
+# The MLflow server runs as sa-pipeline (the VM's identity; on a laptop, the impersonated ADC file) and writes, reads
+# and deletes artifacts (an overwrite and `mlflow gc` need delete, so objectCreator + objectViewer would 403).
+# objectUser, not objectAdmin: no IAM rights on the bucket's objects. The storage client checks the bucket first, so
+# legacyBucketReader as on the data bucket.
+resource "google_storage_bucket_iam_member" "pipeline_mlflow" {
+  for_each = toset(["roles/storage.objectUser", "roles/storage.legacyBucketReader"])
+
+  bucket = module.mlflow_bucket.name
   role   = each.key
   member = "serviceAccount:${google_service_account.pipeline.email}"
 }
@@ -139,6 +161,7 @@ locals {
     "smtp-password",          # PI_ALERT_SMTP_PASSWORD  the alert sender's Gmail app password
     "alert-smtp-user",        # PI_ALERT_SMTP_USER      the alert sender's Gmail address
     "alert-email-to",         # PI_ALERT_EMAIL_TO       the alert recipients, comma-separated
+    "mlflow-db-password",     # MLFLOW_DB_PASSWORD      Postgres role `mlflow` (ML spec §16.1); hex only, it goes in a URL
   ])
 }
 
