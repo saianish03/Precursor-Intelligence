@@ -140,11 +140,16 @@ put pi-busy /usr/local/bin/pi-busy 0755
 put pi-alert /usr/local/bin/pi-alert 0755
 put pi-deploy /usr/local/bin/pi-deploy 0755
 put pi-deploy-service /etc/systemd/system/pi-deploy.service 0644
+put pi-down /usr/local/bin/pi-down 0755
+put pi-idle-shutdown-service /etc/systemd/system/pi-idle-shutdown.service 0644
+put pi-idle-shutdown-timer /etc/systemd/system/pi-idle-shutdown.timer 0644
 systemctl daemon-reload
 # --now: systemd runs ExecStop (the dump) only for a unit that was started.
 systemctl enable --now pi-pg-backup.service
 # The deploy watcher starts after this script (After=google-startup-scripts.service): queue it, never wait for it.
 systemctl enable pi-deploy.service
 systemctl start --no-block pi-deploy.service
+# The idle shutdown (T21): a check every 15 minutes; a VM up for less than an hour always stays up.
+systemctl enable --now pi-idle-shutdown.timer
 
 log "ready: $(docker --version); $(docker compose version); $(gcloud --version 2>/dev/null | head -1)"

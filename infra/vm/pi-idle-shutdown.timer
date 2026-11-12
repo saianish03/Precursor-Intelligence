@@ -1,0 +1,10 @@
+# Starts pi-idle-shutdown.service every 15 minutes, off the hour (:07, :22, :37, :52), so it never races the hourly
+# release check at :00. A tick missed while the VM was stopped is not caught up.
+[Unit]
+Description=Check every 15 minutes whether the VM is idle
+
+[Timer]
+OnCalendar=*:07/15
+
+[Install]
+WantedBy=timers.target

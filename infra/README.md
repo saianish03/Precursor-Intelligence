@@ -10,7 +10,8 @@ One project, `precursor-intel-mlops`, one environment: `envs/prod`. The reusable
 
 `bigquery`, `cloud_run_job`, `cloud_run_service` and `composer` are still empty placeholders.
 
-`infra/vm/` holds the scripts and systemd units that run on the VM itself (Postgres backup and restore).
+`infra/vm/` holds the scripts and systemd units that run on the VM itself (deploys, Postgres backup and restore, the
+idle shutdown).
 
 `envs/prod` creates:
 - the data, DVC, state and backups buckets;
@@ -34,11 +35,11 @@ recreated.
   every boot. What runs on it is the release that the instance metadata `pi-release` names: `pi-deploy` deploys it at
   boot and whenever it changes (`infra/vm/README.md` "Deploys"); the Deploy workflow (T22) will set it. Terraform
   ignores that pointer and new Debian images, so neither ever replaces the VM. CI refuses any replacement anyway.
-- **Created running:** the apply that creates it starts it. Stop it when you're done: until the idle shutdown exists
-  (T21) nothing stops it for you, and it costs about $0.13 an hour ($3.22 a day). A stopped VM costs only its disks
-  (about $4 a month).
+- **Created running:** the apply that creates it starts it. It costs about $0.13 an hour ($3.22 a day); a stopped VM
+  costs only its disks (about $4 a month). The idle shutdown (T21) stops it after an hour with no run and no SSH
+  connection; stop it yourself with `sudo pi-down` when you're done (`infra/vm/README.md`, "Up and down").
   ```bash
-  gcloud compute instances stop pi-airflow --zone us-central1-a      # start: ... start ...
+  gcloud compute instances start pi-airflow --zone us-central1-a
   gcloud compute ssh pi-airflow --zone us-central1-a --tunnel-through-iap
   ```
 - **An apply never stops it:** a change to the machine type, service account, scopes or Shielded VM settings fails while
@@ -46,8 +47,8 @@ recreated.
   take effect at the next boot.
 - **Re-running the startup script** (`sudo google_metadata_script_runner startup`) after a change to the Docker pins
   restarts Docker and everything in it: do it only when nothing is running.
-- **Until the first deploy,** every stop logs a failed `pi-pg-backup` ("no running postgres container"). That is
-  expected: there is no database yet.
+- **Until the first deploy,** every stop logs a failed `pi-pg-backup` ("no running postgres container") and the idle
+  shutdown emails that it stops without a backup. That is expected: there is no database yet.
 - **Check it after a change** (on the VM):
   ```bash
   sudo journalctl -u google-startup-scripts.service -b | grep pi-startup   # contains "pi-startup: ready: ..."
@@ -56,6 +57,7 @@ recreated.
   sudo docker info --format '{{.ServerVersion}} {{.SecurityOptions}}' && docker compose version   # 28.5.2, apparmor
   systemctl is-enabled pi-pg-backup && systemctl is-active pi-pg-backup
   systemctl is-active pi-deploy && sudo pi-deploy status             # the watcher, and what it deployed
+  systemctl list-timers pi-idle-shutdown.timer                       # the idle shutdown's next check
   sudo journalctl --list-boots | tail -3                             # the journal survives reboots
   apt-config dump APT::Periodic::Unattended-Upgrade                  # "1": Debian security updates in place
   systemctl is-enabled apt-daily-upgrade.timer

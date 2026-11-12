@@ -315,6 +315,10 @@ resource "google_compute_instance" "airflow" {
     pi-deploy-service       = file("${path.module}/../../../vm/pi-deploy.service")
     pi-busy                 = file("${path.module}/../../../vm/pi-busy")
     pi-alert                = file("${path.module}/../../../vm/pi-alert")
+    # The idle shutdown and pi-down (T21)
+    pi-down                  = file("${path.module}/../../../vm/pi-down")
+    pi-idle-shutdown-service = file("${path.module}/../../../vm/pi-idle-shutdown.service")
+    pi-idle-shutdown-timer   = file("${path.module}/../../../vm/pi-idle-shutdown.timer")
   }
   # (terraform.yml also runs on infra/vm/**, so a change to one of these files gets its own plan and apply.)
 

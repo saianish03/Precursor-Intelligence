@@ -1,0 +1,11 @@
+# The idle shutdown (T21): `pi-down --if-idle`, started every 15 minutes by pi-idle-shutdown.timer. Dumps the databases
+# and stops the VM once it is idle (infra/vm/pi-down). Log: journalctl -u pi-idle-shutdown; after a stop, at the next
+# boot: journalctl -b -1 -u pi-idle-shutdown.
+[Unit]
+Description=Dump the databases and stop the VM once it is idle
+
+[Service]
+Type=oneshot
+# A check that hangs (dockerd, Postgres, gcloud) is killed, so the next one runs
+TimeoutStartSec=15min
+ExecStart=/usr/local/bin/pi-down --if-idle

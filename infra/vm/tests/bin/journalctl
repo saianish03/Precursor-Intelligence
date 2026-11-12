@@ -1,0 +1,4 @@
+#!/bin/bash
+[ "$*" = "-q -t sshd --since -60min -o cat" ] || { echo "journalctl: unexpected args '$*'" >> /tmp/pd/log/calls; exit 1; }
+[ ! -f /tmp/pd/state/journal_fails ] || exit 1
+cat /tmp/pd/state/journal 2>/dev/null || true

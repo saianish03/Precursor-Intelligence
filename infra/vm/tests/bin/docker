@@ -1,0 +1,10 @@
+#!/bin/bash
+[ ! -f /tmp/pd/state/docker_down ] || { echo "Cannot connect to the Docker daemon" >&2; exit 1; }
+[ "$1" = ps ] || { echo "docker: unexpected '$*'" >> /tmp/pd/log/calls; exit 1; }
+if [ "$*" = "ps --format {{.Image}}" ]; then
+  echo "us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/airflow:abc"; echo "postgres:16.10"
+  [ ! -f /tmp/pd/state/task_container ] || echo "us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/pipeline:abc"
+  exit 0
+fi
+[ "$*" = "ps -q --filter label=com.docker.compose.project=pi-airflow --filter label=com.docker.compose.service=postgres --filter label=com.docker.compose.oneoff=False" ] || { echo "docker: unexpected args '$*'" >> /tmp/pd/log/calls; exit 1; }
+[ ! -f /tmp/pd/state/postgres ] || echo 3f2a1b
