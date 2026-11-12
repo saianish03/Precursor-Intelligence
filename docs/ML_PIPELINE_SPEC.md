@@ -656,6 +656,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
   - 52 months (2022-01 → 2026-10), 775,400 rows, 148 columns, all six feature families, `verified: false`;
   - `ml prepare` on it: 121 features; eval 2022-05..2023-04, test 2025-02 (14,643 facilities, base rate 0.256), refit 2024-02..2025-02; no leakage or regime flags.
   - It was built by the `ml_dev` laptop stack, which has its own metadata database. **Nobody else writes to `ml-dev/gold/`.** If gold must change, ask the P0 owner, who rebuilds it.
+- **GCP VMs (2026-11-12): both stopped.** `pi-airflow` (e2-standard-4, us-central1-a; T19/T20, used from Phase 2) and Nishanth's old `pi-temp-validate` (2026-10-16, `purpose=temporary`). Phase 1 needs no VM. Nothing stops a VM automatically yet (the 60-minute idle shutdown is T21, not built), so don't start one. If you must, stop it when done: `gcloud compute instances stop <name> --zone us-central1-a`.
 
 **Prerequisites:**
 1. **Read** §0, §1, §3, §17, §18 and §20 of this spec, plus the gold contract in the data spec (§9, §11). Every package's names come from here.
