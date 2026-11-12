@@ -8,14 +8,16 @@ can read its metadata.
 
 | File | What |
 |---|---|
-| `startup.sh` | The VM's startup script (metadata `startup-script`), idempotent, run at every boot: a persistent journal; formats the Postgres data disk only when it holds nothing, mounts it at `/mnt/disks/pgdata` and creates `data/` only then; makes Docker wait for that mount; installs Docker CE and Compose at pinned versions (held); installs the files below and enables the two units. Log: `journalctl -u google-startup-scripts.service` |
+| `startup.sh` | The VM's startup script (metadata `startup-script`), idempotent, run at every boot: a persistent journal; formats the Postgres data disk only when it holds nothing, mounts it at `/mnt/disks/pgdata` and creates `data/` only then; makes Docker wait for that mount; installs Docker CE and Compose at pinned versions (held); installs the files below and enables the units. Log: `journalctl -u google-startup-scripts.service` |
 | `pi-deploy` | Runs the release that the instance metadata `pi-release` names (below, "Deploys"): `watch` (the service), `now [SHA]`, `status`, `pause`, `resume`. |
 | `pi-deploy.service` | Runs `pi-deploy watch`: deploys at boot, after the startup script, and whenever `pi-release` changes. Log: `journalctl -u pi-deploy` |
-| `pi-busy` | Exit 0 while a run of `PI_BUSY_DAGS` (default `cms_nh_pipeline cms_nh_ml`) is running or queued, an asset event is queued for one, or one of their tasks runs; runs of a paused DAG count only by a running task. 1 when idle (also when no scheduler runs); 2 when it can't tell. Used by `pi-deploy` (which adds the release check) and later by the idle shutdown (T21). |
+| `pi-busy` | Exit 0 while a run of `PI_BUSY_DAGS` (default `cms_nh_pipeline cms_nh_ml`) is running or queued, an asset event is queued for one, or one of their tasks runs; runs of a paused DAG count only by a running task. 1 when idle (also when no scheduler runs); 2 when it can't tell. Used by `pi-deploy` (which adds the release check) and by `pi-down`. |
 | `pi-alert` | `pi-alert SUBJECT < BODY`: emails the alert recipients from the VM itself (subject prefix `[pi-airflow VM]`), with the settings in `/etc/precursor/.env`, or straight from Secret Manager when that file is missing or lacks them (e.g. before the first deploy). For failures outside Airflow. |
 | `pi-pg-backup` | Dumps `airflow` and `precursor_meta` (`pg_dump -Fc`, over the Postgres container's local socket) to `gs://precursor-intel-mlops-backups/postgres/<db>/<UTC time>-<random>.dump`, the same name for both. Prints each dump's MD5. Exits 0 only when both uploaded. |
 | `pi-pg-restore` | `pi-pg-restore airflow\|precursor_meta <file.dump>`: restores a dump of that database into an **empty** database; refuses anything else (exit 2). |
 | `pi-pg-backup.service` | Runs `pi-pg-backup` whenever the OS shuts down or Docker stops, while both are still up. A backstop: best effort within GCE's ~90 s. |
+| `pi-down` | `sudo pi-down [--force]`: dumps the databases (`pi-pg-backup`), then stops the VM; refuses during a run unless `--force`. `pi-down --if-idle` is the idle shutdown (below, "Up and down"). |
+| `pi-idle-shutdown.timer` / `.service` | Run `pi-down --if-idle` every 15 minutes (:07, :22, :37, :52). Log: `journalctl -u pi-idle-shutdown` (after a stop: `journalctl -b -1 -u pi-idle-shutdown`) |
 
 ## Deploys (T20)
 - **A release is one full git sha** whose two images CD pushed (`precursor/airflow:<sha>`, `precursor/pipeline:<sha>`).
@@ -67,6 +69,29 @@ can read its metadata.
 - **State:** `/var/lib/precursor/` (`deployed-sha`, `previous-sha`, `failed-sha`, `history`, `deploy.paused`, and
   `good/`, the last good release's files).
 
+## Up and down (T21)
+- **Up,** from a laptop: `gcloud compute instances start pi-airflow --zone us-central1-a`. The deploy watcher brings
+  the stack up at boot (above).
+- **Down,** on the VM: `sudo pi-down`. It dumps both databases first (when Postgres runs) and stops only if the dump
+  worked; during a pipeline or ML run it refuses unless `--force`. From a laptop:
+  `gcloud compute ssh pi-airflow --zone us-central1-a --tunnel-through-iap -- sudo pi-down`. A stop from the console or
+  `gcloud compute instances stop` gets only the shutdown backstop's best-effort dump.
+- **The idle shutdown** stops the VM by itself (the same dump first). It checks every 15 minutes and stops when all of
+  these hold:
+  - the VM has been up for 60 minutes, and no SSH connection was open in the last 60 minutes (a port forward to the
+    Airflow UI counts). IAP keeps a connection open on the VM for about 10 minutes after you disconnect, so the VM
+    stops about 70–85 minutes after the last session;
+  - no run of `cms_nh_pipeline` or `cms_nh_ml` is running or queued, no asset event is queued for one (`pi-busy`),
+    and no pipeline task container runs. A release-check run doesn't count, but a running one is waited for;
+  - no deploy is running, and deploys are not paused.
+- **Pausing it:** `sudo pi-deploy pause` pauses deploys and the idle shutdown together (e.g. for a restore); `sudo
+  pi-deploy resume` ends both. A forgotten pause emails a reminder every 6 hours once nobody uses SSH.
+- **When it can't stop:** a failed dump, or `pi-busy` getting no answer, emails `[pi-airflow VM] the VM stays up: …`
+  (at most every 6 hours) and it tries again 15 minutes later. A Postgres that isn't running has nothing to dump: it
+  emails and stops anyway.
+- **An open SSH session keeps the VM up,** even an idle one: close it when you're done.
+- **Each stop leaves two pairs of dumps:** the one before the stop and the shutdown backstop's.
+
 ## Backups (spec §14 decision 27)
 - **Who runs it:** `pi-down` and the idle shutdown (T21) run `pi-pg-backup` first and stop the VM only if it succeeds. The unit dumps again at any OS shutdown, e.g. a stop from the console. A dump waiting more than 30 s for a lock, or an upload taking more than 2 minutes, fails instead of keeping the VM up.
 - **Write-only:** the VM's account (`sa-pipeline`) may create objects in the backups bucket but not read, list, overwrite or delete them. A broken or compromised VM cannot destroy its backups, and a task container, which gets the VM's identity, cannot read them. `gcloud storage cp` needs to read the destination, so each dump goes up in one Storage JSON API request instead: it fails on an existing name (`ifGenerationMatch=0`), and the MD5 the bucket reports back must equal the local file's.
@@ -97,7 +122,7 @@ the one that made the dump (`airflow db migrate` can't go backwards). Task logs 
    gcloud compute scp --zone us-central1-a --tunnel-through-iap ./*-$N.dump pi-airflow:/tmp/
    ```
 3. **On the VM** (`gcloud compute ssh pi-airflow --zone us-central1-a --tunnel-through-iap`). Pause the deploy
-   watcher and the idle shutdown (T21) first, so neither acts in the middle.
+   watcher and the idle shutdown first (one `pi-deploy pause` does both), so neither acts in the middle.
    ```bash
    sudo pi-deploy pause                      # go on only once it says no deploy is running
    cd /opt/precursor/compose

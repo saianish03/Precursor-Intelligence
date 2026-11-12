@@ -1,0 +1,149 @@
+#!/bin/bash
+# Dump the databases, then stop the VM (task T21; VM plan D7, D8). Runs as root on the VM.
+#
+#   pi-down [--force]   a person: refuses while a pipeline or ML run is running or queued, unless --force
+#   pi-down --if-idle   the idle shutdown (pi-idle-shutdown.timer, every 15 minutes): stops only an idle VM
+#
+# Idle means all of:
+#   - for the last IDLE_MINUTES the VM was up and no SSH connection was open: none now (ss), none at an earlier check
+#     (a stamp), and no session opened or closed (sshd's lines). IAP keeps a connection open on the VM after the
+#     client has gone, until sshd's keepalive gives up (~10 minutes);
+#   - deploys are not paused: `pi-deploy pause` is the maintenance switch (e.g. a restore). A pause emails a reminder
+#     once nobody has used SSH for IDLE_MINUTES;
+#   - no deploy runs (pi-deploy's lock, then held until the VM is off);
+#   - no run of RUN_DAGS is running or queued, nor an asset event queued for one (pi-busy), and no task container of
+#     the pipeline image runs (a task outlives a scheduler or Postgres that restarts). Release-check runs don't count,
+#     or the VM would never stop, but a running one is waited for: it may be about to start a run.
+# A stop: pi-pg-backup must exit 0 (it checks each upload's MD5), else an email and the VM stays up. A Postgres that
+# isn't running has nothing to dump: the idle shutdown emails and stops anyway. The stack is left running, so the OS
+# shutdown dumps once more (pi-pg-backup.service): two pairs of dumps per stop. The idle shutdown sends each kind of
+# email about a VM it can't stop at most every 6 hours.
+set -euo pipefail
+
+IDLE_MINUTES=60
+RUN_DAGS="cms_nh_pipeline cms_nh_ml"
+PAUSED=/var/lib/precursor/deploy.paused # pi-deploy's
+LOCK=/run/pi-deploy.lock                # pi-deploy's
+ALERTED=/run/pi-down.alerted            # .<kind>: the idle shutdown's last email of that kind; a boot clears them
+SSH_SEEN=/run/pi-down.ssh-seen          # the last check that saw an SSH connection
+mode=${1:-}
+
+log() { echo "pi-down: $*"; }
+err() { echo "pi-down: $*" >&2; }
+
+alert() { # kind, subject, body
+  if [ "$mode" = --if-idle ] && [ -n "$(find "$ALERTED.$1" -mmin -360 2>/dev/null)" ]; then
+    log "not emailing again yet: $2"
+    return 0
+  fi
+  if printf '%s\n' "$3" | pi-alert "$2"; then
+    if [ "$mode" = --if-idle ]; then touch "$ALERTED.$1"; fi
+  else
+    err "the alert was not sent: $2"
+  fi
+}
+
+busy() { # DAG ids -> pi-busy's answer: 0 busy, 1 idle, 2 can't tell (also when it hangs)
+  local rc=0
+  PI_BUSY_DAGS="$1" timeout 120 pi-busy || rc=$?
+  [ "$rc" -le 2 ] || rc=2
+  return "$rc"
+}
+
+runs() { # like busy for RUN_DAGS, but a running task container of the pipeline image is busy whatever pi-busy says
+  local rc=0 images
+  busy "$RUN_DAGS" || rc=$?
+  images=$(docker ps --format '{{.Image}}') || images="" # Docker down: no container runs
+  if grep -q '/precursor/pipeline:' <<< "$images"; then rc=0; fi
+  return "$rc"
+}
+
+ssh_recent() { # an SSH connection now or at a check in the last IDLE_MINUTES, or a session opened or closed then
+  local lines
+  if [ -n "$(ss -Htn state established '( sport = :22 )')" ]; then touch "$SSH_SEEN"; return 0; fi
+  [ -z "$(find "$SSH_SEEN" -mmin "-$IDLE_MINUTES" 2>/dev/null)" ] || return 0
+  lines=$(journalctl -q -t sshd --since "-${IDLE_MINUTES}min" -o cat) || return 0 # can't tell: count it as recent
+  # "Accepted ...", "pam_unix(sshd:session): session opened/closed for user X" (all a timed-out session logs on
+  # Debian 12), "Disconnected from / Connection closed by / ... user X <ip> port N". Not "authenticating user" or
+  # "invalid user": a login that failed is no session.
+  grep -qE '^Accepted |session (opened|closed) for user |(from|by) user [^ ]+ [0-9a-fA-F.:]+ port ' <<< "$lines"
+}
+
+postgres_running() {
+  [ -n "$(docker ps -q --filter label=com.docker.compose.project=pi-airflow \
+    --filter label=com.docker.compose.service=postgres --filter label=com.docker.compose.oneoff=False)" ]
+}
+
+[ "$(id -u)" = 0 ] || { err "run it as root (sudo)"; exit 1; }
+case "$mode" in
+  "" | --force | --if-idle) ;;
+  *) err "usage: pi-down [--force] | pi-down --if-idle"; exit 2 ;;
+esac
+
+if [ "$mode" = --if-idle ]; then
+  if [ "$(cut -d. -f1 /proc/uptime)" -lt $((IDLE_MINUTES * 60)) ]; then
+    log "up less than $IDLE_MINUTES minutes: staying up"; exit 0
+  fi
+  if ssh_recent; then log "SSH in the last $IDLE_MINUTES minutes: staying up"; exit 0; fi
+  if [ -f "$PAUSED" ]; then
+    log "deploys are paused: staying up"
+    alert paused "the VM stays up: deploys are paused" \
+      "Nobody has used SSH for $IDLE_MINUTES minutes, but the idle shutdown doesn't stop the VM while deploys are paused ($PAUSED). If the maintenance is over: 'sudo pi-deploy resume'."
+    exit 0
+  fi
+fi
+
+exec 9> "$LOCK"
+if [ "$mode" = --if-idle ]; then
+  flock -n 9 || { log "a deploy is running: staying up"; exit 0; }
+else
+  flock -w 60 9 || {
+    err "pi-deploy holds $LOCK: a deploy runs, or waits for a pipeline run ('sudo pi-deploy pause' ends a waiting one within a minute; resume after the next boot)"
+    exit 1
+  }
+fi
+
+rc=0
+runs || rc=$?
+if [ "$mode" = --if-idle ]; then
+  case $rc in
+    0) log "a run of $RUN_DAGS or a pipeline task is running or queued: staying up"; exit 0 ;;
+    2)
+      log "pi-busy can't tell whether a run is going on: staying up"
+      alert busy "the VM stays up: pi-busy can't tell whether a run is going on" \
+        "pi-busy (Airflow's database, through the Postgres container) gave no answer, so the idle shutdown doesn't stop the VM. See 'journalctl -u pi-idle-shutdown' on the VM."
+      exit 1
+      ;;
+  esac
+  rc=0
+  busy cms_nh_release_check || rc=$?
+  if [ "$rc" -ne 1 ]; then log "the release check is running: staying up"; exit 0; fi
+elif [ "$rc" -ne 1 ] && [ "$mode" != --force ]; then
+  err "a run of $RUN_DAGS or a pipeline task is running or queued (or pi-busy can't tell, exit $rc): 'sudo pi-down --force' stops anyway"
+  exit 1
+fi
+
+if postgres_running; then
+  log "dumping the databases"
+  if ! out=$(pi-pg-backup 2>&1); then
+    err "$out"
+    alert backup "the VM stays up: the backup before the stop failed" \
+      "pi-down ${mode:-by hand} did not stop the VM because pi-pg-backup failed:"$'\n'"$out"
+    exit 1
+  fi
+  log "$out"
+elif [ "$mode" = --if-idle ]; then
+  log "Postgres isn't running: nothing to dump"
+  printf '%s\n' "The idle shutdown stops the VM without a backup: the stack's Postgres isn't running (a failed deploy, or Docker down?). The database stays on its data disk; see 'journalctl -b -1 -u pi-deploy' at the next boot." |
+    pi-alert "stopping without a backup: Postgres isn't running" || err "the alert was not sent"
+else
+  log "Postgres isn't running: nothing to dump"
+fi
+
+if [ "$mode" = --if-idle ]; then # a run or a person may have arrived during the dump
+  rc=0
+  runs || rc=$?
+  if [ "$rc" -ne 1 ] || ssh_recent; then log "a run or an SSH connection started meanwhile: staying up"; exit 0; fi
+fi
+log "stopping the VM"
+systemctl poweroff
