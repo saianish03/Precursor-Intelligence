@@ -1,0 +1,3 @@
+#!/bin/bash
+[ "$*" = "-Htn state established ( sport = :22 )" ] || { echo "ss: unexpected args '$*'" >> /tmp/pd/log/calls; exit 1; }
+[ ! -f /tmp/pd/state/ssh_now ] || echo "0 0 10.10.0.2:22 35.235.240.5:51234"

@@ -1,0 +1,4 @@
+#!/bin/bash
+echo "pi-alert $1" >> /tmp/pd/log/calls
+{ echo "SUBJECT: $1"; cat; echo "---"; } >> /tmp/pd/log/alert_bodies
+[ ! -f /tmp/pd/state/alert_fails ] || exit 1

@@ -17,7 +17,7 @@
 # A stop: pi-pg-backup must exit 0 (it checks each upload's MD5), else an email and the VM stays up. A Postgres that
 # isn't running has nothing to dump: the idle shutdown emails and stops anyway. The stack is left running, so the OS
 # shutdown dumps once more (pi-pg-backup.service): two pairs of dumps per stop. The idle shutdown sends each kind of
-# email about a VM it can't stop at most every 6 hours.
+# email about a VM it can't stop at most every 6 hours, also when a run keeps an unattended VM up for 6+ hours.
 set -euo pipefail
 
 IDLE_MINUTES=60
@@ -107,7 +107,14 @@ rc=0
 runs || rc=$?
 if [ "$mode" = --if-idle ]; then
   case $rc in
-    0) log "a run of $RUN_DAGS or a pipeline task is running or queued: staying up"; exit 0 ;;
+    0)
+      log "a run of $RUN_DAGS or a pipeline task is running or queued: staying up"
+      # A stuck task keeps the VM up forever (no dagrun_timeout yet): tell someone, like pi-deploy's 6-hour email
+      [ "$(cut -d. -f1 /proc/uptime)" -lt $((6 * 3600)) ] ||
+        alert longrun "the VM has been up 6+ hours and a run keeps it up" \
+          "The VM has been up for over 6 hours, nobody has used SSH for $IDLE_MINUTES minutes, and a run of $RUN_DAGS or a pipeline task still keeps it up. Check it in the Airflow UI: if it hangs, fail it, and the idle shutdown stops the VM. A long, healthy backfill sends this too."
+      exit 0
+      ;;
     2)
       log "pi-busy can't tell whether a run is going on: staying up"
       alert busy "the VM stays up: pi-busy can't tell whether a run is going on" \
@@ -117,7 +124,7 @@ if [ "$mode" = --if-idle ]; then
   esac
   rc=0
   busy cms_nh_release_check || rc=$?
-  if [ "$rc" -ne 1 ]; then log "the release check is running: staying up"; exit 0; fi
+  if [ "$rc" -ne 1 ]; then log "the release check is running (or pi-busy can't tell): staying up"; exit 0; fi
 elif [ "$rc" -ne 1 ] && [ "$mode" != --force ]; then
   err "a run of $RUN_DAGS or a pipeline task is running or queued (or pi-busy can't tell, exit $rc): 'sudo pi-down --force' stops anyway"
   exit 1

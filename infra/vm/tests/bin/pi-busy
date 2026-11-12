@@ -1,0 +1,8 @@
+#!/bin/bash
+echo "pi-busy PI_BUSY_DAGS=$PI_BUSY_DAGS" >> /tmp/pd/log/calls
+[ ! -f /tmp/pd/state/busy_hangs ] || sleep 300
+case "$PI_BUSY_DAGS" in
+  "cms_nh_pipeline cms_nh_ml") exit "$(cat /tmp/pd/state/busy_run 2>/dev/null || echo 1)" ;;
+  cms_nh_release_check) exit "$(cat /tmp/pd/state/busy_check 2>/dev/null || echo 1)" ;;
+  *) echo "unexpected PI_BUSY_DAGS '$PI_BUSY_DAGS'" >> /tmp/pd/log/calls; exit 2 ;;
+esac

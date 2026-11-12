@@ -18,6 +18,7 @@ can read its metadata.
 | `pi-pg-backup.service` | Runs `pi-pg-backup` whenever the OS shuts down or Docker stops, while both are still up. A backstop: best effort within GCE's ~90 s. |
 | `pi-down` | `sudo pi-down [--force]`: dumps the databases (`pi-pg-backup`), then stops the VM; refuses during a run unless `--force`. `pi-down --if-idle` is the idle shutdown (below, "Up and down"). |
 | `pi-idle-shutdown.timer` / `.service` | Run `pi-down --if-idle` every 15 minutes (:07, :22, :37, :52). Log: `journalctl -u pi-idle-shutdown` (after a stop: `journalctl -b -1 -u pi-idle-shutdown`) |
+| `tests/` | Offline tests of `pi-down` in Debian 12 containers with fake commands: `bash infra/vm/tests/run.sh` (needs Docker; not run by CI). Rerun them after any change to `pi-down`. |
 
 ## Deploys (T20)
 - **A release is one full git sha** whose two images CD pushed (`precursor/airflow:<sha>`, `precursor/pipeline:<sha>`).
@@ -89,6 +90,9 @@ can read its metadata.
 - **When it can't stop:** a failed dump, or `pi-busy` getting no answer, emails `[pi-airflow VM] the VM stays up: …`
   (at most every 6 hours) and it tries again 15 minutes later. A Postgres that isn't running has nothing to dump: it
   emails and stops anyway.
+- **A run that never ends keeps the VM up** (only `build_gold` has a time limit). Once the VM has been up 6 hours with
+  nobody on SSH, each check during a run emails `… the VM has been up 6+ hours and a run keeps it up` (at most every 6
+  hours): look in the Airflow UI and fail a hung run.
 - **An open SSH session keeps the VM up,** even an idle one: close it when you're done.
 - **Each stop leaves two pairs of dumps:** the one before the stop and the shutdown backstop's.
 
