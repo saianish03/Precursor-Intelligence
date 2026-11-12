@@ -1,0 +1,41 @@
+{
+  "experiment": "exp5",
+  "model": "logreg_onehot_fe",
+  "smoke": false,
+  "calib_gap": "h",
+  "calib": {
+    "n": 44205,
+    "base_rate": 0.27462956679108697,
+    "roc_auc": 0.7182460757866473,
+    "pr_auc": 0.5043015157202133,
+    "p_at_5": 0.6868778280542986,
+    "p_at_10": 0.6042986425339366,
+    "brier": 0.17478168307549785
+  },
+  "test": {
+    "n": 29324,
+    "base_rate": 0.26374300913927157,
+    "roc_auc": 0.6999019535976978,
+    "pr_auc": 0.47375323040591755,
+    "p_at_5": 0.6568894952251023,
+    "p_at_10": 0.5644611186903138,
+    "brier": 0.17582609387536466
+  },
+  "extra": {
+    "encoding": "onehot_min_freq20",
+    "C": 0.01,
+    "C_grid": [
+      0.01,
+      0.1,
+      1.0
+    ],
+    "fit_s": 77.4,
+    "n_design_cols": 443,
+    "n_features": 253,
+    "n_engineered": 120,
+    "train_rows": 89459,
+    "elapsed_s_total": 104.8,
+    "peak_rss_gb": 1.303
+  },
+  "written": "2026-11-03T14:44:42"
+}

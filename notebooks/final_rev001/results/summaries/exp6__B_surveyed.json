@@ -1,0 +1,34 @@
+{
+  "experiment": "exp6",
+  "model": "B_surveyed",
+  "smoke": false,
+  "calib_gap": "h",
+  "calib": {},
+  "test": {
+    "n": 25082,
+    "base_rate": 0.30834861653775614,
+    "roc_auc": 0.663118369614921,
+    "pr_auc": 0.48358266813481987,
+    "p_at_5": 0.6634768740031898,
+    "p_at_10": 0.5765550239234449,
+    "brier": 0.199461022606375
+  },
+  "extra": {
+    "seeds": [
+      42,
+      7,
+      2026
+    ],
+    "params": {
+      "objective": "binary",
+      "metric": "average_precision",
+      "learning_rate": 0.05,
+      "num_leaves": 31,
+      "min_child_samples": 100,
+      "feature_fraction": 0.8,
+      "num_threads": 4,
+      "verbosity": -1
+    }
+  },
+  "written": "2026-11-04T00:16:55"
+}

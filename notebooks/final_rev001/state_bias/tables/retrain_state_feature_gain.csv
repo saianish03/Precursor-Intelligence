@@ -1,0 +1,10 @@
+arm,feature,gain_share,gain_rank
+lgb_full,state,0.24805,1
+lgb_full,state_gplus_rate_12m,0.06919,3
+lgb_full,state_median_hprd_total,0.01102,16
+lgb_full,rel_hprd_total,0.00675,23
+lgb_full,rel_sev_points_24m,0.00452,33
+lgb_no_state,state_gplus_rate_12m,0.18886,1
+lgb_no_state,state_median_hprd_total,0.04257,8
+lgb_no_state,rel_hprd_total,0.00759,23
+lgb_no_state,rel_sev_points_24m,0.00761,22
