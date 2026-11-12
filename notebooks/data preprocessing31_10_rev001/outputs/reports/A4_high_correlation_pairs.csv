@@ -1,0 +1,16 @@
+feature_a,feature_b,spearman
+denial_days_24m,n_denials_24m,0.9980188365103755
+fine_dollars_24m,max_fine_24m,0.9915202514888606
+n_cit_24m,n_cit_DF_24m,0.9905357947933614
+n_complaint_cit_12m,n_complaint_surveys_cited_12m,0.9633106847141513
+sev_points_12m,n_cit_12m,0.9582357139408603
+hprd_total,hprd_weekend_total,0.955845474300037
+n_cit_24m,sev_points_24m,0.9275536647178305
+sev_points_24m,sev_points_per_bed_24m,0.9183061872406683
+hprd_total,adj_hprd_total,0.89946982065889
+hprd_total,rel_hprd_total,0.8961227872077473
+sev_points_24m,n_cit_DF_24m,0.8894890461389402
+fine_dollars_24m,n_fines_24m,0.8886408701263401
+hprd_weekend_total,adj_hprd_total,0.8674648496721897
+n_cit_24m,n_cat_qol_care_24m,0.8604167511243888
+max_fine_24m,n_fines_24m,0.851843089021366
