@@ -105,3 +105,16 @@ def test_only_the_selected_measures_footnotes_are_checked(silver, spine):
     selected = mds.with_columns(four_quarter_avg_fn=pl.lit("99"))
     with pytest.raises(GoldCheckError, match="99"):
         build_features("quality", _with_mds(silver, selected), spine)
+
+
+def test_footnote_21_is_a_measure_that_cms_could_not_validate(silver, spine):
+    # Real data: 419 / 481 carry 21 without a value in 2023-03..2026-10 (7,034 rows on the ml-dev silver).
+    mds = silver[MDS].with_columns(
+        four_quarter_avg=pl.when(pl.col("measure_code") == "419")
+        .then(None)
+        .otherwise(pl.col("four_quarter_avg")),
+        four_quarter_avg_fn=pl.when(pl.col("measure_code") == "419").then(pl.lit("21")),
+    )
+    row = _row(build_features("quality", _with_mds(silver, mds), spine), "015001", "2024-05")
+    assert row["qm_ls_antipsychotic"] is None
+    assert row["qm_ls_antipsychotic_fn"] == "measure_not_validated"

@@ -19,8 +19,8 @@ stages:
       size: 29335
     - path: configs/features.yaml
       hash: md5
-      md5: 669bbe90752d1584cdf464de0bb7d3ba
-      size: 2410
+      md5: d5a86c2fb18e3d5b5af73e6fae37032c
+      size: 2486
     - path: configs/ingestion/sources.yaml
       hash: md5
       md5: 9f5809af995e37d193446cff63e5d54e
