@@ -109,8 +109,6 @@ qm_ls_falls_major_injury_fn,str,quality,model,MAP code → reason,snapshot at t,
 d6_qm_ls_falls_major_injury,f64,quality,model,DIFF (t vs t−k),t vs t−6 months,measure = ls_falls_major_injury,null if t-k unpublished or facility absent (no fallback month); also null if measure_code or measure_period_end same/different per §8.6,mds_qm_by_vintage[t] and [t-6] / claims_qm_by_vintage[t] and [t-6],§8.5/§8.6
 qm_ls_hosp_per_1000,f64,quality,model,AS-IS (1:1),snapshot at t (4-quarter or annual measure period),measure = ls_hosp_per_1000,blank,mds_qm_by_vintage[t] / claims_qm_by_vintage[t],
 qm_ls_hosp_per_1000_fn,str,quality,model,MAP code → reason,snapshot at t,measure = ls_hosp_per_1000,'none',mds_qm_by_vintage[t] / claims_qm_by_vintage[t],
-qm_ls_incontinence,f64,quality,model,AS-IS (1:1),snapshot at t (4-quarter or annual measure period),measure = ls_incontinence,blank,mds_qm_by_vintage[t] / claims_qm_by_vintage[t],
-qm_ls_incontinence_fn,str,quality,model,MAP code → reason,snapshot at t,measure = ls_incontinence,'none',mds_qm_by_vintage[t] / claims_qm_by_vintage[t],
 qm_ls_mobility_decline,f64,quality,model,AS-IS (1:1),snapshot at t (4-quarter or annual measure period),measure = ls_mobility_decline,blank,mds_qm_by_vintage[t] / claims_qm_by_vintage[t],
 qm_ls_mobility_decline_fn,str,quality,model,MAP code → reason,snapshot at t,measure = ls_mobility_decline,'none',mds_qm_by_vintage[t] / claims_qm_by_vintage[t],
 qm_ls_pressure_ulcer,f64,quality,model,AS-IS (1:1),snapshot at t (4-quarter or annual measure period),measure = ls_pressure_ulcer,blank,mds_qm_by_vintage[t] / claims_qm_by_vintage[t],

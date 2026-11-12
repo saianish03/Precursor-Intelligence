@@ -25,7 +25,7 @@ only; spec §6 puts it in the silver node).
 | Silver partitions | 488 (427 bronze partitions; provider_info feeds two tables) |
 | Checks | 0 header problems, 0 unconvertible values, 0 duplicate keys; rerun is a no-op (byte-identical) |
 | Reports | `reports/step2/latest/02_harmonization.md` (Checkpoint 2), `reports/step4/latest/04_lag_analysis.md` (Checkpoint 3), `reports/step5/latest/05_universe_and_qm.md` (Checkpoint 4) |
-| Pending human decisions | buffers → `configs/labels.yaml`; QM list → `configs/qm_measures.yaml`; §14 #3, #4 (see §9) |
+| Pending human decisions | buffers → `configs/labels.yaml`; §14 #3, #4 (see §9) |
 
 ## 3. Where it lives and how to read it
 
@@ -148,7 +148,7 @@ months; spec §9.5 recommends training rows from 2022-01 (decision §14 #10).
 | Config | Status | Owner |
 |---|---|---|
 | `configs/labels.yaml` (horizons, `B_cit = 8`, `B_pen = 12`, G+ set, due interval 456 days, `censor_requires_buffer: true`) | proposal in `04_lag_analysis.md`, awaiting approval | silver owner commits after Checkpoint 3 |
-| `configs/qm_measures.yaml` (14 stable, bridges 453→479 and 419→481, **405→480 doubtful**, 5 dropped) | proposal in `05_qm_measures.proposed.csv`, awaiting approval | silver owner commits after Checkpoint 4 |
+| `configs/qm_measures.yaml` (14 stable, bridges 453→479 and 419→481; 405→480 and 5 more dropped) | **committed** from `05_qm_measures.proposed.csv` (Checkpoint 4) | done |
 | `value_maps.yaml: not_corrected_values` (for `n_uncorrected`) | default = the two "Deficient, Provider has (no) plan of correction" values; §14 #4 open | team |
 | `configs/splits.yaml` (`spine_start`, `test_months`, `calib_months`, `required_labels`) | done (gold splits); training start 2023-01 vs 2022-01 and `test_months` 3 vs 6 open, §14 #10–12 | gold |
 | `checks.yaml`, `feature_registry.yaml` | not started | gold |
@@ -205,7 +205,7 @@ the features and the merge rules below are what must hold.
 | `features_citations` | 26 | `citations_by_vintage` (+ `surveys_by_vintage` for last/previous standard survey, `certified_beds`) |
 | `features_enforcement` | 7 | `penalties_by_vintage` |
 | `features_facility_staffing` | 47 | `provider_by_vintage` at t; `d6_*` / `d12_*` also at t−6 / t−12 |
-| `features_quality` | 43 | `mds_qm_by_vintage`, `claims_qm_by_vintage` (17 measures + 17 `_fn`, 4 `d6_qm_*`, `qm_missing_count`, `qm_age_months_{mds,claims}`, `qm_def_post_2025_02`, `qm_def_post_2026_02`) |
+| `features_quality` | 41 | `mds_qm_by_vintage`, `claims_qm_by_vintage` (16 measures + 16 `_fn`, 4 `d6_qm_*`, `qm_missing_count`, `qm_age_months_{mds,claims}`, `qm_def_post_2025_02`, `qm_def_post_2026_02`) |
 | `features_context` | 6 | the feature tables above, grouped by state within t; `era`, `penalty_regime_2025_10` |
 | `labels` (+ splits) | 17 | `ledger_citations`, `ledger_penalties`, `facility_presence` |
 
@@ -239,7 +239,7 @@ vintage after t (§6).
 | `sff_status` | `special_focus_status` (`SFF / SFF_CANDIDATE / NONE`) | same values, renamed column |
 | `n_cat_*_24m` | `deficiency_category` (ends in ` Deficiencies`) | abuse = Freedom from Abuse, Neglect, and Exploitation; qol_care = Quality of Life and Care; assessment = Resident Assessment and Care Planning; nursing_physician = Nursing and Physician Services; resident_rights = Resident Rights; administration = Administration |
 | `n_ic_cit_24m` | category `Infection Control Deficiencies` **or** `is_infection_control` | — |
-| QM values | MDS `four_quarter_avg`, claims `adjusted_score` | `qm_<name>`; codes: ls_adl_decline 401 · ls_antianxiety 452 · ls_antipsychotic 419 → 481 · ls_catheter 406 · ls_depressive 408 · ls_ed_per_1000 552 · ls_falls_major_injury 410 · ls_hosp_per_1000 551 · ls_incontinence 405 → 480 · ls_mobility_decline 451 · ls_pressure_ulcer 453 → 479 · ls_restraints 409 · ls_uti 407 · ls_weight_loss 404 · ss_ed_visit 522 · ss_new_antipsychotic 434 · ss_rehosp 521 (the Checkpoint 4 proposal) |
+| QM values | MDS `four_quarter_avg`, claims `adjusted_score` | `qm_<name>`; codes: ls_adl_decline 401 · ls_antianxiety 452 · ls_antipsychotic 419 → 481 · ls_catheter 406 · ls_depressive 408 · ls_ed_per_1000 552 · ls_falls_major_injury 410 · ls_hosp_per_1000 551 · ls_mobility_decline 451 · ls_pressure_ulcer 453 → 479 · ls_restraints 409 · ls_uti 407 · ls_weight_loss 404 · ss_ed_visit 522 · ss_new_antipsychotic 434 · ss_rehosp 521 (`configs/qm_measures.yaml`; ls_incontinence 405 → 480 dropped at Checkpoint 4) |
 
 ### 13.3 Cross-check: silver reproduces the reference inputs (measured 2026-10-19)
 

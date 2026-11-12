@@ -33,6 +33,7 @@ footnote_reasons:
   "12": staffing_rating_downgraded   # retired 2025-01, replaced by 23-25; still in 2021-2024 vintages
   "18": sff_not_rated
   "20": rating_not_validated
+  "21": measure_not_validated          # QM tables (419 / 481 from 2023-03)
   "23": no_staffing_data
   "24": many_days_without_rn
   "25": staffing_not_validated

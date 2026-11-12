@@ -5,8 +5,8 @@
 # archive (2021-01 -> 2026-08). tests/gold/test_feature_registry.py checks it against the built features.
 #
 # Star ratings (open item 6): follow the contract. staffing_rating and qm_rating are model,
-# health_inspection_rating and overall_rating ablation_only. The quality family is added when
-# configs/qm_measures.yaml is approved (Checkpoint 4).
+# health_inspection_rating and overall_rating ablation_only. The quality family follows configs/qm_measures.yaml
+# (Checkpoint 4): 16 measures, 405 -> 480 dropped.
 _meta:
   version: 1
 features:
@@ -99,6 +99,47 @@ features:
   - {name: d6_hprd_rn, family: facility_staffing, source_table: "provider_by_vintage", formula: "DIFF (t vs t−k); t vs t−6 months", first_available_vintage: "2021-07", dtype: f64, model_use: model}
   - {name: d12_hprd_total, family: facility_staffing, source_table: "provider_by_vintage", formula: "DIFF (t vs t−k); t vs t−12 months", first_available_vintage: "2022-01", dtype: f64, model_use: model}
   - {name: d12_turnover_total, family: facility_staffing, source_table: "provider_by_vintage", formula: "DIFF (t vs t−k); t vs t−12 months", first_available_vintage: "2023-01", dtype: f64, model_use: model}
+  - {name: qm_ls_adl_decline, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 401", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_adl_decline_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 401", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ls_antianxiety, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 452", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_antianxiety_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 452", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ls_antipsychotic, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 419 -> 481", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_antipsychotic_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 419 -> 481", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: d6_qm_ls_antipsychotic, family: quality, source_table: "mds_qm_by_vintage", formula: "DIFF (t vs t−6); codes 419 -> 481; null if code differs or measure_period_end unchanged", first_available_vintage: "2021-07", dtype: f64, model_use: model}
+  - {name: qm_ls_catheter, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 406", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_catheter_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 406", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ls_depressive, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 408", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_depressive_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 408", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ls_ed_per_1000, family: quality, source_table: "claims_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 552", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_ed_per_1000_fn, family: quality, source_table: "claims_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 552", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ls_falls_major_injury, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 410", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_falls_major_injury_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 410", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: d6_qm_ls_falls_major_injury, family: quality, source_table: "mds_qm_by_vintage", formula: "DIFF (t vs t−6); codes 410; null if code differs or measure_period_end unchanged", first_available_vintage: "2021-07", dtype: f64, model_use: model}
+  - {name: qm_ls_hosp_per_1000, family: quality, source_table: "claims_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 551", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_hosp_per_1000_fn, family: quality, source_table: "claims_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 551", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ls_mobility_decline, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 451", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_mobility_decline_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 451", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ls_pressure_ulcer, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 453 -> 479", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_pressure_ulcer_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 453 -> 479", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: d6_qm_ls_pressure_ulcer, family: quality, source_table: "mds_qm_by_vintage", formula: "DIFF (t vs t−6); codes 453 -> 479; null if code differs or measure_period_end unchanged", first_available_vintage: "2021-07", dtype: f64, model_use: model}
+  - {name: qm_ls_restraints, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 409", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_restraints_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 409", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ls_uti, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 407", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_uti_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 407", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ls_weight_loss, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 404", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ls_weight_loss_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 404", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ss_ed_visit, family: quality, source_table: "claims_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 522", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ss_ed_visit_fn, family: quality, source_table: "claims_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 522", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ss_new_antipsychotic, family: quality, source_table: "mds_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 434", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ss_new_antipsychotic_fn, family: quality, source_table: "mds_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 434", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: qm_ss_rehosp, family: quality, source_table: "claims_qm_by_vintage", formula: "AS-IS (1:1); snapshot at t; codes 521", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_ss_rehosp_fn, family: quality, source_table: "claims_qm_by_vintage", formula: "MAP code → reason; snapshot at t; codes 521", first_available_vintage: "2021-01", dtype: str, model_use: model}
+  - {name: d6_qm_ss_rehosp, family: quality, source_table: "claims_qm_by_vintage", formula: "DIFF (t vs t−6); codes 521; null if code differs or measure_period_end unchanged", first_available_vintage: "2021-07", dtype: f64, model_use: model}
+  - {name: qm_missing_count, family: quality, source_table: "mds_qm_by_vintage + claims_qm_by_vintage", formula: "COUNT of null qm_<measure> values; snapshot at t", first_available_vintage: "2021-01", dtype: i64, model_use: model}
+  - {name: qm_age_months_mds, family: quality, source_table: "mds_qm_by_vintage", formula: "months from MAX(measure_period_end) to cutoff_date; snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_age_months_claims, family: quality, source_table: "claims_qm_by_vintage", formula: "months from MAX(measure_period_end) to cutoff_date; snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
+  - {name: qm_def_post_2025_02, family: quality, source_table: "vintage_month (t)", formula: "t >= 2025-02", first_available_vintage: "2021-01", dtype: bool, model_use: model}
+  - {name: qm_def_post_2026_02, family: quality, source_table: "vintage_month (t)", formula: "t >= 2026-02", first_available_vintage: "2021-01", dtype: bool, model_use: model}
   - {name: state_gplus_rate_12m, family: context, source_table: "provider_by_vintage + citations_by_vintage", formula: "MEAN by state; 12 months; severity G–L, last 12 months", first_available_vintage: "2021-01", dtype: f64, model_use: model}
   - {name: state_median_hprd_total, family: context, source_table: "provider_by_vintage + citations_by_vintage", formula: "MEDIAN by state; snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}
   - {name: rel_hprd_total, family: context, source_table: "provider_by_vintage + citations_by_vintage", formula: "RATIO to state median; snapshot at t", first_available_vintage: "2021-01", dtype: f64, model_use: model}

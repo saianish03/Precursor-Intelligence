@@ -52,12 +52,12 @@ part. A small **toy silver world** with hand-written answers lets you test every
 | Command | `gold/cli.py`, registered in `harmonize/cli.py` | `precursor-pipeline gold` (§5). |
 | Configs | `configs/labels.yaml`, `configs/splits.yaml` | G–L, `B_cit = 8`, `B_pen = 12`, strict censoring, horizons; `spine_start: "2023-01"`. Loaded by `load_labels_config()` / `load_splits_config()` in `common/config.py`. Silver's lag analysis (`harmonize/calibrate.py`) reads its G+ set and horizons from `labels.yaml` too; the file is not part of silver's `config_hash`. |
 | Feature reader (§8, §11.3) | `gold/features/reader.py` → `FeatureReader` | The only way feature code reads silver: `*_by_vintage` and `citation_lookup` at t, t−6, t−12. Refuses any other table or offset, and with `limit` any vintage after it; records every read. The run uses `limit = V`. |
-| Features (§8) | `gold/features/{survey_timing,citations,enforcement,facility_staffing,context}.py` → `build_family` / `build_features` | 95 features in 5 families, one row per spine row. `quality` raises `NotImplementedError` until `configs/qm_measures.yaml` is approved (open item 3). Rules in `configs/features.yaml` (severity points, bands, 456 days, occupancy cap, categories, footnote reasons, era months). The G+ set is not in `features.yaml`: the run passes the labels config's `gplus_severities` in, so features and labels always use one G+ set. |
+| Features (§8) | `gold/features/{survey_timing,citations,enforcement,facility_staffing,quality,context}.py` → `build_family` / `build_features` | 136 features in 6 families, one row per spine row. `quality` builds the measures of `configs/qm_measures.yaml` (open item 3). Rules in `configs/features.yaml` (severity points, bands, 456 days, occupancy cap, categories, footnote reasons, era months). The G+ set is not in `features.yaml`: the run passes the labels config's `gplus_severities` in, so features and labels always use one G+ set. |
 | Registry (§8) | `configs/feature_registry.yaml`, `load_feature_registry()` | Generated from the column contract: every built feature with family, source table, formula, first available vintage (measured), dtype, `model_use`. |
 | Splits (§9.3, §9.5) | `gold/splits.py` → `add_splits`, `split_windows` | `split_g12`, `split_g6`, `split_pen12` on `gold/labels`: per label, calendar months back from `last_labeled_t = V − (H + B)` (V = the label vintage). Test = the last `test_months`, purge = H months before, calib = `calib_months` before that, train = `spine_start` up to calib, score = after `last_labeled_t` (exactly the `immature` rows). Gold stops (exit 2) unless every `required_labels` label has at least one positive and one negative `train` row (censored and immature rows don't count). Settings in `configs/splits.yaml`. |
 | Assembly (§10) | `gold/dataset.py` → `assemble`, `dataset_manifest` | spine → 5 families → labels, row count and `(ccn, t)` checked after every join; `gold/dataset_manifest.json`. |
 
-**Not built:** the `quality` family (waits for `configs/qm_measures.yaml`), aux labels (§9.4), the verification
+**Not built:** aux labels (§9.4), the verification
 report and warehouse publish (§11), `checks.yaml`. Who builds each is in §1.
 
 **Unverified until the §11 gate exists.** Spec §11 says gold/ holds only validated data, but the verification gate is
@@ -270,9 +270,9 @@ antipsychotic code is **419 up to 2024-05 and 481 from 2024-06**. MDS period for
    checked and promoted with the spine and labels. Features are partitioned by t (`gold/features_<family>/t=…/`);
    `_stage` and `_promote` currently write single files, so extend them for partitions.
 
-**Quality measures:** the `quality` family reads **`configs/qm_measures.yaml`** once it exists. The silver owner
-commits it after Checkpoint 4 (`SILVER_CONTRACT.md` §9): 14 stable measures, bridges 453 → 479 and 419 → 481,
-405 → 480 doubtful. The canonical names are listed in `SILVER_CONTRACT.md` §13.2. Don't hard-code the list.
+**Quality measures:** the `quality` family reads **`configs/qm_measures.yaml`**, committed at Checkpoint 4
+(`SILVER_CONTRACT.md` §9): 14 stable measures and the bridges 453 → 479 and 419 → 481; 405 → 480 was dropped
+(the two definitions differ). The canonical names are listed in `SILVER_CONTRACT.md` §13.2. Don't hard-code the list.
 
 **The two waiting tests** (`tests/gold/test_expected_answers.py`, bottom). They are `xfail(strict=True,
 raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module exists: then **remove the
@@ -350,7 +350,7 @@ raises=ModuleNotFoundError)`, so they turn into real tests as soon as the module
 |---|---|---|---|
 | 1 | ~~Where do features live?~~ **Settled:** the `gold/features/` package (what the tests import) | Partner | Done on `feat/gold-features` |
 | 2 | Buffers `B_cit = 8`, `B_pen = 12` | Team | In `configs/labels.yaml`; still a Checkpoint 3 proposal awaiting approval |
-| 3 | `configs/qm_measures.yaml`, especially 405 → 480 | Silver owner | Checkpoint 4 decision |
+| 3 | `configs/qm_measures.yaml`, especially 405 → 480 | Silver owner | **Done:** committed with the `quality` family; 405 → 480 dropped |
 | 4 | Training rows from 2022-01 instead of 2023-01 | Team | Spec §14 #10: at V = 2026-08, `y_g12` trains on 6 months from 2023-01 (17 from 2022-01). It is one line, `spine_start` in `configs/splits.yaml`; it also adds ~160k spine rows for 2022-01 → 11, all `train` |
 | 5 | **Done** (`tests/leakage/test_feature_reader.py`, `test_feature_time_travel.py`, `test_feature_registry_inputs.py`). Leakage contract test for features: the feature reader and `feature_registry.yaml` limited to the `*_by_vintage` tables and `citation_lookup` at t (plus t−6, t−12), never the ledgers, `facility_presence`, `facility_universe` beyond t, `citation_lookup_versions` or `dim_facility_latest` | Partner | Review follow-up 1, feature part; the spine/labels part is done (section 9) |
 | 6 | Star ratings: **settled by following the column contract** (see the features note in §2) | Partner | Review follow-up 2 |

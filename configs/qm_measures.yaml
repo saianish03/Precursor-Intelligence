@@ -1,0 +1,42 @@
+# The quality measures gold builds (docs/DATA_PIPELINE_SPEC.md §8.6; gold/features/quality.py). Committed from
+# the Checkpoint 4 proposal (reports/step5/latest/05_qm_measures.proposed.csv, the ml-dev backfill to 2026-10).
+#
+# Decided at Checkpoint 4 (W5):
+# - 14 measures stable from 2022-01 to V, and two bridges whose definitions are close: 453 -> 479 (pressure
+#   ulcers, new code from 2025-02) and 419 -> 481 (long-stay antipsychotics, new code from 2026-02).
+# - Dropped: 405 -> 480 (incontinence; "low-risk residents who lose control" is not "new or worsened
+#   incontinence", so a bridge would join two different measures), the vaccination process measures 415, 430,
+#   454 and 472, and 471 (ended 2024-11).
+#
+# - 401 (ADL decline) and 451 (mobility decline; "move" became "walk independently") keep their codes but
+#   jump in level in 2025-02 (CMS's new function items): kept, with qm_def_post_2025_02 marking the month; the
+#   model leaves their values out until it has trained on the new definition (configs/ml.yaml).
+#
+# Codes are text, as in silver. A bridge lists the old code first; the Δ is null where t-6 and t differ in code.
+
+measures:
+  ls_adl_decline:          {table: mds_qm_by_vintage, codes: ["401"]}
+  ls_antianxiety:          {table: mds_qm_by_vintage, codes: ["452"]}
+  ls_antipsychotic:        {table: mds_qm_by_vintage, codes: ["419", "481"]}
+  ls_catheter:             {table: mds_qm_by_vintage, codes: ["406"]}
+  ls_depressive:           {table: mds_qm_by_vintage, codes: ["408"]}
+  ls_ed_per_1000:          {table: claims_qm_by_vintage, codes: ["552"]}
+  ls_falls_major_injury:   {table: mds_qm_by_vintage, codes: ["410"]}
+  ls_hosp_per_1000:        {table: claims_qm_by_vintage, codes: ["551"]}
+  ls_mobility_decline:     {table: mds_qm_by_vintage, codes: ["451"]}
+  ls_pressure_ulcer:       {table: mds_qm_by_vintage, codes: ["453", "479"]}
+  ls_restraints:           {table: mds_qm_by_vintage, codes: ["409"]}
+  ls_uti:                  {table: mds_qm_by_vintage, codes: ["407"]}
+  ls_weight_loss:          {table: mds_qm_by_vintage, codes: ["404"]}
+  ss_ed_visit:             {table: claims_qm_by_vintage, codes: ["522"]}
+  ss_new_antipsychotic:    {table: mds_qm_by_vintage, codes: ["434"]}
+  ss_rehosp:               {table: claims_qm_by_vintage, codes: ["521"]}
+
+# d6_qm_<name> (spec §8.6): falls with major injury, pressure ulcers, antipsychotics (long stay), short-stay
+# rehospitalisation.
+deltas: [ls_antipsychotic, ls_falls_major_injury, ls_pressure_ulcer, ss_rehosp]
+
+# One boolean per definition change, true from that month on (the bridges' new codes).
+definition_changes:
+  qm_def_post_2025_02: "2025-02"
+  qm_def_post_2026_02: "2026-02"

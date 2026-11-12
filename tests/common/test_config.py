@@ -7,6 +7,7 @@ from precursorintelligence.common.config import (
     MODULE_ROOT,
     ConfigError,
     load_labels_config,
+    load_qm_measures_config,
     load_settings,
     load_splits_config,
 )
@@ -176,3 +177,47 @@ def test_splits_config_rejects_bad_settings(tmp_path, old, new):
     f.write_text(SPLITS.replace(old, new), encoding="utf-8")
     with pytest.raises(ConfigError):
         load_splits_config(f)
+
+
+def test_repo_qm_measures_follow_the_checkpoint_4_decision():
+    qm = load_qm_measures_config()
+    assert len(qm.measures) == 16
+    assert qm.measures["ls_antipsychotic"].codes == ["419", "481"]
+    assert qm.measures["ls_pressure_ulcer"].codes == ["453", "479"]
+    codes = {c for m in qm.measures.values() for c in m.codes}
+    assert not codes & {"405", "480", "415", "430", "454", "471", "472"}  # dropped (Checkpoint 4)
+    assert qm.deltas == [
+        "ls_antipsychotic",
+        "ls_falls_major_injury",
+        "ls_pressure_ulcer",
+        "ss_rehosp",
+    ]
+    assert qm.definition_changes == {
+        "qm_def_post_2025_02": "2025-02",
+        "qm_def_post_2026_02": "2026-02",
+    }
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"extra": 1},  # unknown key
+        {
+            "measures": {
+                "a": {"table": "mds_qm_by_vintage", "codes": ["401"]},
+                "b": {"table": "mds_qm_by_vintage", "codes": ["401"]},
+            }
+        },  # one code, two measures
+        {"measures": {"a": {"table": "provider_by_vintage", "codes": ["401"]}}},  # not a QM table
+        {"measures": {"a": {"table": "mds_qm_by_vintage", "codes": [401]}}},  # codes are text
+        {
+            "measures": {"A-b": {"table": "mds_qm_by_vintage", "codes": ["401"]}}
+        },  # not a column name
+        {"deltas": ["unknown"]},
+        {"definition_changes": {"qm_def_post_2025_02": "2025-2"}},
+    ],
+)
+def test_qm_measures_config_rejects_bad_settings(tmp_path, bad):
+    data = {"measures": {"a": {"table": "mds_qm_by_vintage", "codes": ["401"]}}} | bad
+    with pytest.raises(ConfigError):
+        load_qm_measures_config(_write(tmp_path, "qm_measures.yaml", data))

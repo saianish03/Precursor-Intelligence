@@ -89,6 +89,47 @@ labels:
   d6_hprd_rn: null
   d12_hprd_total: null
   d12_turnover_total: null
+  qm_ls_adl_decline: null
+  qm_ls_adl_decline_fn: null
+  qm_ls_antianxiety: null
+  qm_ls_antianxiety_fn: null
+  qm_ls_antipsychotic: null
+  qm_ls_antipsychotic_fn: null
+  d6_qm_ls_antipsychotic: null
+  qm_ls_catheter: null
+  qm_ls_catheter_fn: null
+  qm_ls_depressive: null
+  qm_ls_depressive_fn: null
+  qm_ls_ed_per_1000: null
+  qm_ls_ed_per_1000_fn: null
+  qm_ls_falls_major_injury: null
+  qm_ls_falls_major_injury_fn: null
+  d6_qm_ls_falls_major_injury: null
+  qm_ls_hosp_per_1000: null
+  qm_ls_hosp_per_1000_fn: null
+  qm_ls_mobility_decline: null
+  qm_ls_mobility_decline_fn: null
+  qm_ls_pressure_ulcer: null
+  qm_ls_pressure_ulcer_fn: null
+  d6_qm_ls_pressure_ulcer: null
+  qm_ls_restraints: null
+  qm_ls_restraints_fn: null
+  qm_ls_uti: null
+  qm_ls_uti_fn: null
+  qm_ls_weight_loss: null
+  qm_ls_weight_loss_fn: null
+  qm_ss_ed_visit: null
+  qm_ss_ed_visit_fn: null
+  qm_ss_new_antipsychotic: null
+  qm_ss_new_antipsychotic_fn: null
+  qm_ss_rehosp: null
+  qm_ss_rehosp_fn: null
+  d6_qm_ss_rehosp: null
+  qm_missing_count: null
+  qm_age_months_mds: null
+  qm_age_months_claims: null
+  qm_def_post_2025_02: null
+  qm_def_post_2026_02: null
   state_gplus_rate_12m: null
   state_median_hprd_total: null
   rel_hprd_total: null
