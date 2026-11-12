@@ -16,7 +16,7 @@
 >
 > **Working rules:**
 > - At each 🛑 **CHECKPOINT**, a human reads the report and approves before the next step goes to production. Routine monthly runs have no human checkpoint: the gates in §9 stop them instead.
-> - Every value that can change lives in `configs/ml.yaml` (Appendix B) or an existing config. Never hard-code a feature list, a threshold or a window.
+> - Every value that can change lives in `configs/ml.yaml` (W0, #54; Appendix B) or an existing config. Never hard-code a feature list, a threshold or a window.
 > - Tuning, selection and every "keep or drop" choice use training-window data only. **The test window is looked at once per model, to report and gate, never to choose** (§3, §20).
 >
 > **Status:** v1.0, 2026-11-10. Design only; no ML code exists yet (`src/precursorintelligence/{training,evaluation,serving,monitoring}` are empty). Reviewed by an outside ML-systems reviewer, the leakage reviewer and the infra reviewer; their findings are applied. **Phase 1, everything the course asks for, running on a laptop stack against GCS, is due Sun 2026-11-15; Phase 2 (VM, BigQuery, hardening) follows** (§18).
@@ -523,7 +523,7 @@ Branches use `@task.branch`; `train` and `score` use `trigger_rule="none_failed_
 | gold not `current` | exit 1 (retried) |
 | `V` earlier than the last scored `V`; or unverified with `allow_unverified: false` | REFUSE (exit 2, alert) |
 | `mode=retune`, or `mode=auto` and the last run requested a re-tune | RETUNE (then the rules below for scoring) |
-| `mode=retrain`, or no completed RETRAIN in `ml_runs` for (`v_labels`, `recipe_hash`, gold `config_sha256` + `git_commit`) | RETRAIN |
+| `mode=retrain`, or no completed RETRAIN in `ml_runs` for (`v_labels`, `recipe_hash`, `gold_config_sha`) | RETRAIN |
 | `mode=score_only`, or a champion exists and no published scores for (`V`, `dataset_version`, champion version) | SCORE |
 | otherwise | SKIP |
 
@@ -531,6 +531,7 @@ Branches use `@task.branch`; `train` and `score` use `trigger_rule="none_failed_
 - After RETRAIN, RETUNE or PROMOTE, the run scores if a champion exists and scores for (`V`, `dataset_version`, champion version) are missing.
 - With no champion yet, nothing is scored; `status/latest.json` says "awaiting Checkpoint ML-A".
 - **`ml_runs`** (one row per run and per promotion action): `ml_run_id, at, mode, decision, action (retrain | retune | score | skip | refuse | promote | hold | manual_promote | rollback), reason, actor, gold_run_id, v, v_labels, dataset_version, gold_config_sha, gold_verified, recipe_hash, champion_version_before, champion_version_after, candidate_version, gate_outcome, gate_results_json, scores_published (bool), flags_json, retune_requested`.
+- **`gold_config_sha`** = sha256 (hex) of the canonical JSON (sorted keys, no spaces) of `{"config_sha256": …, "git_commit": …}`, both taken from gold's `dataset_manifest.json`: gold built with other configs or other code is another gold. One function computes it, `training/data.py: gold_config_sha(manifest)` (W2 adds it for `gate`'s rows; W6's `decide` calls the same one), so the writer and the reader always agree.
 
 ### 15.3 Tasks
 | Task | Command | Notes |
@@ -656,7 +657,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
   - 52 months (2022-01 → 2026-10), 775,400 rows, 148 columns, all six feature families, `verified: false`;
   - `ml prepare` on it: 121 features; eval 2022-05..2023-04, test 2025-02 (14,643 facilities, base rate 0.256), refit 2024-02..2025-02; no leakage or regime flags.
   - It was built by the `ml_dev` laptop stack, which has its own metadata database. **Nobody else writes to `ml-dev/gold/`.** If gold must change, ask the P0 owner, who rebuilds it.
-- **GCP VMs (2026-11-12): both stopped.** `pi-airflow` (e2-standard-4, us-central1-a; T19/T20, used from Phase 2) and Nishanth's old `pi-temp-validate` (2026-10-16, `purpose=temporary`). Phase 1 needs no VM. Nothing stops a VM automatically yet (the 60-minute idle shutdown is T21, not built), so don't start one. If you must, stop it when done: `gcloud compute instances stop <name> --zone us-central1-a`.
+- **GCP VMs (2026-11-12): both stopped.** `pi-airflow` (e2-standard-4, us-central1-a; T19/T20, used from Phase 2) and Nishanth's old `pi-temp-validate` (2026-10-16, `purpose=temporary`). Phase 1 needs no VM. `pi-airflow` stops itself about an hour after the last run and SSH session (the idle shutdown, T21, #56; its timer starts at the next boot), and `sudo pi-down` on it dumps the databases and stops it at once. `pi-temp-validate` has no idle shutdown: stop it by hand, `gcloud compute instances stop pi-temp-validate --zone us-central1-a`.
 
 **Prerequisites:**
 1. **Read** §0, §1, §3, §17, §18 and §20 of this spec, plus the gold contract in the data spec (§9, §11). Every package's names come from here.
@@ -693,7 +694,9 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | Phase | When | Scope |
 |---|---|---|
 | **1. Course-complete system** | Tue Nov 10 → **Sun Nov 15** | everything in the course brief (Appendix D) working end to end: the `cms_nh_ml` DAG on a laptop compose stack against GCS (`ml-dev/` prefix), MLflow (tracking + registry, artifacts in the MLflow bucket), training with selection, calibration, validation, bias detection and gate, SHAP (global + per facility), tuning with documented sensitivity, scoring with reasons and chain roll-up, monitoring (PSI + status file), email notifications, rollback, CI smoke run |
-| **2. Production** | Nov 16 → Dec 1 and later | VM deployment (MLflow on the VM, secret, backups, T19–T26 counting `cms_nh_ml`), BigQuery publish, CD for the mlflow image, the quality family (W5), the §11 verified gate, realized and early-read performance, Evidently, rolling-origin folds, Checkpoint ML-A repeated on 2025-03 (the late-November release) |
+| **2. Production** | Nov 16 → Dec 1 and later | VM deployment (MLflow on the VM, secret, backups, T19–T26 counting `cms_nh_ml`), BigQuery publish, CD for the mlflow image, the §11 verified gate (W5 part 2), realized and early-read performance, Evidently, rolling-origin folds, Checkpoint ML-A repeated on 2025-03 (the late-November release) |
+
+**Cut line for Phase 1.** If a package runs late, these stay, because the course brief needs them (Appendix D): training with selection, hold-out validation, bias slices and the G7 gate, SHAP (global and per facility), tuning with its sensitivity, MLflow tracking and registry, the CI smoke run, alerts and rollback. These may move to Phase 2: the chain roll-up, per-state empirical-Bayes shrinkage, the Benjamini–Hochberg correction, and score-drift and regime-coverage monitoring. The slowest package never holds up Friday's integration.
 
 ### 18.2 Phase 1 order
 ```
@@ -755,7 +758,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | ML-15 | Production fit | evaluate, then refit on the latest matured months | §3.3 |
 | ML-16 | Ensemble | average the members in log-odds (measured: same scores, exact SHAP) | §4.2, Appendix A |
 | ML-17 | Star sub-ratings | follow the registry (`staffing_rating`, `qm_rating` allowed; overall and health-inspection ratings never) | §1.4 |
-| ML-18 | Quality family | ported into gold in parallel; ML takes it by config when it lands (Phase 2) | §1.4, W5 |
+| ML-18 | Quality family | in gold since #55; 33 of its 41 columns are model input, the rest excluded in `ml.yaml` (month keys and the measures whose scale changed) | §1.4, W5 |
 | ML-19 | Re-tuning | a re-tune produces a challenger and a parameter proposal; parameters change only through a human PR to `ml.yaml` | §12.2, §13 |
 | ML-20 | Evaluation gap | the production lag (H + B = 20 months); gold starts in 2022-01 (`spine_start`, data open #10) | §3 |
 | ML-21 | 2025-07 / 2025-10 regimes | `era` and `penalty_regime_2025_10` excluded until training covers both values; the two sub-ratings measured and excluded if their training-vs-scoring PSI > 0.25 | §1.4, §12.1 |
@@ -783,7 +786,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | # | Topic | Default | Recommendation |
 |---|---|---|---|
 | O1 | Second label (`y_g6` matures 6 months sooner) | not in v1 | add by config after Phase 1 |
-| O2 | Gate and bias thresholds | §9.1 starting values | review at Checkpoint ML-A on a non-development month |
+| O2 | Gate and bias thresholds | §9.1 starting values | review at Checkpoint ML-A on a non-development month. G4 (ECE ≤ 0.05) is the likely binding gate: PR #49 measured test ECE rising to ~0.055 after only 7 months out of time, and the eval fit is 20–23 months out of time. W2 checks its first real values before anyone relies on automatic promotion |
 | O3 | Rolling-origin folds | facility-grouped | try after spine 2022-01 is live |
 | O4 | Reweighting | off | decide at Checkpoint ML-A from the OOF trade-off table |
 | O5 | MLflow authentication | none (tasks network + 127.0.0.1 + IAP) | revisit if anything outside the VM needs MLflow |
@@ -831,58 +834,8 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 - **Log-odds vs probability average** (ML-16), measured 2026-11-10 on `final_model/test_predictions.csv` (14,643 rows, one per facility): PR-AUC 0.4813 / 0.4813; ROC 0.7091 / 0.7092; Brier 0.1689 / 0.1689; ECE 0.0274 / 0.0268; P@5 % 0.682 / 0.682; paired-bootstrap CI of the PR-AUC difference [−0.0003, +0.0003]; Spearman 0.99993; top-10 % overlap 100 %; median |Δp| 0.0004, max 0.077.
 - **Issues found in the PRs and how this spec handles them:** no train→calib purge in gold (→ OOF Platt, ML-24); the final model trained on the calib months and shipped uncalibrated (→ §5); window chosen on test (→ fixed config, development-month marking); parameters tuned on another feature set with non-time folds (→ re-tune as a proposal, §13); `state_te` leakage and row-count lags (→ not carried); star sub-ratings (→ ML-17, ML-21); scripts not runnable from the repo (→ everything in `src/` with tests).
 
-## Appendix B. `configs/ml.yaml` (sketch; W0 makes it real)
-```yaml
-version: 1
-label: g12                          # y_g12 / status_g12 / split_g12
-allow_unverified: true              # false once the data spec's §11 gate exists (ML-9)
-features:
-  exclude: [era, penalty_regime_2025_10]      # ML-21; regime flags until training covers both values; + d12_turnover_total if W1 confirms O9
-  regime_sensitive: [staffing_rating, qm_rating, staffing_rating_fn, qm_rating_fn]
-windows:
-  train_months: 11                  # non-empty months, eval and refit (ML-25)
-  min_train_months: 6
-  eval_gap: production_lag          # production_lag (H + B) | purge (gold's purge; reproduction only)
-folds: {k: 5}                       # stable hash of ccn (ML-26)
-members:
-  lgbm: {learning_rate: 0.01024, num_leaves: 34, max_depth: 3, min_child_samples: 870, subsample: 0.634,
-         subsample_freq: 1, colsample_bytree: 0.335, reg_alpha: 0.0068, reg_lambda: 9.48, min_split_gain: 0.435,
-         cat_smooth: 2.71, n_estimators: 1265, seed: 42, deterministic: true, force_col_wise: true, num_threads: 4}
-  lr: {C: 0.3, max_iter: 2000, onehot_min_frequency: 50}
-ensemble: {weights: {lgbm: 0.5, lr: 0.5}}     # mean of log-odds (ML-16)
-selection: {candidates: [ensemble, lgbm, lr], tie_margin: 0.002}
-calibration: {method: platt, fit_recent_months: 3}
-checks:
-  min_score_facilities: 10000
-  leakage_flag: {pr_auc_max: 0.6, base_rate_multiple: 3}
-  leakage_cleared: []               # [{feature: ..., reason: ...}]
-evaluation:
-  precision_at: [0.01, 0.02, 0.05, 0.10, 0.20]
-  ece_bins: 10
-  bootstrap: {replicates: 1000, seed: 0}
-  shuffled_label: {n_estimators: 300, roc_range: [0.48, 0.52]}
-  development_months: ["2025-02"]
-gates:
-  first_run: challenger             # challenger (real) | promote (toy smoke run only)
-  calibration: {ece_max: 0.05, slope_range: [0.7, 1.3]}
-  vs_champion: {pr_auc_worse_max: 0.01, brier_worse_max: 0.005}
-  refit: {oof_lift_ratio_min: 0.85, mean_p_band: 0.05, spearman_min: 0.9}
-bias:
-  slices_config: configs/bias_slices.yaml
-  gate_slices: [state, ownership_group, bed_band, chain_status, in_hospital]
-  gate_min_facilities: 200
-  gate_min_positives: 50
-  oe_worse_max: 0.03
-  pr_auc_worse_max: 0.05
-  oe_abs_max: 0.05                  # non-geographic gated slices
-  fdr_alpha: 0.05
-  mitigation: none                  # none | reweight
-explain: {top_raise: 5, top_lower: 3, labels: configs/reason_labels.yaml, key_features: 15}
-monitor: {psi_bins: 10, feature_psi_max: 0.25, score_psi_max: 0.1, mean_shift_max: 0.03, lift_drop_max: 0.15, champion_lag_months_max: 3}
-tuning: {n_trials: 30, folds: 3, timeout_minutes: 60, early_stopping_rounds: 100, seed: 42}
-registry: {model_name: precursor_y_g12, experiment: precursor_y_g12, champion_alias: champion, challenger_alias: challenger}
-outputs: {root_prefix: "", run_prefix: ml/runs, scores_prefix: scores, status_key: status/latest.json}
-```
+## Appendix B. `configs/ml.yaml`
+The settings live in `configs/ml.yaml` (W0, #54), one commented file, validated by `MlConfig` in `common/config.py` (an unknown key or a bad value is a config error, exit 3). §0.5 lists the defaults; this spec keeps no second copy, so the file is the only place a value changes (by reviewed PR, ML-19).
 
 ## Appendix C. Output schemas
 | File / table | Key | Columns |
