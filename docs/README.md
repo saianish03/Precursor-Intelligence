@@ -3,6 +3,7 @@
 | File / folder | Contents |
 |---|---|
 | `DATA_PIPELINE_SPEC.md` | **The single reference for building the data pipeline**: the 5 DAG nodes (`check_release → ingestion → bronze → silver → gold`), every step's rules, checks and decisions |
+| `ML_PIPELINE_SPEC.md` | **The single reference for building the ML pipeline**: gold → train, calibrate, evaluate, bias, explain → MLflow registry and gates → monthly scores with per-facility reasons (GCS + BigQuery) → monitoring; the `cms_nh_ml` DAG, deployment, tests, decisions and the team's work packages |
 | `AIRFLOW_PIPELINE.md` | **How the pipeline runs in Airflow**: the DAG, tasks, run lock, exit codes, the metadata DB schema, logs and artifacts (run it: `runbooks/airflow-local.md`) |
 | `STEP1_DATA_INGESTION_PIPELINE.md` | Step 1 (ingestion node) technical design and results |
 | `STEP1_TODO.md` | Step 1 backlog |

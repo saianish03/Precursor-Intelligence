@@ -21,7 +21,7 @@
 >
 > **Location:** this is the canonical copy (`docs/DATA_PIPELINE_SPEC.md`). The evidence it cites lives in the parent project folder, outside the repo: `../sample_run_log.md` (the sample run) and `../sample_pipeline/` (the reference implementation of all 5 nodes, the fake CMS, `run_dag.sh`, `reverify.sh`).
 >
-> **Status:** v2.0, 2026-10-15. Every step was run and verified on a 39-facility sample of all 61 vintages (`../sample_run_log.md`; reference code in `../sample_pipeline/`). Rules changed by that run are marked *(sample-run finding)* or "measured". Open team decisions are in §14. **Amended 2026-10-29** by the VM deployment decisions §14 #24–#27 (release-check DAG, additive schema drift, VM size, Postgres on the VM).
+> **Status:** v2.0, 2026-10-15. Every step was run and verified on a 39-facility sample of all 61 vintages (`../sample_run_log.md`; reference code in `../sample_pipeline/`). Rules changed by that run are marked *(sample-run finding)* or "measured". Open team decisions are in §14. **Amended 2026-10-29** by the VM deployment decisions §14 #24–#27 (release-check DAG, additive schema drift, VM size, Postgres on the VM), and **2026-11-10** by §14 #10 (the spine starts in 2022-01).
 
 ---
 
@@ -61,7 +61,7 @@ Auxiliary label columns exist for analysis only (§9.4). **No label column may e
 |---|---|---|
 | Language and tooling | Python 3.11+ (3.12 pinned), `uv` only | `pyproject.toml`, `uv.lock` |
 | Vintages ingested | **2021-01 → V** (2019–2020 are archived but never ingested: no Inspection Dates file, different posting regime) | `configs/ingestion/sources.yaml` (`scope`) |
-| Prediction rows (spine) | **t from 2023-01 → V**. 2021–2022 are used only for ledgers, posting-lag measurement and the t−6/t−12 history of change features. | `configs/splits.yaml` (`spine_start`) |
+| Prediction rows (spine) | **t from 2022-01 → V** (§14 #10, decided 2026-11-10). 2021 is used only for ledgers, posting-lag measurement and the t−6/t−12 history of change features. | `configs/splits.yaml` (`spine_start`) |
 | Maturity buffers | **`B_cit = 8`, `B_pen = 12`**, measured on the full archive (Step 4, 2026-10-15). Guide v1 guessed 3 / 9; the team plan 6 / 18. Re-measure in 2027. | `configs/labels.yaml` |
 | Standard-survey due interval | **456 days** (15 months) | `configs/labels.yaml` |
 | Splits | `calib_months = 3`, `test_months = 3` (open, §14 #11), `required_labels = [g12, g6]` (gate). Windows are **calendar months** ending at `last_labeled_t`. | `configs/splits.yaml` |
@@ -145,7 +145,7 @@ The task list per node, run modes, exit codes and the DAG sketch are in **§15**
 | Name, language | SurveyHorizon; Python 3.11 | Precursor Intelligence; Python 3.11+ with uv | team decision |
 | Getting history | Archive page "may be rendered by JavaScript"; ask a human to download | Undocumented archive JSON endpoints list every monthly zip; fully automatic | Step 1, built |
 | Raw layout | `data/raw/zips/`, `raw/extracted/<vintage>/` | `landing/cms_nh/zips/zip_date=…/`, extracted by zip date | Step 1 |
-| Spine start | 2022-01 | **2023-01** (2021–2022 = history only) | team plan + team skill; decision 2026-10-15 |
+| Spine start | 2022-01 | **2022-01** (2021 = history only) | decided 2026-10-15 as 2023-01 (team plan + team skill); changed back to 2022-01 on 2026-11-10 (§14 #10) |
 | Penalty duplicates | Drop exact-duplicate rows | **Keep them**, add `dup_seq`; they are distinct fines | STEP2_HANDOFF §6 |
 | Citation survey type | Map `survey_type` to an enum | `Survey Type` is always "Health"; derive from the 3 flag columns | STEP2_HANDOFF §5.3 |
 | Severity domain | A–L | Valid A–L, but only B–L ever occurs | profiling |
@@ -174,7 +174,7 @@ The task list per node, run modes, exit codes and the DAG sketch are in **§15**
 | Month-over-month row limits for citations, penalties and surveys | Rows per t for the spine only (§11.1). **Add the other limits to `checks.yaml`.** | Gap |
 | Ledgers updated incrementally | Ledgers rebuilt over all vintages every run | Small; deterministic |
 | DuckDB / Polars | Polars only (D2) | — |
-| Buffers 6 / 18; prediction months from 2023-01 | 8 / 12 measured; spine 2023-01, which leaves very little training data (§9.5) | Measured |
+| Buffers 6 / 18; prediction months from 2023-01 | 8 / 12 measured; spine 2022-01 since 2026-11-10, because 2023-01 left very little training data (§9.5, §14 #10) | Measured |
 | Airflow VM e2-standard-2 (8 GB) | **e2-standard-4** (4 vCPU, 16 GB); the machine type is a Terraform variable | Gold holds the whole dataset in memory, and every monthly run rebuilds all of gold, so monthly runs need the backfill's RAM. Full-archive gold is estimated at ≈ 5.8 GB (`AIRFLOW_PIPELINE.md` §9.1), next to ≈ 2–2.5 GB for Airflow and Postgres. **Decided 2026-10-29** (§14 #26) |
 | Nightly `pg_dump` to GCS; an instance schedule stops the VM overnight and on weekends | Postgres stays on the VM (as planned). It is dumped to GCS **before every VM stop**: the stop scripts dump first and don't stop the VM if the dump fails. The VM is started and stopped by hand, with an idle auto-shutdown that ignores release-check runs | The VM is off most of the time, so a nightly job would rarely run. A fixed stop could cut a long backfill short, but the idle shutdown never stops a running DAG run. **Decided 2026-10-29** (§14 #27) |
 
@@ -580,7 +580,7 @@ Wait for approval of `qm_measures.yaml`.
 
 ## 7. STEP 6: The spine (node `gold`)
 
-`gold/spine`: one row per `(ccn, t)` for every published `t` in **2023-01 → V** and every CCN in `facility_universe` at vintage `t`.
+`gold/spine`: one row per `(ccn, t)` for every published `t` in **`spine_start` (2022-01) → V** and every CCN in `facility_universe` at vintage `t`.
 
 Columns: `ccn, t (= vintage_month), cutoff_date`.
 
@@ -744,7 +744,7 @@ Label windows overlap, so every split leaves a **purge gap of H months** between
 - `test` = the last `test_months` labelled months;
 - `purge` = the H months before test;
 - `calib` = the last `calib_months` (3) months before purge, held out from fitting;
-- `train` = from `spine_start` (2023-01) up to calib;
+- `train` = from `spine_start` (2022-01) up to calib;
 - every row after `last_labeled_t` has `split = score`.
 
 - **Shared windows (open, §14 #15):** guide v1 had `y_g12` and `y_pen12` share train and calib months, for a fair comparison. With `B_pen = 12` that would shrink `y_g12`'s window to `y_pen12`'s. The sample run computes the windows per label.
@@ -762,6 +762,7 @@ Label windows overlap, so every split leaves a **purge gap of H months** between
 - **How the gate enforces this:** gold refuses to publish (exit 2) when a required label has no training month (`splits.yaml: required_labels`).
 - **Sample run settings:** `test_months = 3`, required labels `g12` and `g6`; `y_pen12` reported only.
 - **Recommendation:** keep scoring and evaluation months from 2023-01, but let **training rows start in 2022-01**. Their t−6/t−12 history (2021-07, 2021-01) exists in the archive, so every change feature is computable.
+- **Decided 2026-11-10 (§14 #10):** `spine_start` = 2022-01. Scoring uses only the newest month and evaluation the newest matured months, so starting the whole spine in 2022-01 is the simple form of the recommendation; the ML pipeline's evaluation gap of H + B months needs it (`ML_PIPELINE_SPEC.md` ML-20).
 - **Fair comparison:** `y_g12` and `y_pen12` sharing train months would restrict `y_g12` to `y_pen12`'s much shorter window. Decide whether the comparison is worth that.
 
 ---
@@ -868,7 +869,7 @@ The dataset counts as **frozen** only after a human approves this checkpoint. Th
 | 20 | `check_release` is optional | **Decided:** in production the pipeline runs only when CMS releases new data (`check_release` gates it). The node is **modular and skippable** for development, for repeated test runs locally or on cloud. **Amended 2026-10-29 (#24):** the param `run_check_release` is gone. A manual run of `cms_nh_pipeline` is the development path, and `cms_nh_release_check` stays paused during development. | §0.7, §15. Safe because every node is idempotent. |
 | 21 | Exit codes 2 and 3 | **Decided:** fail without retries | §15.4: a thin `DockerOperator` subclass raises `AirflowFailException` on exit 2 or 3; exit 1 keeps its retries |
 | 22 | Live CMS API in development and tests | **Decided:** allowed for read-only checks (the `network` tests, catalog and metastore reads). A real ingest of a new release (e.g. 2026-10-08) only when the user asks. | Unit tests stay offline (fake CMS) |
-| 10 | Spine start | **Decided 2026-10-15:** 2023-01. **Revisit:** with the measured buffers it leaves 3 training months for `y_g12` and 0 for `y_pen12` (§9.5). | Recommended: training rows from 2022-01; scoring and evaluation from 2023-01 |
+| 10 | Spine start | **Decided 2026-11-10: 2022-01** (it was 2023-01, decided 2026-10-15). With the measured buffers, 2023-01 left 3 training months for `y_g12` and 0 for `y_pen12` (§9.5), and the ML pipeline's 20-month evaluation gap needs 2022-01 (`ML_PIPELINE_SPEC.md` ML-20). `configs/splits.yaml` changed in #53, with the first full ML backfill (ML spec work package P0). | §7, §9.5; `configs/splits.yaml: spine_start` |
 | 13 | Storage, metadata, warehouse, run lock, manifests | **Decided 2026-10-08** (D1–D11). **Metadata store amended 2026-10-16:** Postgres `precursor_meta` plus a BigQuery `meta` mirror and `status/latest.json`, no BigQuery adapter (D4, D8 and O2 in `STEP1_DATA_INGESTION_PIPELINE.md` §0 are superseded where they assume one) | §0.6, §15.3 |
 | 23 | Lock release in the DAG | **Decided 2026-10-21:** `release_lock` is an Airflow teardown of `acquire_lock`, not `trigger_rule="all_done"` and not `on_failure_fail_dagrun=True` (both made failed runs show `success`, measured); it retries twice | §15.1, §15.3, §15.5 |
 
