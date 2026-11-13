@@ -80,8 +80,10 @@ def test_docker_kwargs_from_environment(monkeypatch):
     monkeypatch.delenv(
         "PI_GCP_CREDENTIALS_FILE", raising=False
     )  # set in a stack that runs against GCS
+    monkeypatch.delenv("PI_MLFLOW_TRACKING_URI", raising=False)
     kw = docker_kwargs()
-    assert kw["image"] == "precursor-pipeline:x"
+    assert kw["image"] == kw["environment"]["PI_PIPELINE_IMAGE"] == "precursor-pipeline:x"
+    assert "MLFLOW_TRACKING_URI" not in kw["environment"]
     assert [(m["Source"], m["Target"]) for m in kw["mounts"]] == [("/srv/pi/data", "/app/data")]
     assert "PI_BUCKET_URI" not in kw["environment"]  # unset, so prod.yaml's default bucket applies
 
@@ -94,6 +96,9 @@ def test_docker_kwargs_from_environment(monkeypatch):
     monkeypatch.setenv("PI_BUCKET_URI", "gs://bucket")
     kw = docker_kwargs()
     assert kw["mounts"] == [] and kw["environment"]["PI_BUCKET_URI"] == "gs://bucket"
+
+    monkeypatch.setenv("PI_MLFLOW_TRACKING_URI", "http://mlflow:5000")
+    assert docker_kwargs()["environment"]["MLFLOW_TRACKING_URI"] == "http://mlflow:5000"
 
 
 def test_a_laptop_against_gcs_mounts_the_gcloud_credentials_read_only(monkeypatch):

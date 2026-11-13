@@ -25,6 +25,8 @@ from precursorintelligence.alerts import EXIT_KINDS
 NO_RETRY_EXIT_CODES = (2, 3, 137)
 EXIT_CODE_XCOM = "pipeline_exit_code"
 GCP_CREDENTIALS_TARGET = "/var/run/gcp/adc.json"
+# One slot, created by airflow-init (docker-compose.yaml): gold and ML training never run together (ML spec §15.6).
+HEAVY_POOL = "heavy"
 # apache-airflow-providers-docker 4.6.1 raises DockerContainerFailedException(f"Docker container failed:
 # {result!r}") with result = docker's wait() dict, e.g. {'Error': None, 'StatusCode': 2}. Checked against that
 # release's source; tests/dags/test_pipeline_operator.py fails if a provider upgrade changes it.
@@ -91,9 +93,13 @@ def pipeline_env() -> str:
 def docker_kwargs() -> dict[str, Any]:
     """Container settings shared by every task, from the Airflow deployment's environment (.env)."""
     env = os.environ
+    image = env.get("PI_PIPELINE_IMAGE", "precursor-pipeline:latest")
     environment = {
-        "PYTHONUNBUFFERED": "1"
-    }  # results are read from the output lines: never buffer them
+        "PYTHONUNBUFFERED": "1",  # results are read from the output lines: never buffer them
+        "PI_PIPELINE_IMAGE": image,  # the ML runs record which image trained them
+    }
+    if env.get("PI_MLFLOW_TRACKING_URI"):  # the compose stack's server, http://mlflow:5000
+        environment["MLFLOW_TRACKING_URI"] = env["PI_MLFLOW_TRACKING_URI"]
     if env.get("PI_BUCKET_URI"):  # unset, not empty: prod.yaml falls back to its default bucket
         environment["PI_BUCKET_URI"] = env["PI_BUCKET_URI"]
     mounts = []
@@ -117,7 +123,7 @@ def docker_kwargs() -> dict[str, Any]:
     ):  # e.g. 10g on the 16 GB VM, so the OOM killer hits the task, not Postgres
         limits["mem_limit"] = env["PI_TASK_MEM_LIMIT"]
     return {
-        "image": env.get("PI_PIPELINE_IMAGE", "precursor-pipeline:latest"),
+        "image": image,
         "docker_url": env.get("PI_DOCKER_URL", "unix://var/run/docker.sock"),
         "network_mode": env.get("PI_DOCKER_NETWORK", "bridge"),  # the network that reaches Postgres
         "environment": environment,
