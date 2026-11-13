@@ -9,6 +9,7 @@ import pytest
 from precursorintelligence.training.data import average_precision
 from precursorintelligence.training.select import (
     BiasOutcome,
+    bias_checked,
     default_bias_check,
     select_candidate,
     unavailable_bias_check,
@@ -173,3 +174,24 @@ def test_default_bias_check_uses_w2_when_present(monkeypatch):
     mod.bias_check_oof = bias_check_oof
     _hide_slices(monkeypatch, mod)
     assert default_bias_check() is bias_check_oof
+
+
+def test_reason_says_when_the_bias_check_did_not_run():
+    unchecked = unavailable_bias_check(None, np.zeros(3), None)
+    sel = select_candidate(
+        Y,
+        {"lr": SCORES["poor"], "lgbm": SCORES["perfect"]},
+        {"lr": unchecked, "lgbm": unchecked},
+        tie_margin=0.002,
+    )
+    assert sel.selected == "lgbm"
+    assert "bias check not run" in sel.reason
+    assert not any(bias_checked(r) for r in sel.candidates)
+
+
+def test_reason_after_a_real_bias_check():
+    sel = select_candidate(
+        Y, {"lr": SCORES["poor"], "lgbm": SCORES["perfect"]}, {"lr": PASS, "lgbm": PASS}, 0.002
+    )
+    assert sel.reason.endswith("after the bias check")
+    assert all(bias_checked(r) for r in sel.candidates)

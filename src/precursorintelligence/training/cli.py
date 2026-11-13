@@ -149,6 +149,7 @@ def train(
     Last stdout line: a JSON summary."""
 
     def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from .select import bias_checked
         from .train import run_train
 
         cfg = load_ml_config(ml_config)
@@ -163,9 +164,12 @@ def train(
         r = out.result
         typer.echo(f"run {rid}: selected {r.selected} ({out.selection.reason})")
         for c in out.selection.candidates:
+            if not bias_checked(c):
+                status = "NOT RUN (W2's bias_check_oof not merged)"
+            else:
+                status = "passed" if c.bias_check_passed else "FAILED"
             typer.echo(
-                f"  {c.candidate}: OOF PR-AUC {c.oof_pr_auc}, Brier {c.oof_brier}, "
-                f"bias check {'passed' if c.bias_check_passed else 'FAILED'}"
+                f"  {c.candidate}: OOF PR-AUC {c.oof_pr_auc}, Brier {c.oof_brier}, bias check {status}"
             )
         for k, v in r.calibration.items():
             typer.echo(

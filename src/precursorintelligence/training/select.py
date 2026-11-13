@@ -42,10 +42,16 @@ class BiasOutcome:
 BiasCheck = Callable[[pl.DataFrame, np.ndarray, MlConfig], BiasOutcome]
 
 
+BIAS_NOT_CHECKED = "bias_check_oof not available (W2 not merged): not checked"
+
+
 def unavailable_bias_check(rows: pl.DataFrame, p: np.ndarray, cfg: MlConfig) -> BiasOutcome:
-    return BiasOutcome(
-        passed=True, detail={"note": "bias_check_oof not available (W2 not merged): not checked"}
-    )
+    return BiasOutcome(passed=True, detail={"note": BIAS_NOT_CHECKED})
+
+
+def bias_checked(result: CandidateResult) -> bool:
+    """False when the pass-through ran instead of W2's check (``bias_check_passed`` then means nothing)."""
+    return BIAS_NOT_CHECKED not in result.note
 
 
 def default_bias_check() -> BiasCheck:
@@ -95,9 +101,12 @@ def select_candidate(
             f"({chosen.oof_pr_auc}) and is selected so that gate G7 holds it"
         )
     elif chosen.candidate == top.candidate:
-        reason = (
-            f"{chosen.candidate}: highest OOF PR-AUC ({chosen.oof_pr_auc}) after the bias check"
+        after = (
+            "after the bias check"
+            if any(bias_checked(r) for r in results)
+            else "(bias check not run: W2's bias_check_oof not merged)"
         )
+        reason = f"{chosen.candidate}: highest OOF PR-AUC ({chosen.oof_pr_auc}) {after}"
     else:
         reason = (
             f"{chosen.candidate}: OOF PR-AUC {chosen.oof_pr_auc} within {tie_margin} of {top.candidate} "
