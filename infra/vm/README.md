@@ -32,8 +32,9 @@ can read its metadata.
     the floor below (checked on `init-db.sh`'s task-network rule, as `pi-deploy` does) and one without both images.
     It skips the sha `pi-release` already names (to redeploy that one: `sudo pi-deploy now`).
   - It sets only that key and never runs alongside a Terraform run, whose apply would put back the value it planned
-    with. GitHub keeps one pending run per concurrency group: a deploy that waits can cancel a queued Terraform run
-    (and the reverse). After such a wait, check `gh run list --workflow terraform.yml -L 3` and rerun a cancelled one.
+    with. It stops at once while a Terraform run is queued or running (start it again once that is done). GitHub keeps
+    one pending run per concurrency group, so a deploy that still waits there can cancel a queued Terraform run (and
+    the reverse): check `gh run list --workflow terraform.yml -L 3` and rerun a cancelled one.
   - With the VM running or starting, the run waits up to 15 minutes for the VM's result (deployed, failed or rolled
     back). No result yet (the deploy waits for a pipeline run, or deploys are paused) ends green with a warning.
   - By hand, only when the workflow can't run and no Terraform run is going on, after checking both images and the

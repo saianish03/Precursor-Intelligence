@@ -38,14 +38,39 @@ env:
   VM: pi-airflow
 
 jobs:
+  # A deploy stops at once while a Terraform run is queued or running, so it almost never waits in the shared
+  # `terraform` group below, where it could replace a pending apply of a merge that nobody is watching.
+  guard:
+    name: no Terraform run going on
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Stop if terraform.yml has a run that isn't finished
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          n=$(gh run list --workflow terraform.yml --limit 20 --json status -q '[.[] | select(.status != "completed")] | length')
+          if [ "$n" != 0 ]; then
+            echo "::error::a Terraform run is queued or running: start this deploy again once it has finished"
+            exit 1
+          fi
+
   set:
     name: set pi-release
+    needs: guard
+    # the PR dry run skips the guard and still runs; a dispatch runs only after the guard passed
+    if: ${{ !cancelled() && (needs.guard.result == 'success' || (needs.guard.result == 'skipped' && github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # A deploy never runs alongside a Terraform run: an apply writes the VM's whole metadata map back, pi-release with
     # the value it read when it planned. GitHub keeps one pending run per group and a newer one replaces it, either
-    # way: a deploy that waits can cancel a queued Terraform run, and the reverse (rerun whichever shows as
-    # cancelled). So a dry run, or a dispatch from anything but the dev or main branch, stays out of the group.
+    # way: a deploy that waits can cancel a queued Terraform run, and the reverse (the guard above makes this rare;
+    # rerun whichever shows as cancelled). So a dry run, or a dispatch from anything but the dev or main branch, stays
+    # out of the group.
     concurrency:
       group: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["refs/heads/dev", "refs/heads/main"]'), github.ref) && 'terraform' || format('deploy-{0}', github.run_id) }}
       cancel-in-progress: false
