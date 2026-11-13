@@ -417,6 +417,8 @@ uv run pytest tests/leakage            # the leakage suite
 - **DAG tests** (`tests/dags`) run inside the official Airflow 3 image: the chain, the only leaf, asset outlets
   and the commands each task runs.
 - **Terraform** (`.github/workflows/terraform.yml`): `plan` on PRs, `apply` only in CI.
+- **Deploy** (`.github/workflows/deploy.yml`, started by hand: `gh workflow run deploy.yml --ref dev`): points the VM
+  at a release whose images CD pushed (`infra/vm/README.md`, "Deploys").
 
 ---
 

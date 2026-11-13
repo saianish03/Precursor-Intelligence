@@ -22,11 +22,24 @@ can read its metadata.
 
 ## Deploys (T20)
 - **A release is one full git sha** whose two images CD pushed (`precursor/airflow:<sha>`, `precursor/pipeline:<sha>`).
-  The instance metadata key `pi-release` names the release the VM runs. The Deploy workflow (T22) will set it; until
-  then a person sets it (a stopped VM picks it up at its next boot):
+  The instance metadata key `pi-release` names the release the VM runs. **The Deploy workflow (T22,
+  `.github/workflows/deploy.yml`) sets it**, as `sa-release`; a stopped VM picks it up at its next boot. From a laptop:
   ```bash
-  gcloud compute instances add-metadata pi-airflow --zone us-central1-a --metadata pi-release=<full sha>
+  gh workflow run deploy.yml --ref dev                  # dev's newest commit with images (its last green CD run)
+  gh workflow run deploy.yml --ref dev -f sha=<sha>     # a given commit of dev: a rollback is an older sha
   ```
+  - It refuses a commit that isn't on the run's branch (`dev`, or `main` once dev is merged into it), one older than
+    the floor below (checked on `init-db.sh`'s task-network rule, as `pi-deploy` does) and one without both images.
+    It skips the sha `pi-release` already names (to redeploy that one: `sudo pi-deploy now`).
+  - It sets only that key and never runs alongside a Terraform run, whose apply would put back the value it planned
+    with. GitHub keeps one pending run per concurrency group: a deploy that waits can cancel a queued Terraform run
+    (and the reverse). After such a wait, check `gh run list --workflow terraform.yml -L 3` and rerun a cancelled one.
+  - With the VM running or starting, the run waits up to 15 minutes for the VM's result (deployed, failed or rolled
+    back). No result yet (the deploy waits for a pipeline run, or deploys are paused) ends green with a warning.
+  - By hand, only when the workflow can't run and no Terraform run is going on, after checking both images and the
+    floor yourself: `gcloud compute instances add-metadata pi-airflow --zone us-central1-a --metadata pi-release=<sha>`.
+    E.g. a rollback to a release whose registry images are gone (older than 30 days, with 5 newer) but still on the
+    VM, which keeps the current and the previous release's images.
 - **What a deploy does:**
   1. pulls both images (unless they are already on the VM) and checks that each one's revision label is the sha;
   2. takes the compose bundle out of the Airflow image and writes the env file from Secret Manager, then checks them

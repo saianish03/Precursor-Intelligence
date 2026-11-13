@@ -149,6 +149,61 @@ resource "google_service_account_iam_member" "deployer_from_branch" {
   member             = "${module.wif.subject_prefix}:ref:refs/heads/${each.key}"
 }
 
+# The Deploy workflow (T22, .github/workflows/deploy.yml) points the VM at a release as this account: it sets the
+# instance metadata pi-release. Only runs on apply_branches can act as it, like sa-deployer. A separate account, so a
+# leaked sa-deployer token can't set metadata. Workload identity trusts the branch, not the workflow: any job on those
+# branches that may request an ID token (CD's too) could act as it, as it could act as sa-tf-apply. Binding it to
+# deploy.yml alone needs a job_workflow_ref attribute on the provider (modules/wif), its own change.
+resource "google_service_account" "release" {
+  account_id   = "sa-release"
+  display_name = "VM release pointer (Deploy workflow, merged branches only)"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "google_service_account_iam_member" "release_from_branch" {
+  for_each = toset(var.apply_branches)
+
+  service_account_id = google_service_account.release.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "${module.wif.subject_prefix}:ref:refs/heads/${each.key}"
+}
+
+# Setting this VM's metadata is root on it (the startup script runs from metadata), so the role is granted on the one
+# instance. instanceAdmin.v1 can do more than setMetadata (stop, delete, change its IAM), but every run on
+# apply_branches can already act as sa-tf-apply, and a custom role needs iam.roles.create, which no CI account has.
+resource "google_compute_instance_iam_member" "release_sets_pointer" {
+  zone          = var.zone
+  instance_name = google_compute_instance.airflow.name
+  role          = "roles/compute.instanceAdmin.v1"
+  member        = "serviceAccount:${google_service_account.release.email}"
+}
+
+# Changing the metadata of a VM that runs as sa-pipeline needs actAs on sa-pipeline (no token: that is TokenCreator).
+resource "google_service_account_iam_member" "release_acts_as_pipeline" {
+  service_account_id = google_service_account.pipeline.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.release.email}"
+}
+
+# gcloud waits for the zone operation a metadata change returns, and operations are checked on the project, not the
+# instance. compute.viewer reads compute settings only (no data, nothing secret: nothing secret is in metadata).
+resource "google_project_iam_member" "release_compute_viewer" {
+  project = var.project_id
+  role    = "roles/compute.viewer"
+  member  = "serviceAccount:${google_service_account.release.email}"
+}
+
+# The workflow checks that both images of a sha exist before it sets the pointer.
+resource "google_artifact_registry_repository_iam_member" "release_reads" {
+  location   = module.artifact_registry.location
+  repository = module.artifact_registry.name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.release.email}"
+}
+
 locals {
   # The VM renders these into its .env at deploy time; the comment is the variable each becomes. The two alert
   # addresses aren't secret, but email addresses stay out of this public repository.
