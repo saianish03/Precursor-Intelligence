@@ -98,3 +98,67 @@ def test_quality_features_that_act_as_a_month_key_or_change_scale_stay_out():
     assert month_keys | bridged | {"qm_ls_adl_decline", "qm_ls_mobility_decline"} <= set(
         cfg.features.exclude
     )
+
+
+# ------------------------------------------------------------------ members.lgbm and tuning.space
+
+
+def test_an_unknown_lgbm_parameter_is_a_config_error(tmp_path):
+    data = _repo()
+    data["members"]["lgbm"]["num_leave"] = 31  # LightGBM would ignore it silently
+    with pytest.raises(ConfigError, match="num_leave"):
+        load_ml_config(_write(tmp_path, data))
+
+
+def test_lgbm_needs_n_estimators(tmp_path):
+    data = _repo()
+    del data["members"]["lgbm"]["n_estimators"]
+    with pytest.raises(ConfigError, match="n_estimators"):
+        load_ml_config(_write(tmp_path, data))
+
+
+def test_the_repo_lgbm_parameters_are_typed():
+    lgbm = load_ml_config().members.lgbm
+    assert lgbm.n_estimators == 1265 and lgbm.seed == 42 and lgbm.deterministic is True
+    assert set(lgbm.as_dict()) == set(_repo()["members"]["lgbm"])
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("num_leave", {"kind": "int", "low": 8, "high": 128}, "num_leave"),
+        ("n_estimators", {"kind": "int", "low": 100, "high": 2000}, "n_estimators"),
+        (
+            "lr_C",
+            {"kind": "categorical", "choices": [0.1, 1.0], "low": 0.1, "high": 1.0},
+            "only choices",
+        ),
+        ("learning_rate", {"kind": "float", "low": 0.005}, "low and high"),
+        ("num_leaves", {"kind": "int", "low": 128, "high": 8}, "tuning range"),
+        ("subsample", {"kind": "float", "low": 0.5, "high": 0.5}, "tuning range"),
+        ("reg_alpha", {"kind": "float", "low": 0.0, "high": 10.0, "log": True}, "low > 0"),
+    ],
+)
+def test_bad_tuning_space_entries_are_config_errors(tmp_path, key, value, message):
+    data = _repo()
+    data["tuning"]["space"][key] = value
+    with pytest.raises(ConfigError, match=message):
+        load_ml_config(_write(tmp_path, data))
+
+
+def test_the_repo_tuning_space_is_the_spec_space():
+    # spec §13 (PR #49's boost_models.py); log scale only on learning_rate, reg_alpha and reg_lambda
+    space = load_ml_config().tuning.space
+    assert {k: (v.kind, v.low, v.high, v.log) for k, v in space.items() if k != "lr_C"} == {
+        "learning_rate": ("float", 0.005, 0.1, True),
+        "num_leaves": ("int", 8, 128, False),
+        "max_depth": ("int", 3, 12, False),
+        "min_child_samples": ("int", 20, 1000, False),
+        "min_split_gain": ("float", 0.0, 1.0, False),
+        "subsample": ("float", 0.5, 1.0, False),
+        "colsample_bytree": ("float", 0.3, 1.0, False),
+        "reg_alpha": ("float", 0.001, 10.0, True),
+        "reg_lambda": ("float", 0.001, 30.0, True),
+        "cat_smooth": ("float", 1.0, 100.0, False),
+    }
+    assert space["lr_C"].kind == "categorical" and space["lr_C"].choices == [0.03, 0.1, 0.3, 1.0]
