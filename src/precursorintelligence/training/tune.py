@@ -1,9 +1,11 @@
 """Task ``tune``: the Optuna search over the members' hyperparameters (docs/ML_PIPELINE_SPEC.md §13, §8.3, ML-19).
 
-- ``SEARCH_SPACE``: the space of spec §13 (PR #49's ``boost_models.py``), LightGBM's parameters plus the LR ``C``.
+- ``search_space``: ``tuning.space`` of ``configs/ml.yaml`` (spec §13, PR #49's ``boost_models.py``), LightGBM's
+  parameters plus the LR ``C`` (``lr_C``).
 - ``tune``: TPE (seeded), ``n_jobs`` 1, on ``eval_train`` only (never the test frame, §20). Each trial fits, for each of
   ``tuning.folds`` facility-grouped folds (``fold_of(ccn, tuning.folds)``, §3.4), LightGBM on the other folds with
-  early stopping (``tuning.early_stopping_rounds``) on the held-out fold, and LR with the trial's ``C``.
+  early stopping (``tuning.early_stopping_rounds``, within ``tuning.max_rounds``) on the held-out fold, and LR with
+  the trial's ``C``.
 - ``run_tune``: ``tune`` on a prepared run folder; writes ``tuning/`` (``tuning_proposal.yaml``, ``trials.csv``,
   ``importances.json``, the plots) and one MLflow run ``tune``.
 
@@ -35,7 +37,15 @@ import pandas as pd
 import polars as pl
 import yaml
 
-from ..common.config import FeatureRegistry, FeatureSpec, LrParams, MlConfig
+from ..common.config import (
+    TUNING_LR_C,
+    FeatureRegistry,
+    FeatureSpec,
+    LgbmParams,
+    LrParams,
+    MlConfig,
+    TuningParamCfg,
+)
 from ..common.io.object_store import ObjectStore
 from . import MlInputError
 from .contracts import RunPaths
@@ -55,13 +65,18 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Param:
-    """One dimension of the search: a float or int range (``log``: sampled on a log scale) or a categorical."""
+    """One dimension of the search (``tuning.space``): a float or int range (``log``: sampled on a log scale) or a
+    categorical."""
 
     kind: Literal["float", "int", "categorical"]
     low: float = 0.0
     high: float = 0.0
     log: bool = False
     choices: tuple[float, ...] = ()
+
+    @classmethod
+    def of(cls, p: TuningParamCfg) -> Param:
+        return cls(p.kind, p.low or 0.0, p.high or 0.0, p.log, tuple(p.choices))
 
     def suggest(self, trial: optuna.Trial, name: str) -> float | int:
         if self.kind == "float":
@@ -76,24 +91,17 @@ class Param:
         return f"{self.kind} [{self.low:g}, {self.high:g}]" + (", log" if self.log else "")
 
 
-LR_C = "lr_C"  # the Optuna name of LR's C (the others are LightGBM's members.lgbm keys)
+LR_C = TUNING_LR_C  # the Optuna name of LR's C (the others are LightGBM's members.lgbm keys)
 
-# Spec §13. num_leaves, min_child_samples and cat_smooth span 1-2 orders of magnitude, so they are sampled on a log
-# scale too (the spec gives only the ranges).
-SEARCH_SPACE: dict[str, Param] = {
-    "learning_rate": Param("float", 0.005, 0.1, log=True),
-    "num_leaves": Param("int", 8, 128, log=True),
-    "max_depth": Param("int", 3, 12),
-    "min_child_samples": Param("int", 20, 1000, log=True),
-    "min_split_gain": Param("float", 0.0, 1.0),
-    "subsample": Param("float", 0.5, 1.0),
-    "colsample_bytree": Param("float", 0.3, 1.0),
-    "reg_alpha": Param("float", 1e-3, 10.0, log=True),
-    "reg_lambda": Param("float", 1e-3, 30.0, log=True),
-    "cat_smooth": Param("float", 1.0, 100.0, log=True),
-    LR_C: Param("categorical", choices=(0.03, 0.1, 0.3, 1.0)),
-}
-LGBM_SEARCHED = tuple(k for k in SEARCH_SPACE if k != LR_C)
+
+def search_space(cfg: MlConfig) -> dict[str, Param]:
+    """``tuning.space``, in its config order."""
+    return {name: Param.of(p) for name, p in cfg.tuning.space.items()}
+
+
+def lgbm_searched(space: Mapping[str, Param]) -> tuple[str, ...]:
+    return tuple(k for k in space if k != LR_C)
+
 
 PROPOSAL_NAME = "tuning_proposal.yaml"
 TRIALS_NAME = "trials.csv"
@@ -167,6 +175,8 @@ def _objective(
     rounds: int,
 ) -> Callable[[optuna.Trial], float]:
     weights = {str(m): float(w) for m, w in cfg.ensemble.weights.items()}
+    space = search_space(cfg)
+    searched = lgbm_searched(space)
     lr_cache: dict[tuple[int, float], np.ndarray] = {}  # LR doesn't depend on LightGBM's parameters
 
     def lr_logit(i: int, c: float) -> np.ndarray:
@@ -181,13 +191,11 @@ def _objective(
         return lr_cache[(i, c)]
 
     def objective(trial: optuna.Trial) -> float:
-        suggested = {name: SEARCH_SPACE[name].suggest(trial, name) for name in LGBM_SEARCHED}
-        c = float(SEARCH_SPACE[LR_C].suggest(trial, LR_C))
-        params: dict[str, bool | int | float | str] = {
-            **cfg.members.lgbm,
-            **suggested,
-            "n_estimators": rounds,
-        }
+        suggested = {name: space[name].suggest(trial, name) for name in searched}
+        c = float(space[LR_C].suggest(trial, LR_C)) if LR_C in space else cfg.members.lr.C
+        params = LgbmParams.model_validate(
+            {**cfg.members.lgbm.as_dict(), **suggested, "n_estimators": rounds}
+        )
         iterations: list[int] = []
         ap_lgbm: list[float] = []
         ap_lr: list[float] = []
@@ -306,17 +314,16 @@ def tune(
     source: Mapping[str, Any] | None = None,
 ) -> TuneResult:
     """The search on ``frame`` (``eval_train``). ``max_rounds`` caps the boosting rounds early stopping runs within
-    (default: ``members.lgbm.n_estimators``); ``source`` (run ids, notes) is recorded in the proposal."""
+    (default: ``tuning.max_rounds``); ``source`` (run ids, notes) is recorded in the proposal. A frame that holds
+    test or purge rows is a data refusal (``MlInputError``, exit 2)."""
     split = f"split_{label}"
     if split not in frame.columns:
-        raise ValueError(f"tune needs {split} to prove it holds no test rows (spec §13, §20)")
+        raise MlInputError(f"tune needs {split} to prove it holds no test rows (spec §13, §20)")
     if frame.filter(pl.col(split).is_in(["test", "purge"])).height:
-        raise ValueError(
+        raise MlInputError(
             "tune refuses rows of the test or purge split: it runs on eval_train only (spec §13, §20)"
         )
-    rounds = int(
-        max_rounds if max_rounds is not None else cfg.members.lgbm.get("n_estimators", 100)
-    )
+    rounds = int(max_rounds if max_rounds is not None else cfg.tuning.max_rounds)
     folds = _folds(frame, features, label, cfg.tuning.folds)
 
     sampler = optuna.samplers.TPESampler(seed=cfg.tuning.seed)
@@ -337,12 +344,21 @@ def tune(
 
     best = study.best_trial
     iterations = best.user_attrs["best_iterations"]
-    best_params: dict[str, Any] = dict(
-        cfg.members.lgbm
-    )  # keeps seed, deterministic, threads, subsample_freq
-    best_params.update({k: best.params[k] for k in LGBM_SEARCHED})
-    best_params["n_estimators"] = max(1, int(round(float(np.median(iterations)))))
-    best_c = float(best.params[LR_C])
+    space = search_space(cfg)
+    # keeps seed, deterministic, threads, subsample_freq; validated, so the proposal is a valid members.lgbm
+    best_params: dict[str, Any] = LgbmParams.model_validate(
+        {
+            **cfg.members.lgbm.as_dict(),
+            **{k: best.params[k] for k in lgbm_searched(space)},
+            "n_estimators": max(1, int(round(float(np.median(iterations))))),
+        }
+    ).as_dict()
+    best_c = float(best.params[LR_C]) if LR_C in space else cfg.members.lr.C
+    if max(iterations) >= rounds:
+        log.warning(
+            "tuning: a fold of the best trial used all %d rounds without early stopping: raise tuning.max_rounds",
+            rounds,
+        )
     best_value = float(best.value) if best.value is not None else float("nan")
 
     return TuneResult(
@@ -438,13 +454,14 @@ def _log_mlflow(
     with mlflow_log.task_run(cfg, "tune", tags) as run_id:
         if run_id is None:
             return
-        params: dict[str, Any] = {f"space.{k}": p.describe() for k, p in SEARCH_SPACE.items()}
+        params: dict[str, Any] = {f"space.{k}": p.describe() for k, p in search_space(cfg).items()}
         params.update(
             {
                 "n_trials": n_trials if n_trials is not None else cfg.tuning.n_trials,
                 "folds": cfg.tuning.folds,
                 "timeout_minutes": cfg.tuning.timeout_minutes,
                 "early_stopping_rounds": cfg.tuning.early_stopping_rounds,
+                "max_rounds": cfg.tuning.max_rounds,
                 "seed": cfg.tuning.seed,
             }
         )

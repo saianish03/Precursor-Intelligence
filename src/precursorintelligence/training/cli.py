@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -136,6 +137,15 @@ def _run_task(
     typer.echo(json.dumps(summary, sort_keys=True))
 
 
+# The spec's modes (§15.2) as a typer choice, so a typo is a usage error instead of a tag.
+class ModeOpt(StrEnum):
+    auto = "auto"
+    retrain = "retrain"
+    retune = "retune"
+    score_only = "score_only"
+    promote = "promote"
+
+
 @ml_app.command()
 def train(
     run_id: str | None = RUN_ID_OPT,
@@ -143,7 +153,7 @@ def train(
     env_file: Path | None = ENV_FILE_OPT,
     log_level: str | None = LOG_LEVEL_OPT,
     ml_config: Path | None = ML_CONFIG_OPT,
-    mode: str = typer.Option("auto", help="the DAG run's mode, recorded as a tag"),
+    mode: ModeOpt = typer.Option(ModeOpt.auto, help="the DAG run's mode, recorded as a tag"),
 ) -> None:
     """Fit the candidates on the eval window, calibrate, select, then refit (§4, §5). Needs a prepared run folder.
     Last stdout line: a JSON summary."""
@@ -159,7 +169,7 @@ def train(
             cfg=cfg,
             registry=load_feature_registry(),
             ml_config_path=ml_config,
-            mode=mode,
+            mode=mode.value,
         )
         r = out.result
         typer.echo(f"run {rid}: selected {r.selected} ({out.selection.reason})")

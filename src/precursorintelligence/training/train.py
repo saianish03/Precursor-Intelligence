@@ -27,6 +27,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import polars as pl
+from pydantic import ValidationError
 
 from ..common.config import FeatureRegistry, FeatureSpec, MlConfig
 from ..common.io.object_store import ObjectStore
@@ -35,9 +36,12 @@ from .calibration import apply_platt, diagnostics, fit_platt, recent_months, sig
 from .contracts import (
     CalibrationDiagnostics,
     Candidate,
+    Decision,
+    DecisionName,
     FitName,
     InputManifest,
     Member,
+    Mode,
     PlattCalibration,
     Psi,
     RunPaths,
@@ -322,7 +326,7 @@ def run_train(
     bias_check: BiasCheck | None = None,
     recipe_hash: str | None = None,
     ml_config_path: Path | None = None,
-    mode: str = "auto",
+    mode: Mode = "auto",
 ) -> TrainOutput:
     """The ``train`` task on a prepared run folder. ``ml_config_path`` is the ml.yaml that ``cfg`` came from (it
     goes into the ``recipe_hash``, §14.3)."""
@@ -336,6 +340,7 @@ def run_train(
         raise MlInputError(f"prepare ran for label {manifest.label}, ml.yaml says {cfg.label}")
     features = resolve_features(registry, cfg, manifest)
     rhash = recipe_hash or mlflow_log.recipe_hash(features, ml_config_path=ml_config_path)
+    decision = read_decision(store, paths)  # before any fit: a corrupt decision.json refuses early
     check = bias_check or default_bias_check()
     seconds: dict[str, float] = {}
 
@@ -403,11 +408,17 @@ def run_train(
     # ---- MLflow (one run for the task, §14.2); without a tracking URI this block only writes train.json
     eval_uris: dict[str, str] = {c: "" for c in candidates}
     refit_uri = ""
-    tags = mlflow_log.base_tags(manifest, ml_run_id=ml_run_id, recipe_hash=rhash, mode=mode)
+    tags = mlflow_log.base_tags(
+        manifest,
+        ml_run_id=ml_run_id,
+        recipe_hash=rhash,
+        decision=decision,
+        mode=mode,
+    )
     with mlflow_log.task_run(cfg, "train", tags) as run_id:
         if run_id is not None:
             mlflow_log.log_gold_input(
-                manifest, store_uri(store, paths.input_file("facility_month_dataset.parquet"))
+                manifest, store.uri_for(paths.input_file("facility_month_dataset.parquet"))
             )
             mlflow_log.log_params(train_params(cfg, windows, manifest, calibration, chosen))
             sample = to_model_frame(score_frame.head(50), features)
@@ -449,10 +460,19 @@ def run_train(
     return TrainOutput(result, selection, eval_models, refit_model)
 
 
-def store_uri(store: ObjectStore, key: str) -> str:
-    """A URI for a store key, for MLflow's dataset source (gs://... or a local path)."""
-    root = getattr(store, "root", None) or getattr(store, "uri", None) or ""
-    return f"{str(root).rstrip('/')}/{key}" if root else key
+def read_decision(store: ObjectStore, paths: RunPaths) -> DecisionName:
+    """The run's decision for the §14.2 tag: ``decision.json`` when ``decide`` (W6) wrote one, else RETRAIN (a
+    manual ``ml train`` is a retrain). A file that is there but unreadable is a data refusal, not a silent RETRAIN."""
+    if not store.exists(paths.decision):
+        return "RETRAIN"
+    with store.open_read(paths.decision) as f:
+        data = f.read()
+    try:
+        return Decision.model_validate_json(data).decision
+    except ValidationError as exc:
+        raise MlInputError(
+            f"{paths.decision} is not a valid decision file: {exc.error_count()} error(s)"
+        ) from None
 
 
 def train_params(
@@ -463,7 +483,7 @@ def train_params(
     chosen: Candidate,
 ) -> dict[str, Any]:
     return {
-        "members.lgbm": dict(cfg.members.lgbm),
+        "members.lgbm": cfg.members.lgbm.as_dict(),
         "members.lr": cfg.members.lr.model_dump(),
         "ensemble.weights": dict(cfg.ensemble.weights),
         "selected": chosen,

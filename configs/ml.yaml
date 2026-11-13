@@ -73,7 +73,27 @@ bias:
 explain: {top_raise: 5, top_lower: 3, labels: configs/reason_labels.yaml, key_features: 15}
 monitor: {psi_bins: 10, feature_psi_max: 0.25, score_psi_max: 0.1, mean_shift_max: 0.03, lift_drop_max: 0.15,
           champion_lag_months_max: 3}
-tuning: {n_trials: 30, folds: 3, timeout_minutes: 60, early_stopping_rounds: 100, seed: 42}
+tuning:
+  n_trials: 30
+  folds: 3
+  timeout_minutes: 60
+  early_stopping_rounds: 100
+  max_rounds: 5000                  # boosting-round cap per fold; early stopping ends well before it (§13)
+  seed: 42
+  # Spec §13 (PR #49's boost_models.py). Keys: members.lgbm parameters, plus lr_C (LR's C). A parameter left out
+  # keeps its members.lgbm value; lr_C left out keeps members.lr.C.
+  space:
+    learning_rate: {kind: float, low: 0.005, high: 0.1, log: true}
+    num_leaves: {kind: int, low: 8, high: 128}
+    max_depth: {kind: int, low: 3, high: 12}
+    min_child_samples: {kind: int, low: 20, high: 1000}
+    min_split_gain: {kind: float, low: 0.0, high: 1.0}
+    subsample: {kind: float, low: 0.5, high: 1.0}
+    colsample_bytree: {kind: float, low: 0.3, high: 1.0}
+    reg_alpha: {kind: float, low: 0.001, high: 10.0, log: true}
+    reg_lambda: {kind: float, low: 0.001, high: 30.0, log: true}
+    cat_smooth: {kind: float, low: 1.0, high: 100.0}
+    lr_C: {kind: categorical, choices: [0.03, 0.1, 0.3, 1.0]}
 registry: {model_name: precursor_y_g12, experiment: precursor_y_g12, champion_alias: champion,
            challenger_alias: challenger}
 

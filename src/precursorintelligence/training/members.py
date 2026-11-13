@@ -30,7 +30,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from ..common.config import FeatureSpec, LrParams
+from ..common.config import FeatureSpec, LgbmParams, LrParams
 from .data import MISSING_LEVEL
 
 LR_FORMAT = 1  # the layout of lr.joblib; checked on load
@@ -210,11 +210,16 @@ def _design_sources(pre: ColumnTransformer, num: list[str], cat: list[str]) -> l
 # --------------------------------------------------------------------------- LightGBM
 
 
-def lgbm_train_params(params: Mapping[str, bool | int | float | str]) -> tuple[dict[str, Any], int]:
+def lgbm_train_params(
+    params: LgbmParams | Mapping[str, bool | int | float],
+) -> tuple[dict[str, Any], int]:
     """``members.lgbm`` -> (``lgb.train`` params, number of rounds). The config uses the scikit-learn-style names
-    PR #49 tuned with; LightGBM accepts them as aliases."""
-    p: dict[str, Any] = dict(params)
-    rounds = int(p.pop("n_estimators", 100))
+    PR #49 tuned with; LightGBM accepts them as aliases. A mapping is validated as ``LgbmParams`` first, so an
+    unknown key or a missing ``n_estimators`` raises instead of being ignored (``verbose: -1`` below would hide
+    LightGBM's own warning)."""
+    checked = params if isinstance(params, LgbmParams) else LgbmParams.model_validate(dict(params))
+    p: dict[str, Any] = checked.as_dict()
+    rounds = int(p.pop("n_estimators"))
     p.setdefault("objective", "binary")
     p.setdefault("verbose", -1)
     return p, rounds
@@ -250,7 +255,7 @@ class LgbmMember:
         x: pd.DataFrame,
         y: np.ndarray,
         features: Sequence[FeatureSpec],
-        params: Mapping[str, bool | int | float | str],
+        params: LgbmParams | Mapping[str, bool | int | float],
         *,
         sample_weight: np.ndarray | None = None,
         valid: tuple[pd.DataFrame, np.ndarray] | None = None,

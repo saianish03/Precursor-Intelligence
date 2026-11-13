@@ -208,3 +208,12 @@ def test_lgbm_fit_is_deterministic(data, lgbm):
 def test_categorical_levels_are_sorted_and_include_missing(data):
     x, _ = data
     assert categorical_levels(x, FEATURES) == {"d": sorted(["p", "q", "r", "rare", MISSING_LEVEL])}
+
+
+def test_an_unknown_lgbm_key_raises_instead_of_training(data):
+    """LightGBM ignores an unknown parameter (and verbose -1 hides its warning): the member refuses it."""
+    x, y = data
+    with pytest.raises(ValueError, match="num_leave"):
+        LgbmMember.fit(x, y, FEATURES, {**LGBM, "num_leave": 3})
+    with pytest.raises(ValueError, match="n_estimators"):
+        LgbmMember.fit(x, y, FEATURES, {k: v for k, v in LGBM.items() if k != "n_estimators"})

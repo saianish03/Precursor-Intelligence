@@ -1,5 +1,6 @@
 """training/select.py: the selection rule after the bias check (docs/ML_PIPELINE_SPEC.md §4.3), table-driven."""
 
+import importlib
 import sys
 import types
 
@@ -144,15 +145,29 @@ def test_candidates_restrict_the_pool():
 # ------------------------------------------------------------------ default_bias_check
 
 
+SLICES = "precursorintelligence.evaluation.slices"
+
+
 def _hide_slices(monkeypatch, module):
     import precursorintelligence.evaluation as evaluation
 
     monkeypatch.delattr(evaluation, "slices", raising=False)
-    monkeypatch.setitem(sys.modules, "precursorintelligence.evaluation.slices", module)
+    monkeypatch.setitem(sys.modules, SLICES, module)
+
+
+def _import_raises(monkeypatch, exc):
+    real = importlib.import_module
+
+    def fake(name, *args, **kwargs):
+        if name == SLICES:
+            raise exc
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", fake)
 
 
 def test_default_bias_check_without_w2_is_a_pass_through(monkeypatch):
-    _hide_slices(monkeypatch, None)  # import fails
+    _hide_slices(monkeypatch, None)  # import fails with ModuleNotFoundError(name=SLICES)
     fn = default_bias_check()
     assert fn is unavailable_bias_check
     out = fn(None, np.zeros(3), None)
@@ -160,13 +175,35 @@ def test_default_bias_check_without_w2_is_a_pass_through(monkeypatch):
     assert "not available" in out.detail["note"]
 
 
-def test_default_bias_check_module_without_function(monkeypatch):
-    _hide_slices(monkeypatch, types.ModuleType("precursorintelligence.evaluation.slices"))
+@pytest.mark.parametrize("missing", [SLICES, "precursorintelligence.evaluation"])
+def test_default_bias_check_falls_back_only_for_the_w2_modules(monkeypatch, missing):
+    _import_raises(monkeypatch, ModuleNotFoundError(f"No module named {missing!r}", name=missing))
     assert default_bias_check() is unavailable_bias_check
 
 
+def test_default_bias_check_module_without_the_function_raises(monkeypatch):
+    _hide_slices(monkeypatch, types.ModuleType(SLICES))
+    with pytest.raises(AttributeError, match="bias_check_oof"):
+        default_bias_check()
+
+
+def test_default_bias_check_propagates_a_missing_dependency_of_slices(monkeypatch):
+    # slices.py exists but its own import fails: a bug in W2's module, not "W2 not merged"
+    _import_raises(
+        monkeypatch, ModuleNotFoundError("No module named 'fairlearn'", name="fairlearn")
+    )
+    with pytest.raises(ModuleNotFoundError, match="fairlearn"):
+        default_bias_check()
+
+
+def test_default_bias_check_propagates_other_import_errors(monkeypatch):
+    _import_raises(monkeypatch, ImportError("cannot import name 'x' from 'polars'", name="polars"))
+    with pytest.raises(ImportError, match="cannot import name"):
+        default_bias_check()
+
+
 def test_default_bias_check_uses_w2_when_present(monkeypatch):
-    mod = types.ModuleType("precursorintelligence.evaluation.slices")
+    mod = types.ModuleType(SLICES)
 
     def bias_check_oof(rows, p, cfg):
         return BiasOutcome(False)

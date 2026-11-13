@@ -25,6 +25,8 @@ FitName = Literal[
     "eval", "refit"
 ]  # the eval fit (evidence, on eval_train) and the refit (ships, on refit_train)
 DecisionName = Literal["SKIP", "RETRAIN", "RETUNE", "SCORE", "PROMOTE", "REFUSE"]
+Mode = Literal["auto", "retrain", "retune", "score_only", "promote"]  # the DAG run's mode (§15.2)
+MODES: tuple[Mode, ...] = ("auto", "retrain", "retune", "score_only", "promote")
 
 # The files of one model package (§4.5), the same in the run folder and as MLflow pyfunc artifacts. A package
 # holds only the members its candidate uses (``meta.member_weights``).
@@ -134,7 +136,7 @@ class Decision(_Contract):
     decision: DecisionName
     proceed: bool
     reason: str
-    mode: Literal["auto", "retrain", "retune", "score_only", "promote"]
+    mode: Mode
     gold_run_id: str | None = None
     v: str | None = None
     v_labels: str | None = None

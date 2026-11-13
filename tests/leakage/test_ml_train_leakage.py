@@ -1,8 +1,8 @@
 """Leakage tests of `ml train` (docs/ML_PIPELINE_SPEC.md §17.1, Leakage (1) and (4)).
 
 (1) Changing the test rows (their labels, their base rate, a feature) leaves the eval-fit models, their calibration,
-    the selection and the eval OOF predictions byte-identical: nothing in training, calibration or selection reads
-    the test frame. A canary shows the comparison does fail when training reads test rows. (The refit trains on the
+    the selection, the eval OOF predictions and the tuned parameters byte-identical: nothing in training,
+    calibration, selection or tuning reads the test frame. A canary shows the comparison does fail when training reads test rows. (The refit trains on the
     test months by design, §3.3, and is never evaluated on them, so it is not part of this check.)
 (4) Every OOF prediction comes from a fit that never saw that facility, on both windows and for both members.
 """
@@ -29,12 +29,31 @@ from precursorintelligence.training import train as train_mod  # noqa: E402
 from precursorintelligence.training.contracts import CANDIDATES, RunPaths  # noqa: E402
 from precursorintelligence.training.data import read_frame, run_prepare, to_model_frame  # noqa: E402
 from precursorintelligence.training.train import fit_window, run_train  # noqa: E402
+from precursorintelligence.training.tune import run_tune  # noqa: E402
+
+INPUT_PARQUET = "facility_month_dataset.parquet"  # the pinned gold copy (prepare reads it, train and tune never)
 
 
 def small_config():
     cfg = ml_config()
-    lgbm = {**cfg.members.lgbm, "n_estimators": 40, "min_child_samples": 20, "num_threads": 1}
-    return cfg.model_copy(update={"members": cfg.members.model_copy(update={"lgbm": lgbm})})
+    lgbm = cfg.members.lgbm.model_copy(
+        update={"n_estimators": 40, "min_child_samples": 20, "num_threads": 1}
+    )
+    tuning = cfg.tuning.model_copy(
+        update={"timeout_minutes": 5.0, "early_stopping_rounds": 10, "max_rounds": 30}
+    )
+    return cfg.model_copy(
+        update={"members": cfg.members.model_copy(update={"lgbm": lgbm}), "tuning": tuning}
+    )
+
+
+def _proposal_params(store, paths) -> bytes:
+    """``tuning_proposal.yaml`` up to its ``source`` block (run ids and the dataset version, which name the input
+    rather than anything tuning chose): the parameters, the CV PR-AUC, trials, folds and seed."""
+    data = _bytes(store, paths.tuning_proposal)
+    head, sep, _ = data.partition(b"\nsource:")
+    assert sep, "the proposal has no source block"
+    return head
 
 
 @pytest.fixture
@@ -88,6 +107,7 @@ def _train(root: Path, frame: pl.DataFrame, cfg):
     out = run_train(
         store, ml_run_id="leak", cfg=cfg, registry=load_feature_registry(), recipe_hash="leak"
     )
+    run_tune(store, ml_run_id="leak", cfg=cfg, registry=load_feature_registry(), n_trials=2)
     return store, out
 
 
@@ -142,6 +162,7 @@ def test_changing_the_test_rows_changes_nothing_the_eval_fit_chose(tmp_path, mon
     assert a.selection == b.selection
     assert _bytes(store_a, paths.selection) == _bytes(store_b, paths.selection)
     assert _bytes(store_a, paths.oof("eval")) == _bytes(store_b, paths.oof("eval"))
+    assert _proposal_params(store_a, paths) == _proposal_params(store_b, paths)
 
 
 def test_the_comparison_catches_a_leak(tmp_path, monkeypatch):
@@ -245,4 +266,26 @@ def test_train_never_reads_the_test_frame(store, meta, prepare, monkeypatch):
     monkeypatch.setattr(store, "open_read", spy)
     run_train(store, ml_run_id="nt", cfg=cfg, registry=load_feature_registry(), recipe_hash="t")
     assert paths.frame("test") not in opened
+    assert paths.input_file(INPUT_PARQUET) not in opened  # the frames are the only rows train reads
     assert paths.frame("eval_train") in opened and paths.frame("refit_train") in opened
+
+
+def test_tune_never_reads_the_test_frame(store, meta, prepare, monkeypatch):
+    """The store-level guard for tuning: it opens eval_train only, never the test frame or the pinned input (a
+    future early-stopping change that read frames/test.parquet would fail here)."""
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    cfg = small_config()
+    prepare(store, meta, run_id="ntt", cfg=cfg)
+    paths = RunPaths.of(cfg, "ntt")
+    opened: list[str] = []
+    real_open = store.open_read
+
+    def spy(key):
+        opened.append(key)
+        return real_open(key)
+
+    monkeypatch.setattr(store, "open_read", spy)
+    run_tune(store, ml_run_id="ntt", cfg=cfg, registry=load_feature_registry(), n_trials=1)
+    frames = {k for k in opened if k.startswith(f"{paths.run_dir}frames/")}
+    assert frames == {paths.frame("eval_train")}
+    assert paths.input_file(INPUT_PARQUET) not in opened

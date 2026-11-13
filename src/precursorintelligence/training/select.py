@@ -2,6 +2,7 @@
 
 On the eval window's out-of-fold predictions only (never the test frame):
 1. drop every candidate that fails the OOF bias check G7(b) (W2's ``bias_check_oof``);
+   until W2's ``evaluation/slices.py`` exists the check is a pass-through that says so (``default_bias_check``);
 2. keep the highest OOF PR-AUC; a simpler candidate wins when it is within ``selection.tie_margin`` of the best
    (complexity: lr < lgbm < ensemble).
 
@@ -54,17 +55,29 @@ def bias_checked(result: CandidateResult) -> bool:
     return BIAS_NOT_CHECKED not in result.note
 
 
+SLICES_MODULE = "precursorintelligence.evaluation.slices"
+# The only modules whose absence means "W2 not merged" (the package itself, or its slices module).
+_W2_MISSING = frozenset({SLICES_MODULE, SLICES_MODULE.rpartition(".")[0]})
+
+
 def default_bias_check() -> BiasCheck:
-    """W2's ``evaluation.slices.bias_check_oof`` when it exists; otherwise a pass-through that says so."""
+    """W2's ``evaluation.slices.bias_check_oof``; a pass-through that says so only while that module does not exist.
+
+    The fallback is for W2 not merged, nothing else: a ``ModuleNotFoundError`` for any other module (one that
+    ``evaluation/slices.py`` itself imports) propagates, and a ``slices`` module without ``bias_check_oof`` raises
+    ``AttributeError``. Both are bugs, and skipping G7(b) silently would hide them."""
     try:
-        fn: BiasCheck = importlib.import_module(
-            "precursorintelligence.evaluation.slices"
-        ).bias_check_oof
-    except (ImportError, AttributeError):
+        module = importlib.import_module(SLICES_MODULE)
+    except ModuleNotFoundError as exc:
+        if exc.name not in _W2_MISSING:
+            raise
         log.warning(
-            "evaluation.slices.bias_check_oof is not available: selection skips the bias check"
+            "%s does not exist (W2 not merged): selection skips the bias check", SLICES_MODULE
         )
         return unavailable_bias_check
+    if not hasattr(module, "bias_check_oof"):
+        raise AttributeError(f"{SLICES_MODULE} exists but has no bias_check_oof")
+    fn: BiasCheck = module.bias_check_oof
     return fn
 
 

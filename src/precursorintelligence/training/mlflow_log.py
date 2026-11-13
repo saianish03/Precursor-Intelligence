@@ -28,7 +28,7 @@ import pandas as pd
 from pydantic import BaseModel
 
 from ..common.config import FeatureSpec, MlConfig, project_root
-from .contracts import InputManifest
+from .contracts import DecisionName, InputManifest, Mode
 from .ensemble import PrecursorModel
 
 RECIPE_PACKAGES = ("training", "evaluation", "serving")
@@ -95,8 +95,8 @@ def base_tags(
     *,
     ml_run_id: str,
     recipe_hash: str,
-    decision: str = "RETRAIN",
-    mode: str = "auto",
+    decision: DecisionName = "RETRAIN",
+    mode: Mode = "auto",
 ) -> dict[str, str]:
     """The tags every run carries (§14.2)."""
     return {
