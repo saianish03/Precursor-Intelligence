@@ -17,6 +17,7 @@ x-airflow-vm: &airflow-vm
     PI_BUCKET_URI: ${PI_BUCKET_URI:-gs://precursor-intel-mlops-data} # a trial prefix only for a smoke test
     PI_HOST_DATA_DIR: "" # every layer goes to GCS, none to the VM's disk
     PI_GCP_CREDENTIALS_FILE: "" # no key file: tasks get sa-pipeline's tokens from the metadata server
+    PI_MLFLOW_TRACKING_URI: "" # MLflow is off until Phase 2 (below): tasks get no tracking server
     PI_TASK_MEM_LIMIT: 10g # per task container (16 GB e2-standard-4, spec §14 #26): a task past it is killed alone
     PI_AUTO_REMOVE: force # failed task containers hold PI_DATABASE_URL: never keep them
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?set it in the env file} # its own secret, not the JWT one
@@ -37,6 +38,14 @@ services:
         target: /var/lib/postgresql/data
         bind:
           create_host_path: false
+  # MLflow stays off on the VM until Phase 2 (ML spec §16.1): its image isn't published yet, and pi-pg-backup doesn't
+  # dump its database. A profile nobody enables keeps both services out of `up`; MLFLOW_DB_PASSWORD must still be set,
+  # because compose checks every ${VAR:?} in the file. Phase 2 also stops pointing GOOGLE_APPLICATION_CREDENTIALS at
+  # the mounted file, which is /dev/null there: the server must use the metadata server's identity.
+  postgres-setup:
+    profiles: [phase2]
+  mlflow:
+    profiles: [phase2]
   airflow-init:
     <<: *airflow-vm
   airflow-apiserver:

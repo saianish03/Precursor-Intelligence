@@ -9,9 +9,9 @@
 #   docker compose up -d --wait                        # http://localhost:8080
 name: pi-airflow
 
-# The task network's subnet, fixed so that Postgres can refuse task containers everything but precursor_meta
-# (init-db.sh). 172.16.0.0/16 is outside Docker's default address pools and the GCP VPC. Changing it also needs the
-# top two lines of pg_hba.conf changed in every existing database, the VM's data disk included (init-db.sh never
+# The task network's subnet, fixed so that Postgres can refuse task containers everything but precursor_meta and
+# mlflow (init-db.sh). 172.16.0.0/16 is outside Docker's default address pools and the GCP VPC. Changing it also needs
+# the top lines of pg_hba.conf changed in every existing database, the VM's data disk included (init-db.sh never
 # reruns); otherwise Postgres silently accepts the airflow login from task containers again.
 x-tasks-subnet: &tasks-subnet 172.16.77.0/24
 
@@ -55,6 +55,7 @@ x-airflow-common: &airflow-common
     PI_TASK_MEM_LIMIT: ${PI_TASK_MEM_LIMIT:-}
     PI_AUTO_REMOVE: ${PI_AUTO_REMOVE:-success}
     PI_GOLD_TIMEOUT_MINUTES: ${PI_GOLD_TIMEOUT_MINUTES:-}
+    PI_MLFLOW_TRACKING_URI: ${PI_MLFLOW_TRACKING_URI:-http://mlflow:5000} # passed to tasks as MLFLOW_TRACKING_URI
     # Alerts (src/precursorintelligence/alerts.py): read by the callbacks in these containers, never passed to task containers
     PI_ALERT_EMAIL_TO: ${PI_ALERT_EMAIL_TO:-}
     PI_ALERT_EMAIL_FROM: ${PI_ALERT_EMAIL_FROM:-}
@@ -107,15 +108,92 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
 
-  # One-shot: give the named volumes to the airflow user (they are created root-owned), then migrate the DB.
+  # One-shot: give the named volumes to the airflow user (they are created root-owned), migrate the DB, then create
+  # the pool `heavy` (ML spec §15.6): gold and ML training take its one slot, so they never run together. A task in a
+  # missing pool never runs.
   airflow-init:
     <<: *airflow-common
     user: "0:0"
     entrypoint: /bin/bash
     command:
       - -c
-      - chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/config /opt/airflow/logs && /entrypoint airflow db migrate
+      - >-
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/config /opt/airflow/logs
+        && /entrypoint airflow db migrate
+        && /entrypoint airflow pools set heavy 1 "memory-heavy tasks, one at a time (gold, ML training)"
     restart: "no"
+
+  # One-shot, at every start: the role and database `mlflow` (ML spec §16.1). Idempotent, and it sets the password from
+  # MLFLOW_DB_PASSWORD each time, so a rotation needs no hand step. On the default network, as the airflow superuser.
+  postgres-setup:
+    image: postgres:16.10
+    logging: *logging
+    networks: [default]
+    environment:
+      PGHOST: postgres
+      PGUSER: airflow
+      PGDATABASE: airflow
+      PGPASSWORD: ${AIRFLOW_DB_PASSWORD:?set it in .env}
+      MLFLOW_DB_PASSWORD: ${MLFLOW_DB_PASSWORD:?set it in .env}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        # On a new volume the healthcheck can pass on the init-time server, which listens on the socket only.
+        until pg_isready -q; do sleep 1; done
+        psql -v ON_ERROR_STOP=1 -q <<'SQL'
+        \getenv pw MLFLOW_DB_PASSWORD
+        SELECT 'CREATE ROLE mlflow LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mlflow') \gexec
+        ALTER ROLE mlflow PASSWORD :'pw';
+        SELECT 'CREATE DATABASE mlflow OWNER mlflow' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'mlflow') \gexec
+        REVOKE CONNECT ON DATABASE mlflow FROM PUBLIC;
+        SQL
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # The tracking server and model registry (ML spec §16.1). On the tasks network only: it has no login, so it must
+  # not bridge into the network where Airflow and the airflow role live. Postgres accepts it from the task subnet for
+  # database mlflow only (init-db.sh). Artifacts go through the server (--serve-artifacts) to PI_MLFLOW_ARTIFACTS: a
+  # bucket prefix (laptops read the ADC file, like the task containers) or, by default, the named volume.
+  mlflow:
+    image: ${PI_MLFLOW_IMAGE:-precursor-mlflow:latest}
+    logging: *logging
+    networks: [tasks]
+    environment:
+      # +psycopg2: SQLAlchemy 2.1's default Postgres driver is psycopg 3, which the image doesn't have
+      MLFLOW_BACKEND_STORE_URI: postgresql+psycopg2://mlflow:${MLFLOW_DB_PASSWORD:?set it in .env}@postgres:5432/mlflow
+      PI_MLFLOW_ARTIFACTS: ${PI_MLFLOW_ARTIFACTS:-/mlflow/artifacts}
+      GOOGLE_APPLICATION_CREDENTIALS: /var/run/gcp/adc.json
+      GOOGLE_CLOUD_PROJECT: ${PI_GCP_PROJECT:-precursor-intel-mlops}
+    # The backend URI holds the password, so the server reads it from the environment (MLFLOW_BACKEND_STORE_URI); only
+    # the short-lived `db upgrade` gets it as an argument. `db upgrade` can't be undone: dump the database before an
+    # MLflow version bump.
+    command:
+      - sh
+      - -c
+      - >-
+        mlflow db upgrade "$$MLFLOW_BACKEND_STORE_URI"
+        && exec mlflow server --host 0.0.0.0 --port 5000 --workers 1
+        --serve-artifacts --artifacts-destination "$$PI_MLFLOW_ARTIFACTS"
+        --allowed-hosts "mlflow,mlflow:5000,localhost,localhost:*,127.0.0.1,127.0.0.1:*"
+    volumes:
+      - mlflow-artifacts:/mlflow/artifacts
+      - ${PI_GCP_CREDENTIALS_FILE:-/dev/null}:/var/run/gcp/adc.json:ro
+    ports:
+      - "127.0.0.1:${PI_MLFLOW_HOST_PORT:-5001}:5000" # the UI, from the host only (5000 is AirPlay on macOS)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      start_period: 120s
+      retries: 10
+    mem_limit: 1g
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
   airflow-apiserver:
     <<: *airflow-common
@@ -190,5 +268,6 @@ networks:
 
 volumes:
   postgres-data:
+  mlflow-artifacts:
   airflow-config:
   airflow-logs:
