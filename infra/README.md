@@ -14,11 +14,11 @@ One project, `precursor-intel-mlops`, one environment: `envs/prod`. The reusable
 idle shutdown).
 
 `envs/prod` creates:
-- the data, DVC, state and backups buckets;
+- the data, DVC, state, backups and MLflow buckets (the last holds the MLflow server's artifacts, no expiry);
 - `sa-pipeline` (the VM's identity) and its access: the data bucket, upload only on the backups bucket (never read, list,
-  overwrite or delete), pull from the image repository, read on each VM secret, and writing logs and metrics;
+  overwrite or delete), objects in the MLflow bucket, pull from the image repository, read on each VM secret, and writing logs and metrics;
 - the image repository `precursor` and `sa-deployer`, which only runs on `dev` or `main` can act as (CD pushes);
-- eight empty Secret Manager secrets for the VM (values are added by hand, never by Terraform);
+- nine empty Secret Manager secrets for the VM (values are added by hand, never by Terraform);
 - the VM network: `pi-vpc`, `pi-subnet` with Private Google Access, Cloud NAT, and SSH from IAP as the only
   inbound rule;
 - the VM `pi-airflow` (e2-standard-4, Debian 12, Shielded VM, OS Login, no external IP, runs as `sa-pipeline`) and its

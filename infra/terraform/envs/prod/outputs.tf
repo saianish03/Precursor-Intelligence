@@ -10,6 +10,11 @@ output "backups_bucket" {
   value = module.backups_bucket.name
 }
 
+output "mlflow_bucket" {
+  description = "MLflow's artifact store: PI_MLFLOW_ARTIFACTS=gs://<this>."
+  value       = module.mlflow_bucket.name
+}
+
 output "pipeline_service_account" {
   value = google_service_account.pipeline.email
 }
