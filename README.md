@@ -600,7 +600,7 @@ uv run pytest                             # offline tests must pass (live CMS te
 - **macOS only:** LightGBM needs OpenMP: `brew install libomp` once per laptop.
 - **Bring in the latest `dev`** (`git pull origin dev`, or rebase) and resolve conflicts locally before opening the PR.
 - **Changed `pyproject.toml` or `uv.lock`?** Re-export `requirements.txt` (CI fails when it is stale):
-  `uv export --frozen --no-hashes --no-header --extra pipeline --extra bias --extra dvc -o requirements.txt`.
+  `uv export --frozen --no-hashes --no-header --extra pipeline --extra ml --extra bias --extra dvc -o requirements.txt`.
 - **Changed anything listed under `deps:` in `dvc.yaml`** (the gold, harmonize, common and ingestion code, the configs it loads, or `uv.lock`)? Run `uv run dvc repro`, commit `dvc.lock` and `metrics/toy_gold.json` in the same PR, and run `uv run dvc push` (a new output must be in the remote, or teammates' `dvc pull` fails).
 
 ### 3. Code and tests

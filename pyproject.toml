@@ -39,15 +39,20 @@ pipeline = [
     "tenacity>=9.2.1",
     "typer>=0.27.3",
 ]
+# What the training pipeline imports; it goes into the pipeline image.
 ml = [
-    "catboost>=1.2.10",
-    "evidently>=0.7.23",
-    "interpret>=0.7.8",
     "lightgbm>=4.7.0",
     "mlflow>=3.17.0",
     "optuna>=5.0.0",
     "scikit-learn>=1.9.1",
     "shap>=0.51.0",
+]
+# Reference-only model families and monitoring (spec §16.2), kept out of the image: interpret alone pulls dash,
+# gevent and notebook.
+ml-extra = [
+    "catboost>=1.2.10",
+    "evidently>=0.7.23",
+    "interpret>=0.7.8",
 ]
 agents = [
     "google-auth>=2.61.0",

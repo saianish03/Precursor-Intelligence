@@ -44,8 +44,8 @@ jobs:
       # when stale: run the command in the error message and commit the file.
       - name: requirements.txt matches uv.lock
         run: |
-          uv export --frozen --no-hashes --no-header --extra pipeline --extra bias --extra dvc | diff - requirements.txt \
-            || { echo "::error::requirements.txt is stale: uv export --frozen --no-hashes --no-header --extra pipeline --extra bias --extra dvc -o requirements.txt"; exit 1; }
+          uv export --frozen --no-hashes --no-header --extra pipeline --extra ml --extra bias --extra dvc | diff - requirements.txt \
+            || { echo "::error::requirements.txt is stale: uv export --frozen --no-hashes --no-header --extra pipeline --extra ml --extra bias --extra dvc -o requirements.txt"; exit 1; }
 
       - name: Lint (ruff)
         run: uv run ruff check src tests
@@ -113,6 +113,7 @@ jobs:
         run: |
           docker run --rm precursor-pipeline:ci precursor-ingest --help > /dev/null
           docker run --rm precursor-pipeline:ci precursor-pipeline --help > /dev/null
+          docker run --rm precursor-pipeline:ci python -c "import fairlearn, lightgbm, mlflow, optuna, shap, sklearn"
           test "$(docker run --rm precursor-pipeline:ci printenv PI_GIT_SHA)" = "$GITHUB_SHA"
 
       # Against the DAGs baked into the image, as it ships: only tests/dags is mounted (it is not part of the image).
