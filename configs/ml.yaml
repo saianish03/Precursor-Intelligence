@@ -7,7 +7,10 @@ allow_unverified: true              # false once the data spec's §11 gate exist
 
 features:
   # Taken out of the registry's model list (§1.4). Regime flags until training covers both values (ML-21).
-  # O9: W1 decides whether d12_turnover_total (empty for all of 2022) joins this list for Phase 1.
+  # O9 (W1, decided): d12_turnover_total is null in every 2022 month (it needs turnover at t-12, published from
+  # 2022-01), so the eval window (2022-05..2023-04 at V_L 2026-10) has it empty in 7 of 11 months while the refit
+  # and every score month have it: the two fits would learn it differently and LR's missing indicator would act as a
+  # time flag. Excluded for Phase 1; take it back once the eval window starts in 2023-01 or later (V_L ~ 2027-05).
   # Quality (W5), measured on the ml-dev silver 2022-06..2026-10:
   # - qm_def_post_* and qm_age_months_*: one value per t for every facility (CMS sets the measure period
   #   nationally), so each is a month key, like era;
@@ -17,7 +20,7 @@ features:
   #   stay in. Take them back once the refit window holds about 6 months of the new definition.
   exclude: [era, penalty_regime_2025_10, qm_def_post_2025_02, qm_def_post_2026_02, qm_age_months_mds,
             qm_age_months_claims, qm_ls_pressure_ulcer, qm_ls_antipsychotic, qm_ls_adl_decline,
-            qm_ls_mobility_decline]
+            qm_ls_mobility_decline, d12_turnover_total]
   # Checked by prepare's regime-coverage flags (§1.4); the quality family's qm_def_post_* flags join when they land.
   regime_sensitive: [staffing_rating, qm_rating, staffing_rating_fn, qm_rating_fn]
 

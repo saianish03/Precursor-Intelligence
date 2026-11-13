@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "method": "platt",
+  "a": 0.8,
+  "b": -0.1,
+  "identity": false,
+  "fit_rows": 200,
+  "fit_months": [
+    "2023-01"
+  ],
+  "fitted_a": null,
+  "fitted_b": null
+}

@@ -152,6 +152,7 @@ module = [
   "gcsfs.*",
   "google.cloud.storage.*",
   "interpret.*",
+  "joblib.*",
   "pyarrow.*",
   "rank_bm25.*",
   "scipy.*",

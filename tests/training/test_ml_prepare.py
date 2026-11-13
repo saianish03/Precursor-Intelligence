@@ -161,7 +161,7 @@ def test_a_bad_ml_config_exits_3(gold, tmp_path, monkeypatch, capsys):
 
 @pytest.mark.parametrize(
     "command",
-    ["decide", "tune", "train", "evaluate", "gate", "promote", "score", "publish", "monitor"],
+    ["decide", "evaluate", "gate", "promote", "score", "publish", "monitor"],
 )
 def test_the_later_commands_exist_and_exit_3(gold, monkeypatch, capsys, command):
     assert run(monkeypatch, "ml", command, "--env-file", str(gold.env_file), "--run-id", "r1") == 3

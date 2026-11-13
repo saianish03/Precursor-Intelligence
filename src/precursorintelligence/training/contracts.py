@@ -19,7 +19,30 @@ from ..common.config import MlConfig
 Frame = Literal["eval_train", "test", "refit_train", "score", "prev_score"]
 FRAMES: tuple[Frame, ...] = ("eval_train", "test", "refit_train", "score", "prev_score")
 Candidate = Literal["ensemble", "lgbm", "lr"]
+CANDIDATES: tuple[Candidate, ...] = ("ensemble", "lgbm", "lr")
+Member = Literal["lgbm", "lr"]
+FitName = Literal[
+    "eval", "refit"
+]  # the eval fit (evidence, on eval_train) and the refit (ships, on refit_train)
 DecisionName = Literal["SKIP", "RETRAIN", "RETUNE", "SCORE", "PROMOTE", "REFUSE"]
+
+# The files of one model package (§4.5), the same in the run folder and as MLflow pyfunc artifacts. A package
+# holds only the members its candidate uses (``meta.member_weights``).
+PACKAGE_META = "meta.json"
+PACKAGE_CALIBRATION = "calibration.json"
+PACKAGE_LGBM = "lgbm.txt"
+PACKAGE_LR = "lr.joblib"
+
+# The OOF parquet (``RunPaths.oof``), one row per training row of the fit's window: these key columns, then per
+# candidate ``logit_raw_<c>`` (uncalibrated ensemble log-odds), ``logit_<c>`` (after Platt) and ``p_<c>``. The eval
+# fit's file holds all three candidates, the refit's only the selected one. W2 reads them for the OOF bias check,
+# the classification threshold and G6.
+OOF_KEYS = ("ccn", "t", "fold", "y")
+
+
+def oof_columns(candidate: Candidate) -> tuple[str, str, str]:
+    """The OOF parquet's columns for one candidate: raw log-odds, calibrated log-odds, calibrated probability."""
+    return f"logit_raw_{candidate}", f"logit_{candidate}", f"p_{candidate}"
 
 
 @dataclass(frozen=True)
@@ -76,6 +99,27 @@ class RunPaths:
     @property
     def evaluation(self) -> str:
         return f"{self.run_dir}evaluation.json"
+
+    def package(self, fit: FitName, candidate: Candidate) -> str:
+        """Prefix of a model package (``meta.json``, ``calibration.json``, ``lgbm.txt``, ``lr.joblib``). ``train``
+        writes one eval-fit package per candidate and one refit package (the selected candidate)."""
+        return f"{self.run_dir}models/{fit}/{candidate}/"
+
+    def oof(self, fit: FitName) -> str:
+        """The out-of-fold predictions of a fit (columns: ``OOF_KEYS`` + ``oof_columns(candidate)``)."""
+        return f"{self.run_dir}oof/{fit}.parquet"
+
+    @property
+    def train_result(self) -> str:
+        return f"{self.run_dir}train.json"
+
+    @property
+    def tuning_dir(self) -> str:
+        return f"{self.run_dir}tuning/"
+
+    @property
+    def tuning_proposal(self) -> str:
+        return f"{self.tuning_dir}tuning_proposal.yaml"
 
 
 class _Contract(BaseModel):
@@ -219,3 +263,64 @@ class PackageMeta(_Contract):
     training_months: dict[Literal["eval", "refit"], list[str]]
     recipe_hash: str
     library_versions: dict[str, str]
+
+
+class PlattCalibration(_Contract):
+    """``calibration.json`` inside a package (§5): ``logit = a * logit_raw + b``. ``identity`` is the fallback when
+    the fit gave ``a <= 0`` (then a = 1, b = 0 and the run is flagged)."""
+
+    method: Literal["platt"] = "platt"
+    a: float
+    b: float
+    identity: bool
+    fit_rows: int
+    fit_months: list[str]  # the window's newest calibration.fit_recent_months months with rows
+    fitted_a: float | None = None  # what the fit gave, kept when the fallback replaced it
+    fitted_b: float | None = None
+
+
+class CalibrationDiagnostics(_Contract):
+    """OOF Brier and ECE before and after calibration (§5). Isotonic is a diagnostic only, never used."""
+
+    candidate: Candidate
+    rows: Literal["fit_months", "all_oof"]
+    brier_raw: float
+    brier_platt: float
+    brier_isotonic: float
+    ece_raw: float
+    ece_platt: float
+    ece_isotonic: float
+
+
+class Psi(_Contract):
+    """Training-vs-scoring PSI of one feature (§1.4): refit window vs the score month."""
+
+    feature: str
+    psi: float
+    threshold: float
+    above: bool
+
+
+class TrainResult(_Contract):
+    """``train.json``: what ``train`` wrote (§4, §5) and the decisions it measured. W2 and W3 start from it."""
+
+    ml_run_id: str
+    gold_run_id: str
+    dataset_version: str
+    recipe_hash: str
+    mlflow_run_id: str | None
+    selected: Candidate
+    eval_packages: dict[str, str]  # candidate -> package prefix (RunPaths.package("eval", c))
+    eval_model_uris: dict[
+        str, str
+    ]  # candidate -> MLflow model URI of the logged eval-fit package ("" if none)
+    refit_package: str
+    refit_model_uri: str
+    oof: dict[str, str]  # fit -> OOF parquet key
+    calibration: dict[str, PlattCalibration]  # "eval/<candidate>" and "refit/<candidate>"
+    calibration_diagnostics: list[CalibrationDiagnostics]
+    flags: list[str]  # e.g. "platt_identity:eval/lr", "psi:staffing_rating"
+    psi: list[Psi]
+    features: list[str]
+    excluded_features: list[str]
+    seconds: dict[str, float]  # wall time per stage, for the execution_timeout (§4.4)

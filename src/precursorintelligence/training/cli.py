@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -109,16 +110,120 @@ def prepare(
     typer.echo(json.dumps(res.summary(), sort_keys=True))
 
 
+def _run_task(
+    label: str,
+    env: str,
+    env_file: Path | None,
+    log_level: str | None,
+    run_id: str | None,
+    body: Callable[[Any, str], dict[str, Any]],
+) -> None:
+    """The shared frame of the W1 commands: init, run ``body(ctx, run_id)``, map errors to exit codes, print the
+    summary JSON as the last stdout line."""
+    settings, run_id, _ = _init(env, env_file, log_level, run_id, label=label)
+    try:
+        ctx = build_context(settings, run_id=run_id)
+        summary = body(ctx, run_id)
+    except ConfigError as exc:
+        typer.echo(f"config error: {exc}", err=True)
+        raise typer.Exit(EXIT_CONFIG) from None
+    except MlInputError as exc:
+        typer.echo(f"refused: {exc}", err=True)
+        raise typer.Exit(EXIT_VALIDATION) from None
+    except (ObjectStoreError, OSError) as exc:
+        typer.echo(f"error: {exc.__class__.__name__}: {exc}", err=True)
+        raise typer.Exit(EXIT_ERROR) from None
+    typer.echo(json.dumps(summary, sort_keys=True))
+
+
+@ml_app.command()
+def train(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+    mode: str = typer.Option("auto", help="the DAG run's mode, recorded as a tag"),
+) -> None:
+    """Fit the candidates on the eval window, calibrate, select, then refit (§4, §5). Needs a prepared run folder.
+    Last stdout line: a JSON summary."""
+
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from .train import run_train
+
+        cfg = load_ml_config(ml_config)
+        out = run_train(
+            ctx.object_store,
+            ml_run_id=rid,
+            cfg=cfg,
+            registry=load_feature_registry(),
+            ml_config_path=ml_config,
+            mode=mode,
+        )
+        r = out.result
+        typer.echo(f"run {rid}: selected {r.selected} ({out.selection.reason})")
+        for c in out.selection.candidates:
+            typer.echo(
+                f"  {c.candidate}: OOF PR-AUC {c.oof_pr_auc}, Brier {c.oof_brier}, "
+                f"bias check {'passed' if c.bias_check_passed else 'FAILED'}"
+            )
+        for k, v in r.calibration.items():
+            typer.echo(
+                f"  platt {k}: a={v.a:.4f} b={v.b:.4f}{' (identity fallback)' if v.identity else ''}"
+            )
+        for p in r.psi:
+            typer.echo(
+                f"  psi {p.feature}: {p.psi:.4f}{' > ' + str(p.threshold) if p.above else ''}"
+            )
+        typer.echo(f"  seconds: total {r.seconds.get('total')}; flags: {r.flags or 'none'}")
+        return {
+            "ml_run_id": rid,
+            "selected": r.selected,
+            "mlflow_run_id": r.mlflow_run_id,
+            "recipe_hash": r.recipe_hash,
+            "refit_package": r.refit_package,
+            "flags": r.flags,
+            "seconds_total": r.seconds.get("total"),
+        }
+
+    _run_task("ml_train", env, env_file, log_level, run_id, body)
+
+
+@ml_app.command()
+def tune(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+    n_trials: int | None = typer.Option(None, help="override tuning.n_trials"),
+) -> None:
+    """Re-tune LightGBM (and LR's C) with Optuna on the eval window and write tuning_proposal.yaml (§13). A
+    proposal only: parameters change through a reviewed PR to configs/ml.yaml (ML-19)."""
+
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from .tune import run_tune
+
+        cfg = load_ml_config(ml_config)
+        res = run_tune(
+            ctx.object_store,
+            ml_run_id=rid,
+            cfg=cfg,
+            registry=load_feature_registry(),
+            n_trials=n_trials,
+        )
+        typer.echo(f"run {rid}: best CV PR-AUC {res.best_value:.4f}")
+        typer.echo(res.proposal_yaml)
+        return {"ml_run_id": rid, "best_cv_pr_auc": res.best_value, "n_trials": len(res.trials)}
+
+    _run_task("ml_tune", env, env_file, log_level, run_id, body)
+
+
 # Commands of the later work packages (§18.3). Same options as prepare's core, so the DAG can call them today.
 _STUBS = {
     "decide": (
         "W6",
         "Decide what this run does: SKIP, RETRAIN, RETUNE, SCORE, PROMOTE or REFUSE (§15.2).",
-    ),
-    "tune": ("W1", "Re-tune the LightGBM member with Optuna and write a parameter proposal (§13)."),
-    "train": (
-        "W1",
-        "Fit the candidates on the eval window, calibrate, select, then refit (§4, §5).",
     ),
     "evaluate": (
         "W2",
