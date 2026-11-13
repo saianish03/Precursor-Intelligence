@@ -155,3 +155,74 @@ def calibration_line(y: npt.ArrayLike, p: npt.ArrayLike, clip: float = 1e-6) -> 
         if np.abs(step).max() < 1e-10:
             break
     return {"slope": float(beta[0]), "intercept": float(beta[1])}
+
+
+def max_f1_threshold(y: npt.ArrayLike, p: npt.ArrayLike) -> float:
+    """The score cut-off with the highest F1 when rows with ``p >= threshold`` are flagged.
+
+    Chosen on the out-of-fold predictions, never on the test frame (§6.1). Candidates are the distinct scores; a
+    tie in F1 goes to the higher cut-off (fewer rows flagged).
+    """
+    ya, pa = _arrays(y, p)
+    positives = ya.sum()
+    if positives == 0:
+        raise ValueError("no positive rows: F1 is undefined")
+    order = np.argsort(-pa, kind="stable")
+    ys, ps = ya[order], pa[order]
+    last_of_tie = np.r_[np.diff(ps) != 0, True]  # flagging every row down to here = threshold ps[i]
+    tp = np.cumsum(ys)[last_of_tie]
+    flagged = np.arange(1, len(ys) + 1)[last_of_tie]
+    f1 = 2 * tp / (flagged + positives)
+    return float(ps[last_of_tie][int(np.argmax(f1))])
+
+
+def classification_metrics(
+    y: npt.ArrayLike, p: npt.ArrayLike, threshold: float
+) -> dict[str, float]:
+    """The confusion matrix and accuracy, precision, recall, F1 and MCC when rows with ``p >= threshold`` are
+    flagged (the course's classification metrics, §6.1)."""
+    ya, pa = _arrays(y, p)
+    flag, pos = pa >= threshold, ya == 1
+    tp, fp = float((flag & pos).sum()), float((flag & ~pos).sum())
+    fn, tn = float((~flag & pos).sum()), float((~flag & ~pos).sum())
+    precision = tp / (tp + fp) if tp + fp else float("nan")
+    recall = tp / (tp + fn) if tp + fn else float("nan")
+    denom = float(np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)))
+    return {
+        "threshold": float(threshold),
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "flag_rate": (tp + fp) / len(ya),
+        "accuracy": (tp + tn) / len(ya),
+        "precision": precision,
+        "recall": recall,
+        "f1": 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else float("nan"),
+        "mcc": (tp * tn - fp * fn) / denom if denom else 0.0,
+    }
+
+
+def within_group(
+    y: npt.ArrayLike, p: npt.ArrayLike, groups: npt.ArrayLike, frac: float
+) -> dict[str, float]:
+    """PR-AUC and precision at the top ``frac`` computed inside each group (e.g. state), then averaged with equal
+    weight per group (§6.1). It shows how well the model ranks homes against others in the same group, which the
+    overall numbers mix with differences between groups. Groups without both classes are skipped."""
+    ya, pa = _arrays(y, p)
+    ga = np.asarray(groups)
+    if ga.shape != ya.shape:
+        raise ValueError(f"groups must have one value per row, got {ga.shape} for {ya.shape}")
+    pr_aucs, precisions = [], []
+    for g in np.unique(ga):
+        mask = ga == g
+        yg = ya[mask]
+        if 0 < yg.mean() < 1:
+            pr_aucs.append(average_precision(yg, pa[mask]))
+            precisions.append(top_k(yg, pa[mask], frac)["precision"])
+    nan = float("nan")
+    return {
+        "groups": float(len(pr_aucs)),
+        "pr_auc": float(np.mean(pr_aucs)) if pr_aucs else nan,
+        f"precision_at_{pct(frac)}": float(np.mean(precisions)) if precisions else nan,
+    }
