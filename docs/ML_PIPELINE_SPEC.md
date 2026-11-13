@@ -587,7 +587,7 @@ The data pipeline's contract (`ingestion/pipeline.py`): 0 ok; 1 transient error,
   - port `127.0.0.1:${PI_MLFLOW_HOST_PORT:-5001}:5000`; a health check in Python (the slim image has no curl) with a `start_period` of ~120 s; `mem_limit: 1g`; `restart: unless-stopped`; the shared logging block.
   - `PI_MLFLOW_ARTIFACTS`: `gs://precursor-intel-mlops-mlflow` (laptops use the impersonated ADC file like the task containers; the VM its metadata server); a named volume `mlflow-artifacts` is the fallback until the bucket exists.
 - **An MLflow version bump** runs `mlflow db upgrade`, which can't be undone: take a database dump first.
-- **VM (Phase 2):** secret `mlflow-db-password` (Terraform `vm_secrets`, value by hand, hex only: `openssl rand -hex 32`; the VM renders 9 secrets); add `mlflow` to `infra/vm/pi-pg-backup` and `pi-pg-restore` (order airflow → mlflow → precursor_meta; a restore runs before the `mlflow` service starts); the image pinned by `PI_RELEASE_SHA` in `docker-compose.vm.yaml`.
+- **VM (Phase 2):** secret `mlflow-db-password` (Terraform `vm_secrets`, created in Phase 1, value by hand, hex only: `openssl rand -hex 32`; the VM renders 9 secrets); add `mlflow` to `infra/vm/pi-pg-backup` and `pi-pg-restore` (order airflow → mlflow → precursor_meta; a restore runs before the `mlflow` service starts); the image pinned by `PI_RELEASE_SHA` in `docker-compose.vm.yaml`.
 
 ### 16.2 Images, CI and CD (ML-5, ML-6)
 - **Extras:** split the `ml` extra: `ml` = lightgbm, shap, scikit-learn, mlflow, optuna; a new `ml-extra` = catboost, interpret, evidently (interpret alone pulls dash, gevent and notebook). `docker/pipeline.Dockerfile` installs `--extra pipeline --extra ml --extra bias`. Update `requirements.txt` and the export check in `ci.yml`.
@@ -598,10 +598,10 @@ The data pipeline's contract (`ingestion/pipeline.py`): 0 ok; 1 transient error,
 ### 16.3 Terraform (`infra/terraform/envs/prod/main.tf`)
 | Resource | Phase | Details |
 |---|---|---|
-| Bucket `precursor-intel-mlops-mlflow` | 1 | `modules/gcs`: us-central1, uniform access, public access prevention, versioning, `prevent_destroy`, no lifecycle expiry (models must survive D11's data-bucket wipe); `sa-pipeline` `roles/storage.objectAdmin` (+ `legacyBucketReader` if the client checks the bucket, as the data bucket needed) |
+| Bucket `precursor-intel-mlops-mlflow` | 1 | `modules/gcs`: us-central1, uniform access, public access prevention, versioning, `prevent_destroy`, no lifecycle expiry (models must survive D11's data-bucket wipe); `sa-pipeline` `roles/storage.objectUser` (write, overwrite and delete for `mlflow gc`; no IAM rights on objects) + `legacyBucketReader` (the client checks the bucket, as on the data bucket) |
 | BigQuery dataset `precursorintelligence_scores` + 3 tables | 2 | schemas as JSON files read by Terraform and by a test against the parquet writer; explicit field modes; `deletion_protection`; monthly partitioning |
 | `sa-pipeline` BigQuery | 2 | `roles/bigquery.dataEditor` on the dataset; `roles/bigquery.jobUser` on the project (`pipeline_runtime` set) |
-| Secret `mlflow-db-password` | 2 | `vm_secrets` |
+| Secret `mlflow-db-password` | 1 | `vm_secrets`, empty; the value is added by hand before compose requires `MLFLOW_DB_PASSWORD` (§16.1) |
 All changes only add resources (the CI apply guard refuses deletes); `sa-tf-apply` has the rights; the BigQuery API is enabled (`docs/runbooks/gcp-bootstrap.md`).
 
 ### 16.4 Phase 1 runtime: a laptop stack against GCS
