@@ -20,7 +20,7 @@ import numpy as np
 import polars as pl
 from sklearn.metrics import roc_auc_score
 
-from precursorintelligence.common.config import load_ml_config, load_settings
+from precursorintelligence.common.config import MlEvaluationCfg, load_ml_config, load_settings
 from precursorintelligence.ingestion.context import build_context
 from precursorintelligence.training.calibration import brier, ece
 from precursorintelligence.training.contracts import RunPaths, TrainResult
@@ -34,7 +34,7 @@ def precision_at(y: np.ndarray, p: np.ndarray, frac: float) -> float:
 
 
 def block_bootstrap_ap(
-    ccn: np.ndarray, y: np.ndarray, p: np.ndarray, reps: int = 1000, seed: int = 0
+    ccn: np.ndarray, y: np.ndarray, p: np.ndarray, reps: int, seed: int
 ) -> tuple[float, float]:
     """95 % CI of PR-AUC, resampling facilities (all of a facility's rows together)."""
     rng = np.random.default_rng(seed)
@@ -48,9 +48,13 @@ def block_bootstrap_ap(
     return float(lo), float(hi)
 
 
-def metrics(ccn: np.ndarray, y: np.ndarray, p: np.ndarray, reps: int) -> dict[str, float]:
-    lo, hi = block_bootstrap_ap(ccn, y, p, reps)
-    return {
+def metrics(
+    ccn: np.ndarray, y: np.ndarray, p: np.ndarray, ev: MlEvaluationCfg, reps: int
+) -> dict[str, float]:
+    """The test metrics, with ``evaluation.*`` of ml.yaml (bins, precision@k, bootstrap seed); ``reps`` is
+    ``evaluation.bootstrap.replicates`` unless ``--replicates`` overrides it."""
+    lo, hi = block_bootstrap_ap(ccn, y, p, reps, ev.bootstrap.seed)
+    out = {
         "rows": float(len(y)),
         "base_rate": float(y.mean()),
         "pr_auc": average_precision(y, p),
@@ -58,10 +62,11 @@ def metrics(ccn: np.ndarray, y: np.ndarray, p: np.ndarray, reps: int) -> dict[st
         "pr_auc_ci_high": hi,
         "roc_auc": float(roc_auc_score(y, p)),
         "brier": brier(y, p),
-        "ece": ece(y, p, 10),
-        "p_at_5": precision_at(y, p, 0.05),
-        "p_at_10": precision_at(y, p, 0.10),
+        "ece": ece(y, p, ev.ece_bins),
     }
+    for frac in ev.precision_at:
+        out[f"p_at_{frac * 100:g}"] = precision_at(y, p, frac)
+    return out
 
 
 def main() -> None:
@@ -72,11 +77,14 @@ def main() -> None:
     )
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--ml-config", type=Path, default=None)
-    ap.add_argument("--replicates", type=int, default=1000)
+    ap.add_argument(
+        "--replicates", type=int, default=None, help="default: evaluation.bootstrap.replicates"
+    )
     a = ap.parse_args()
     settings = load_settings(a.env, env_path=a.env_file)
     store = build_context(settings, run_id=a.run_id).object_store
     cfg = load_ml_config(a.ml_config)
+    reps = a.replicates if a.replicates is not None else cfg.evaluation.bootstrap.replicates
     paths = RunPaths.of(cfg, a.run_id)
     with store.open_read(paths.train_result) as f:
         result = TrainResult.model_validate_json(f.read())
@@ -103,7 +111,8 @@ def main() -> None:
                 test["ccn"].to_numpy()[m],
                 test[f"y_{cfg.label}"].cast(pl.Float64).to_numpy()[m],
                 p[m],
-                a.replicates,
+                cfg.evaluation,
+                reps,
             )
         key = f"{cand} (selected)" if cand == result.selected else cand
         report["candidates"][key] = per_month  # type: ignore[index]

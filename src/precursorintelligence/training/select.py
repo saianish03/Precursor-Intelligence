@@ -110,8 +110,9 @@ def select_candidate(
     top = max(pool, key=lambda r: r.oof_pr_auc)
     if not passing:
         reason = (
-            f"every candidate failed the OOF bias check; {chosen.candidate} has the best OOF PR-AUC "
-            f"({chosen.oof_pr_auc}) and is selected so that gate G7 holds it"
+            f"every candidate failed the OOF bias check; {chosen.candidate} (OOF PR-AUC {chosen.oof_pr_auc}) is "
+            f"the simplest within {tie_margin} of the best OOF PR-AUC ({top.candidate}, {top.oof_pr_auc}) and is "
+            "selected so that gate G7 holds it"
         )
     elif chosen.candidate == top.candidate:
         after = (

@@ -108,7 +108,7 @@ CASES = [
         {"ensemble", "lgbm", "lr"},
         0.2,
         "lgbm",
-        "every candidate failed the OOF bias check",
+        "is the simplest within 0.2 of the best OOF PR-AUC (ensemble",  # lgbm is not the best: say so
     ),
 ]
 

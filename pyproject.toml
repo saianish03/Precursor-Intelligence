@@ -43,6 +43,7 @@ ml = [
     "catboost>=1.2.10",
     "evidently>=0.7.23",
     "interpret>=0.7.8",
+    "joblib>=1.6.0",
     "lightgbm>=4.7.0",
     "mlflow>=3.17.0",
     "optuna>=5.0.0",

@@ -15,8 +15,9 @@ folds"; the ensemble is the scored default candidate, and only an objective that
 (which §13's space includes). LightGBM-only and LR-only APs are kept per trial as user attributes, so a reviewer can
 see whether a trial won through either member. Early stopping still watches LightGBM's own log loss.
 
-The result is a **proposal**: the parameters reach ``configs/ml.yaml`` only through a reviewed PR (ML-19); the tuned
-challenger is fitted and gated by ``train``.
+The result is a **proposal**: the parameters reach ``configs/ml.yaml`` only through a reviewed PR (ML-19). For now
+the proposal is the only output: ``train`` never reads ``tuning_proposal.yaml``, so no tuned challenger is fitted or
+gated yet. Spec §13 lists that challenger as a tune output; it is an open item for the W2 gate and W6's RETUNE path.
 """
 
 from __future__ import annotations
@@ -338,9 +339,9 @@ def tune(
         n_jobs=1,
         gc_after_trial=True,
     )
+    # optimize runs at least one trial before the timeout is checked, and a failing trial raises (catch=()), so
+    # there is always a complete trial here
     complete = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-    if not complete:
-        raise RuntimeError("no tuning trial completed within the timeout")
 
     best = study.best_trial
     iterations = best.user_attrs["best_iterations"]
@@ -435,11 +436,8 @@ def _log_mlflow(
     files: Mapping[str, bytes],
     n_trials: int | None,
 ) -> None:
-    try:
-        from . import mlflow_log
-    except ImportError:
-        log.info("mlflow_log is not available: the tune run is not logged to MLflow")
-        return
+    from . import mlflow_log
+
     if not mlflow_log.tracking_enabled():
         return
     import mlflow

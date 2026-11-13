@@ -64,9 +64,6 @@ from .select import BiasCheck, BiasOutcome, default_bias_check, select_candidate
 
 log = logging.getLogger(__name__)
 
-PSI_THRESHOLD_KEY = "feature_psi_max"  # ml.yaml monitor.feature_psi_max (0.25), also the §1.4 rule
-
-
 # --------------------------------------------------------------------------- features
 
 
