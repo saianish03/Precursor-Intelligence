@@ -19,7 +19,7 @@
 > - Every value that can change lives in `configs/ml.yaml` (W0, #54; Appendix B) or an existing config. Never hard-code a feature list, a threshold or a window.
 > - Tuning, selection and every "keep or drop" choice use training-window data only. **The test window is looked at once per model, to report and gate, never to choose** (§3, §20).
 >
-> **Status:** v1.0, 2026-11-10. W0 is merged (#54: `configs/ml.yaml`, `training/{cli,contracts,data}.py`, `precursor-pipeline ml prepare`); W1–W4 and W6 are not built yet (§18.3). Reviewed by an outside ML-systems reviewer, the leakage reviewer and the infra reviewer; their findings are applied. **Phase 1, everything the course asks for, running on a laptop stack against GCS, is due Sun 2026-11-15; Phase 2 (VM, BigQuery, hardening) follows** (§18).
+> **Status:** v1.0, 2026-11-10. W0 (#54: `configs/ml.yaml`, `training/{cli,contracts,data}.py`, `precursor-pipeline ml prepare`) and W5's quality family (#55) are merged; W1–W4 and W6 are not built yet (§18.3). Reviewed by an outside ML-systems reviewer, the leakage reviewer and the infra reviewer; their findings are applied. **Phase 1, everything the course asks for, running on a laptop stack against GCS, is due Sun 2026-11-15; Phase 2 (VM, BigQuery, hardening) follows** (§18).
 
 ---
 
@@ -786,7 +786,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | # | Topic | Default | Recommendation |
 |---|---|---|---|
 | O1 | Second label (`y_g6` matures 6 months sooner) | not in v1 | add by config after Phase 1 |
-| O2 | Gate and bias thresholds | §9.1 starting values | review at Checkpoint ML-A on a non-development month. G4 (ECE ≤ 0.05) may be the binding gate: PR #49's out-of-time ECE ranged from 0.022 (the strictest split) to 0.055 (an uncalibrated LightGBM on a time split), 0.027 for the base ensemble at 15 months, and the eval fit is 20–23 months out of time. W2 checks its first real values before anyone relies on automatic promotion |
+| O2 | Gate and bias thresholds | §9.1 starting values | review at Checkpoint ML-A on a non-development month. G4 (ECE ≤ 0.05) may be the binding gate: PR #49's out-of-time ECE ranged from 0.022 (the strictest split) to 0.055 (an uncalibrated LightGBM on a time split with no purge gap), 0.027 for the base ensemble at 15 months, and the eval fit is 20–23 months out of time. W2 checks its first real values before anyone relies on automatic promotion |
 | O3 | Rolling-origin folds | facility-grouped | try after spine 2022-01 is live |
 | O4 | Reweighting | off | decide at Checkpoint ML-A from the OOF trade-off table |
 | O5 | MLflow authentication | none (tasks network + 127.0.0.1 + IAP) | revisit if anything outside the VM needs MLflow |
