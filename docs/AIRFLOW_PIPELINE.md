@@ -293,6 +293,7 @@ It would work on a demo day. The table lists what this implementation does inste
 | `docker/airflow-local/docker-compose.vm.yaml` | VM only, baked into the Airflow image: the production values, images by sha, Postgres data on the data disk |
 | `docker/airflow-local/docker-compose.override.yaml` | laptop only: mounts `dags/`, `src/precursorintelligence/` and `tests/dags/` over the image's copies |
 | `.github/workflows/cd.yml` | after a merge into `dev`/`main`: builds both images, tests them, pushes them to Artifact Registry as `<image>:<full sha>` (as `sa-deployer`) |
+| `.github/workflows/deploy.yml` | by hand: sets the VM's `pi-release` to a sha with both images (as `sa-release`); the VM deploys it (`infra/vm/README.md`) |
 | `tests/dags/` | DAG integrity and exit-code tests (run in the airflow image) |
 | `docs/runbooks/airflow-local.md` | how to build, run, inspect and clean up; laptop and GCP; verified results |
 
