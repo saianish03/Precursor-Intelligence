@@ -233,20 +233,141 @@ def tune(
     _run_task("ml_tune", env, env_file, log_level, run_id, body)
 
 
+@ml_app.command()
+def evaluate(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+    shuffled_label: bool | None = typer.Option(
+        None,
+        "--shuffled-label/--no-shuffled-label",
+        help="run the shuffled-label check (default: only for a recipe no gate judged yet)",
+    ),
+) -> None:
+    """Evaluate the eval fit on the test frame, with baselines, the champion's eval fit, bias slices and the sanity
+    checks; writes evaluation.json (§6-§8). Last stdout line: a JSON summary."""
+
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from ..evaluation.evaluate import run_evaluate
+        from ..evaluation.registry import default_registry
+
+        cfg = load_ml_config(ml_config)
+        out = run_evaluate(
+            ctx.object_store,
+            ml_run_id=rid,
+            cfg=cfg,
+            registry=default_registry(cfg),
+            meta=ctx.metadata,
+            shuffled_label=shuffled_label,
+        )
+        r = out.report
+        sel = r.candidates[r.selected]
+        typer.echo(f"run {rid}: {r.selected} on {', '.join(r.test_months)} ({r.rows} rows)")
+        for name, rep in {**r.candidates, **r.baselines}.items():
+            iv = rep.intervals["pr_auc"]
+            typer.echo(f"  {name}: PR-AUC {iv.estimate:.4f} [{iv.ci_low:.4f}, {iv.ci_high:.4f}]")
+        prob = sel.probability or {}
+        typer.echo(f"  ECE {prob.get('ece')}, slope {prob.get('calibration_slope')}")
+        typer.echo(f"  slices miscalibrated: {len(r.calibration_failures)}")
+        return {
+            "ml_run_id": rid,
+            "selected": r.selected,
+            "test_pr_auc": sel.ranking.get("pr_auc"),
+            "champion_version": r.champion.version if r.champion else None,
+            "slices_miscalibrated": len(r.calibration_failures),
+        }
+
+    _run_task("ml_evaluate", env, env_file, log_level, run_id, body)
+
+
+@ml_app.command()
+def gate(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+    mode: ModeOpt = typer.Option(ModeOpt.auto, help="the DAG run's mode, recorded in ml_runs"),
+) -> None:
+    """Apply the gates G1-G7, register the refit, move the aliases, write the ml_runs row, champion.json and the
+    model card (§9). A hold is exit 0. Last stdout line: a JSON summary."""
+
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from ..evaluation.gate import run_gate
+        from ..evaluation.registry import default_registry
+
+        cfg = load_ml_config(ml_config)
+        out = run_gate(
+            ctx.object_store,
+            ctx.metadata,
+            ml_run_id=rid,
+            cfg=cfg,
+            registry=default_registry(cfg),
+            mode=mode.value,
+        )
+        for r in out.gates.results:
+            typer.echo(f"  {r.gate} {r.status.upper()}: {r.reason}")
+        typer.echo(f"run {rid}: {out.action}; version {out.version} -> {out.alias}")
+        return {
+            "ml_run_id": rid,
+            "action": out.action,
+            "passed": out.gates.passed,
+            "failed_gates": out.gates.failed,
+            "version": out.version,
+            "alias": out.alias,
+            "champion_version": out.champion_after,
+        }
+
+    _run_task("ml_gate", env, env_file, log_level, run_id, body)
+
+
+@ml_app.command()
+def promote(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+) -> None:
+    """Manual promotion or rollback: move champion to PI_ML_VERSION, with the reason in PI_ML_REASON (from the DAG
+    params, never the command line; §9.4). Last stdout line: a JSON summary."""
+
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from ..evaluation.promote import PromoteUsageError, request_from_env, run_promote
+        from ..evaluation.registry import default_registry
+
+        cfg = load_ml_config(ml_config)
+        try:
+            version, reason = request_from_env()
+            out = run_promote(
+                ctx.object_store,
+                ctx.metadata,
+                ml_run_id=rid,
+                cfg=cfg,
+                registry=default_registry(cfg),
+                version=version,
+                reason=reason,
+            )
+        except PromoteUsageError as exc:
+            raise ConfigError(str(exc)) from None
+        typer.echo(f"run {rid}: champion {out.champion_before} -> {out.version} ({out.action})")
+        return {
+            "ml_run_id": rid,
+            "action": out.action,
+            "champion_version": out.version,
+            "champion_version_before": out.champion_before,
+        }
+
+    _run_task("ml_promote", env, env_file, log_level, run_id, body)
+
+
 # Commands of the later work packages (§18.3). Same options as prepare's core, so the DAG can call them today.
 _STUBS = {
     "decide": (
         "W6",
         "Decide what this run does: SKIP, RETRAIN, RETUNE, SCORE, PROMOTE or REFUSE (§15.2).",
-    ),
-    "evaluate": (
-        "W2",
-        "Evaluate the eval fit on the test frame, with baselines and bias slices (§6-§8).",
-    ),
-    "gate": ("W2", "Apply the gates, register the refit and move the aliases (§9)."),
-    "promote": (
-        "W2",
-        "Manual promotion or rollback; the version and reason come from the environment (§9.4).",
     ),
     "score": ("W3", "Score V with the champion, with reasons and the chain roll-up (§10)."),
     "publish": ("W3", "Publish the scores (§11)."),
