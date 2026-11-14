@@ -19,7 +19,7 @@
 > - Every value that can change lives in `configs/ml.yaml` (W0, #54; Appendix B) or an existing config. Never hard-code a feature list, a threshold or a window.
 > - Tuning, selection and every "keep or drop" choice use training-window data only. **The test window is looked at once per model, to report and gate, never to choose** (§3, §20).
 >
-> **Status:** v1.0, 2026-11-10. Design only; no ML code exists yet (`src/precursorintelligence/{training,evaluation,serving,monitoring}` are empty). Reviewed by an outside ML-systems reviewer, the leakage reviewer and the infra reviewer; their findings are applied. **Phase 1, everything the course asks for, running on a laptop stack against GCS, is due Sun 2026-11-15; Phase 2 (VM, BigQuery, hardening) follows** (§18).
+> **Status:** v1.0, 2026-11-10. W0 (#54: `configs/ml.yaml`, `training/{cli,contracts,data}.py`, `precursor-pipeline ml prepare`) and W5's quality family (#55) are merged; W1–W4 and W6 are not built yet (§18.3). Reviewed by an outside ML-systems reviewer, the leakage reviewer and the infra reviewer; their findings are applied. **Phase 1, everything the course asks for, running on a laptop stack against GCS, is due Sun 2026-11-15; Phase 2 (VM, BigQuery, hardening) follows** (§18).
 
 ---
 
@@ -696,7 +696,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | **1. Course-complete system** | Tue Nov 10 → **Sun Nov 15** | everything in the course brief (Appendix D) working end to end: the `cms_nh_ml` DAG on a laptop compose stack against GCS (`ml-dev/` prefix), MLflow (tracking + registry, artifacts in the MLflow bucket), training with selection, calibration, validation, bias detection and gate, SHAP (global + per facility), tuning with documented sensitivity, scoring with reasons and chain roll-up, monitoring (PSI + status file), email notifications, rollback, CI smoke run |
 | **2. Production** | Nov 16 → Dec 1 and later | VM deployment (MLflow on the VM, secret, backups, T19–T26 counting `cms_nh_ml`), BigQuery publish, CD for the mlflow image, the §11 verified gate (W5 part 2), realized and early-read performance, Evidently, rolling-origin folds, Checkpoint ML-A repeated on 2025-03 (the late-November release) |
 
-**Cut line for Phase 1.** If a package runs late, these stay, because the course brief needs them (Appendix D): training with selection, hold-out validation, bias slices and the G7 gate, SHAP (global and per facility), tuning with its sensitivity, MLflow tracking and registry, the CI smoke run, alerts and rollback. These may move to Phase 2: the chain roll-up, per-state empirical-Bayes shrinkage, the Benjamini–Hochberg correction, and score-drift and regime-coverage monitoring. The slowest package never holds up Friday's integration.
+**Cut line for Phase 1.** If a package runs late, these stay, because the course brief needs them (Appendix D): training with selection, hold-out validation, bias slices and the G7 gate, bias mitigation (reweighting and its OOF trade-off table, §7), SHAP (global and per facility), tuning with its sensitivity, MLflow tracking and registry, the CI smoke run, alerts and rollback. These may move to Phase 2: the chain roll-up, per-state empirical-Bayes shrinkage, the Benjamini–Hochberg correction, and score-drift and regime-coverage monitoring. The slowest package never holds up Friday's integration.
 
 ### 18.2 Phase 1 order
 ```
@@ -758,7 +758,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | ML-15 | Production fit | evaluate, then refit on the latest matured months | §3.3 |
 | ML-16 | Ensemble | average the members in log-odds (measured: same scores, exact SHAP) | §4.2, Appendix A |
 | ML-17 | Star sub-ratings | follow the registry (`staffing_rating`, `qm_rating` allowed; overall and health-inspection ratings never) | §1.4 |
-| ML-18 | Quality family | in gold since #55; 33 of its 41 columns are model input, the rest excluded in `ml.yaml` (month keys and the measures whose scale changed) | §1.4, W5 |
+| ML-18 | Quality family | in gold since #55; 33 of its 41 columns are model input, the rest excluded in `ml.yaml` (the two month keys, the two definition flags and the four measures whose scale changed) | §1.4, W5 |
 | ML-19 | Re-tuning | a re-tune produces a challenger and a parameter proposal; parameters change only through a human PR to `ml.yaml` | §12.2, §13 |
 | ML-20 | Evaluation gap | the production lag (H + B = 20 months); gold starts in 2022-01 (`spine_start`, data open #10) | §3 |
 | ML-21 | 2025-07 / 2025-10 regimes | `era` and `penalty_regime_2025_10` excluded until training covers both values; the two sub-ratings measured and excluded if their training-vs-scoring PSI > 0.25 | §1.4, §12.1 |
@@ -786,7 +786,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | # | Topic | Default | Recommendation |
 |---|---|---|---|
 | O1 | Second label (`y_g6` matures 6 months sooner) | not in v1 | add by config after Phase 1 |
-| O2 | Gate and bias thresholds | §9.1 starting values | review at Checkpoint ML-A on a non-development month. G4 (ECE ≤ 0.05) is the likely binding gate: PR #49 measured test ECE rising to ~0.055 after only 7 months out of time, and the eval fit is 20–23 months out of time. W2 checks its first real values before anyone relies on automatic promotion |
+| O2 | Gate and bias thresholds | §9.1 starting values | review at Checkpoint ML-A on a non-development month. G4 (ECE ≤ 0.05) may be the binding gate: PR #49's out-of-time ECE ranged from 0.022 (the strictest split) to 0.055 (an uncalibrated LightGBM on a time split with no purge gap), 0.027 for the base ensemble at 15 months, and the eval fit is 20–23 months out of time. W2 checks its first real values before anyone relies on automatic promotion |
 | O3 | Rolling-origin folds | facility-grouped | try after spine 2022-01 is live |
 | O4 | Reweighting | off | decide at Checkpoint ML-A from the OOF trade-off table |
 | O5 | MLflow authentication | none (tasks network + 127.0.0.1 + IAP) | revisit if anything outside the VM needs MLflow |
