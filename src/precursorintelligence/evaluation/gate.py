@@ -27,7 +27,14 @@ from ..common.config import MlConfig
 from ..common.io.metadata_store import MetadataStore
 from ..common.io.object_store import ObjectStore
 from ..training import MlInputError
-from ..training.contracts import Champion, InputManifest, RunPaths, TrainResult, Windows
+from ..training.contracts import (
+    Champion,
+    InputManifest,
+    RunPaths,
+    Selection,
+    TrainResult,
+    Windows,
+)
 from ..training.data import (
     average_precision,
     gold_config_sha,
@@ -39,16 +46,13 @@ from ..training.ensemble import read_package
 from ..training.train import read_decision
 from . import gates
 from .evaluate import CHAMPION, RULE, report_prefix
-from .gates import GateReport, GateResult
+from .gates import GateReport, GateResult, Interval
 from .model_card import render_model_card
 from .registry import RegisteredVersion, Registry
 from .report import EvaluationReport
 
 log = logging.getLogger(__name__)
 
-RECENT_MONTHS = (
-    3  # G6: the refit window's newest months whose observed rate the score's mean is held to
-)
 GATE_ACTIONS = ("promote", "hold")
 
 
@@ -78,13 +82,14 @@ def refit_check(
     store: ObjectStore, paths: RunPaths, train: TrainResult, windows: Windows, cfg: MlConfig
 ) -> RefitCheck:
     """G6's numbers: OOF lift of the refit vs the eval fit; on the score frame, the refit's mean score, the refit
-    window's newest observed rate, and the Spearman correlation of the refit's and the eval fit's scores."""
+    window's newest observed rate (its newest ``calibration.fit_recent_months`` months, the months Platt is fit on),
+    and the Spearman correlation of the refit's and the eval fit's scores."""
     chosen = train.selected
     score = read_frame(store, paths, "score")
     refit_p = read_package(store, train.refit_package).predict_frame(score)["p"].to_numpy()
     eval_p = read_package(store, train.eval_packages[chosen]).predict_frame(score)["p"].to_numpy()
     refit_frame = read_frame(store, paths, "refit_train")
-    recent = sorted(set(refit_frame["t"].to_list()))[-RECENT_MONTHS:]
+    recent = sorted(set(refit_frame["t"].to_list()))[-cfg.calibration.fit_recent_months :]
     rate = refit_frame.filter(pl.col("t").is_in(recent))[f"y_{cfg.label}"].cast(pl.Float64).mean()
     rho = spearmanr(refit_p, eval_p).statistic
     return RefitCheck(
@@ -96,14 +101,26 @@ def refit_check(
     )
 
 
-def apply_gates(report: EvaluationReport, refit: RefitCheck, cfg: MlConfig) -> GateReport:
-    """G1-G7 on the evaluation's numbers (§9.1)."""
+def _float(v: Any) -> float:
+    return float("nan") if v is None else float(v)
+
+
+def apply_gates(
+    report: EvaluationReport,
+    refit: RefitCheck,
+    cfg: MlConfig,
+    *,
+    oof_bias_check_passed: bool = True,
+) -> GateReport:
+    """G1-G7 on the evaluation's numbers (§9.1). ``oof_bias_check_passed``: the selected candidate's OOF bias check
+    at selection (``selection.json``); W1 keeps a failing candidate only so that G7 holds it."""
     chosen = report.selected
     prob = report.candidates[chosen].probability or {}
     rule = report.comparison("pr_auc", chosen, RULE)
     if rule is None:
         raise MlInputError("evaluation.json has no PR-AUC comparison with the prior-G+ rule")
     has_champion = report.champion is not None
+    undefined = Interval(estimate=None, ci_low=None, ci_high=None)  # a missing comparison fails G5
     results: list[GateResult] = [
         gates.g1_data(gold_verified=report.gold_verified, allow_unverified=report.allow_unverified),
         gates.g2_sanity(
@@ -114,11 +131,15 @@ def apply_gates(report: EvaluationReport, refit: RefitCheck, cfg: MlConfig) -> G
         ),
         gates.g3_beats_rule(rule),
         gates.g4_calibration(
-            ece=float(prob["ece"]), slope=float(prob["calibration_slope"]), cfg=cfg
+            ece=_float(prob.get("ece")), slope=_float(prob.get("calibration_slope")), cfg=cfg
         ),
         gates.g5_vs_champion(
-            pr_auc_diff=report.comparison("pr_auc", chosen, CHAMPION) if has_champion else None,
-            brier_diff=report.comparison("brier", chosen, CHAMPION) if has_champion else None,
+            pr_auc_diff=(report.comparison("pr_auc", chosen, CHAMPION) or undefined)
+            if has_champion
+            else None,
+            brier_diff=(report.comparison("brier", chosen, CHAMPION) or undefined)
+            if has_champion
+            else None,
             cfg=cfg,
         ),
         gates.g6_refit(
@@ -131,8 +152,9 @@ def apply_gates(report: EvaluationReport, refit: RefitCheck, cfg: MlConfig) -> G
         ),
         gates.g7_bias(
             calibration_failures=report.calibration_failures,
-            vs_champion=report.slices_vs_champion if has_champion else None,
+            vs_champion=(report.slices_vs_champion or []) if has_champion else None,
             cfg=cfg,
+            oof_bias_check_passed=oof_bias_check_passed,
         ),
     ]
     return GateReport(results=results)
@@ -197,31 +219,56 @@ def run_gate(
     if report.ml_run_id != ml_run_id or report.recipe_hash != train.recipe_hash:
         raise MlInputError("evaluation.json is from another run or recipe: run `ml evaluate` again")
 
-    outcome = apply_gates(report, refit_check(store, paths, train, windows, cfg), cfg)
-    before_v = registry.by_alias(cfg.registry.champion_alias) if registry else None
-    champion_before = before_v.version if before_v else None
+    selection = Selection.model_validate_json(_read(store, paths.selection, "train"))
+    oof_ok = all(
+        c.bias_check_passed for c in selection.candidates if c.candidate == report.selected
+    )
+    outcome = apply_gates(
+        report, refit_check(store, paths, train, windows, cfg), cfg, oof_bias_check_passed=oof_ok
+    )
 
     version: RegisteredVersion | None = None
-    alias: str | None = None
-    promote = outcome.passed and (champion_before is not None or cfg.gates.first_run == "promote")
     if registry is not None:
         if not train.refit_model_uri:
             raise MlInputError("train logged no refit model to MLflow: nothing to register")
+        version = registry.find_by_ml_run_id(ml_run_id)  # a retried gate reuses its version
+    before_v = registry.by_alias(cfg.registry.champion_alias) if registry else None
+    champion_before = before_v.version if before_v else None
+    expected = report.champion.version if report.champion else None
+    own = version.version if version else None
+    if champion_before != expected and (own is None or champion_before != own):
+        raise MlInputError(
+            f"champion moved since evaluate (compared with {expected}, now {champion_before}): "
+            "run `ml evaluate` again"
+        )
+    if own is not None and champion_before == own:  # a retry after this run's own promotion
+        champion_before = expected
+
+    # Promote only with a registry (no version, no promotion), and only over the champion evaluate compared with.
+    promote = (
+        registry is not None
+        and outcome.passed
+        and (champion_before is not None or cfg.gates.first_run == "promote")
+    )
+    alias: str | None = None
+    if registry is not None:
         tags = version_tags(report, train, manifest, outcome)
-        version = registry.find_by_ml_run_id(ml_run_id)
         if version is None:
             version = registry.register(train.refit_model_uri, tags)
         else:
             registry.set_tags(version.version, tags)
         alias = cfg.registry.champion_alias if promote else cfg.registry.challenger_alias
-        registry.set_alias(alias, version.version)
     champion_after = version.version if (promote and version) else champion_before
     action = "promote" if promote else "hold"
 
+    # The audit row first, the alias second: a failure in between leaves the alias unmoved (the integrity
+    # check refuses while the two disagree) and a retry only sets the alias again (§9.3, §9.4).
     _write_ml_runs(
         meta, report, manifest, outcome, action, mode, actor, store, paths,
         champion_before, champion_after, version.version if version else None, train,
     )  # fmt: skip
+    if registry is not None and version is not None and alias is not None:
+        registry.set_alias(alias, version.version)
     champion = Champion(model_name=cfg.registry.model_name, version=champion_after, source="gate")
     store.put_bytes(paths.champion, champion.model_dump_json(indent=2).encode(), overwrite=True)
     card = render_model_card(
@@ -245,6 +292,7 @@ def run_gate(
         ml_run_id=ml_run_id,
         recipe_hash=report.recipe_hash,
         decision=read_decision(store, paths),
+        mode=mode,  # type: ignore[arg-type]  # the CLI only passes the spec's modes
     )
     with mlflow_log.task_run(cfg, "gate", tags) as run_id:
         if run_id is not None:

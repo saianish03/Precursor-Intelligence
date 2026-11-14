@@ -9,7 +9,7 @@ from precursorintelligence.evaluation.evaluate import run_evaluate
 from precursorintelligence.evaluation.gate import refit_check, run_gate
 from precursorintelligence.evaluation.report import EvaluationReport
 from precursorintelligence.training import MlInputError
-from precursorintelligence.training.contracts import Champion, RunPaths, TrainResult
+from precursorintelligence.training.contracts import Champion, RunPaths, Selection, TrainResult
 from precursorintelligence.training.data import gold_config_sha, read_input_manifest, read_windows
 
 REFIT_URI = "models:/refit-fixture"
@@ -121,10 +121,10 @@ def test_a_retried_gate_reuses_its_version_and_row(trained):
     assert len(gate_rows(trained)) == 1
 
 
-def champion_registry(run, model_uri=EVAL_URI):
+def champion_registry(run, model_uri=EVAL_URI, cls=FakeRegistry):
     """A registry whose champion (version 1) is this run's own selected eval fit."""
     chosen = run.train.result.selected
-    reg = FakeRegistry({model_uri: run.train.eval_models[chosen]})
+    reg = cls({model_uri: run.train.eval_models[chosen]})
     reg.register("models:/old-refit", {"ml_run_id": "older", "eval_model_uri": model_uri})
     reg.set_alias("champion", 1)
     return reg
@@ -195,3 +195,89 @@ def test_the_refit_check_compares_the_shipped_model_with_the_evaluated_one(train
     assert rc.refit_oof_lift > 1 and rc.eval_oof_lift > 1  # the fixture plants a signal
     assert 0 < rc.score_mean_p < 1 and 0 < rc.recent_observed_rate < 1
     assert 0.5 < rc.spearman <= 1
+
+
+class AliasFails(FakeRegistry):
+    """A registry whose next alias move fails once armed (a crash between the audit row and the alias)."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.fail_next_alias = False
+
+    def set_alias(self, alias, version):
+        if self.fail_next_alias:
+            self.fail_next_alias = False
+            raise RuntimeError("MLflow went away")
+        super().set_alias(alias, version)
+
+
+def test_gate_refuses_when_the_champion_moved_since_evaluate(trained):
+    # evaluate saw no champion (G5 and G7(a) skipped); a promotion happened before gate ran
+    cfg = loose(trained.cfg)
+    with_logged_models(trained)
+    evaluate(trained, cfg)
+    reg = champion_registry(trained)
+    with pytest.raises(MlInputError, match="champion moved since evaluate"):
+        gate(trained, cfg, reg)
+    assert gate_rows(trained) == [] and reg.by_alias("champion").version == 1
+
+
+def test_without_a_registry_nothing_is_promoted(trained):
+    # first_run: promote but no MLflow: no version exists, so the row must not claim a promotion
+    cfg = loose(trained.cfg, first_run="promote")
+    evaluate(trained, cfg)
+    out = gate(trained, cfg)
+    assert out.action == "hold" and out.champion_after is None
+    assert gate_rows(trained)[0]["action"] == "hold"
+
+
+def test_a_candidate_that_failed_the_oof_bias_check_is_held(trained):
+    cfg = loose(trained.cfg)
+    store, p = trained.store(), paths(trained)
+    with store.open_read(p.selection) as f:
+        sel = Selection.model_validate_json(f.read())
+    failed = sel.model_copy(
+        update={
+            "candidates": [
+                c.model_copy(update={"bias_check_passed": False})
+                if c.candidate == sel.selected
+                else c
+                for c in sel.candidates
+            ]
+        }
+    )
+    store.put_bytes(p.selection, failed.model_dump_json().encode(), overwrite=True)
+    evaluate(trained, cfg)
+    out = gate(trained, cfg)
+    assert "G7" in out.gates.failed
+
+
+def test_the_audit_row_is_written_before_the_alias_moves(trained):
+    cfg = loose(trained.cfg)
+    with_logged_models(trained)
+    reg = champion_registry(trained, cls=AliasFails)
+    reg.fail_next_alias = True  # the fixture set its own alias already; fail the gate's
+    evaluate(trained, cfg, reg)
+    with pytest.raises(RuntimeError):
+        gate(trained, cfg, reg)
+    (row,) = gate_rows(trained)  # the row exists, the alias did not move
+    assert (row["action"], row["champion_version_before"], row["champion_version_after"]) == (
+        "promote",
+        1,
+        2,
+    )
+    assert reg.by_alias("champion").version == 1
+    out = gate(trained, cfg, reg)  # the retry moves the alias and writes no second row
+    assert reg.by_alias("champion").version == 2 and out.version == 2
+    assert len(gate_rows(trained)) == 1
+
+
+def test_a_retry_after_its_own_promotion_is_not_a_moved_champion(trained):
+    cfg = loose(trained.cfg)
+    with_logged_models(trained)
+    reg = champion_registry(trained)
+    evaluate(trained, cfg, reg)
+    first = gate(trained, cfg, reg)
+    again = gate(trained, cfg, reg)  # @champion is now this run's own version
+    assert first.version == again.version == 2 and again.action == "promote"
+    assert again.champion_before == 1 and len(gate_rows(trained)) == 1
