@@ -34,6 +34,7 @@ from datetime import datetime, timedelta
 from airflow.sdk import Asset, Param, dag, get_current_context, task, task_group
 from utils.alerts import on_dag_failure, on_release_failure
 from utils.pipeline_operator import (
+    HEAVY_POOL,
     PipelineDockerOperator,
     docker_kwargs,
     last_json_list,
@@ -194,8 +195,11 @@ def cms_nh_pipeline():
     @task_group(group_id="gold")
     def gold():
         # exit 2 (a failed gate or check: nothing published) fails the task.
-        # execution_timeout: a hung gold run would hold the lock and queue the next runs
-        build = run("build_gold", f"{PIPELINE} gold", execution_timeout=GOLD_TIMEOUT)
+        # execution_timeout: a hung gold run would hold the lock and queue the next runs. The heavy pool's one slot
+        # keeps it from running next to ML training.
+        build = run(
+            "build_gold", f"{PIPELINE} gold", execution_timeout=GOLD_TIMEOUT, pool=HEAVY_POOL
+        )
         # Every gold month against its schema. It runs after the publish, so a failure fails the run and holds
         # back cms_nh_gold (which starts the ML DAGs) but cannot unpublish: cms_nh_gold means published and valid.
         validate = run("validate_gold", f"{PIPELINE} validate --layer gold", outlets=[GOLD])

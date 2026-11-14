@@ -1,5 +1,5 @@
 # precursor-pipeline: the image every data-pipeline DAG task runs, one CLI command per container
-# (`precursor-ingest …`, `precursor-pipeline bronze|silver|gold …`). Same image locally and on the VM.
+# (`precursor-ingest …`, `precursor-pipeline bronze|silver|gold|ml …`). Same image locally and on the VM.
 #
 #   docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) \
 #     -t precursor-pipeline:<tag> .
@@ -16,16 +16,22 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Dependencies first, so a code change does not reinstall them. Only the `pipeline` extra (ingestion → gold).
+# LightGBM's wheel links the system OpenMP runtime, which the slim image lacks.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencies first, so a code change does not reinstall them. `pipeline` (ingestion → gold), `ml` (training,
+# scoring) and `bias` (the bias report); not `ml-extra`.
 COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra pipeline --no-install-project
+    uv sync --frozen --no-dev --extra pipeline --extra ml --extra bias --no-install-project
 
 # The package, plus configs/ (sources, env yamls, column maps): read at runtime from PI_PROJECT_ROOT.
 COPY src ./src
 COPY configs ./configs
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra pipeline --no-editable
+    uv sync --frozen --no-dev --extra pipeline --extra ml --extra bias --no-editable
 
 # Non-root. /app/data is the local object store root (`--env dev`, bind-mounted from the host) and
 # /app/logs the per-process JSON logs; on GCP (`--env prod`) data goes to GCS and neither needs a mount.

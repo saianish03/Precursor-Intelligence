@@ -17,10 +17,10 @@ dependencies = [
 ]
 
 # One extra per runtime, so each Docker image installs only what it needs:
-#   ingestion image -> pipeline        training image -> pipeline + ml
+#   pipeline image  -> pipeline + ml + bias (every data and ML task)
 #   backend image   -> api + agents    frontend image -> ui
-#   MLflow server   -> mlflow-server
-# Example: uv sync --frozen --no-dev --extra pipeline --extra ml
+#   MLflow server   -> mlflow-server   ml-extra: reference model families, in no image
+# Example: uv sync --frozen --no-dev --extra pipeline --extra ml --extra bias
 [project.optional-dependencies]
 pipeline = [
     "certifi>=2026.7.22",
@@ -39,16 +39,21 @@ pipeline = [
     "tenacity>=9.2.1",
     "typer>=0.27.3",
 ]
+# What the training pipeline imports; it goes into the pipeline image.
 ml = [
-    "catboost>=1.2.10",
-    "evidently>=0.7.23",
-    "interpret>=0.7.8",
     "joblib>=1.6.0",
     "lightgbm>=4.7.0",
     "mlflow>=3.17.0",
     "optuna>=5.0.0",
     "scikit-learn>=1.9.1",
     "shap>=0.51.0",
+]
+# Reference-only model families and monitoring (spec §16.2), kept out of the image: interpret alone pulls dash,
+# gevent and notebook.
+ml-extra = [
+    "catboost>=1.2.10",
+    "evidently>=0.7.23",
+    "interpret>=0.7.8",
 ]
 agents = [
     "google-auth>=2.61.0",

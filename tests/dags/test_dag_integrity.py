@@ -7,7 +7,7 @@ import pytest
 from airflow.models.dagbag import DagBag
 from airflow.task.trigger_rule import TriggerRule
 from utils.alerts import on_dag_failure, on_release_failure
-from utils.pipeline_operator import PipelineDockerOperator
+from utils.pipeline_operator import HEAVY_POOL, PipelineDockerOperator
 
 DAG_ID = "cms_nh_pipeline"
 CONTAINER_TASKS = {
@@ -140,3 +140,9 @@ def test_validation_runs_after_silver_and_gold_and_gold_is_published_only_once_v
         "cms_nh_gold"
     ]  # emitted only when the gold passed validation
     assert "gold.build_gold" not in outlets
+
+
+def test_gold_takes_the_heavy_pool(dag):
+    # cms_nh_ml's train and tune take the same pool (W6), so gold never runs next to them
+    pools = {t.task_id: t.pool for t in dag.tasks if t.pool == HEAVY_POOL}
+    assert pools == {"gold.build_gold": HEAVY_POOL}

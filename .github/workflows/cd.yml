@@ -94,14 +94,15 @@ jobs:
           done
           docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" precursor-ingest --help > /dev/null
           docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" precursor-pipeline --help > /dev/null
+          docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" python -c "import fairlearn, lightgbm, mlflow, optuna, shap, sklearn"
           test "$(docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" printenv PI_GIT_SHA)" = "$GITHUB_SHA"
           docker run --rm --entrypoint "" -v "$PWD/tests/dags:/opt/airflow/tests/dags:ro" \
             "$REGISTRY/airflow:$GITHUB_SHA" python -m pytest -q -p no:cacheprovider /opt/airflow/tests/dags
-          # the compose bundle the VM deploys from: the base file alone (a laptop's four secrets) and with the VM file
+          # the compose bundle the VM deploys from: the base file alone (a laptop's five secrets) and with the VM file
           # (never the laptop override); the values are dummies
           cid=$(docker create "$REGISTRY/airflow:$GITHUB_SHA") && docker cp "$cid:/opt/precursor/compose" bundle && docker rm "$cid"
           test -x bundle/init-db.sh
-          export AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x
+          export AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x MLFLOW_DB_PASSWORD=x
           docker compose -f bundle/docker-compose.yaml config -q
           export AIRFLOW_API_SECRET_KEY=x PI_RELEASE_SHA=x PI_ALERT_EMAIL_TO=x PI_ALERT_SMTP_USER=x \
             PI_ALERT_SMTP_PASSWORD=x

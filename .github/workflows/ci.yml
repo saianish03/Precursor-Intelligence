@@ -1,6 +1,6 @@
 name: CI
 
-# Runs on every pull request into dev (feature work) and main (releases): lint and tests, plus the two images and
+# Runs on every pull request into dev (feature work) and main (releases): lint and tests, plus the three images and
 # the DAG tests when the PR touches them.
 # Make the "ci-ok" check required in the branch rulesets: a PR can then merge only when every job passes.
 on:
@@ -44,8 +44,8 @@ jobs:
       # when stale: run the command in the error message and commit the file.
       - name: requirements.txt matches uv.lock
         run: |
-          uv export --frozen --no-hashes --no-header --extra pipeline --extra bias --extra dvc | diff - requirements.txt \
-            || { echo "::error::requirements.txt is stale: uv export --frozen --no-hashes --no-header --extra pipeline --extra bias --extra dvc -o requirements.txt"; exit 1; }
+          uv export --frozen --no-hashes --no-header --extra pipeline --extra ml --extra bias --extra dvc | diff - requirements.txt \
+            || { echo "::error::requirements.txt is stale: uv export --frozen --no-hashes --no-header --extra pipeline --extra ml --extra bias --extra dvc -o requirements.txt"; exit 1; }
 
       - name: Lint (ruff)
         run: uv run ruff check src tests
@@ -72,7 +72,7 @@ jobs:
           fi
 
   # cd.yml repeats this job's checks on the images it pushes: change both together.
-  # Builds both images and runs tests/dags inside the Airflow image (Airflow is not a repo dependency, so the
+  # Builds the three images and runs tests/dags inside the Airflow image (Airflow is not a repo dependency, so the
   # tests job skips them). Nothing is pushed: the images stay on the runner. The job always runs, because
   # ci-ok needs it; its first step skips the rest when the PR changes nothing that goes into an image or a DAG.
   images:
@@ -107,13 +107,28 @@ jobs:
         if: steps.changes.outputs.build == 'true'
         run: docker build -f docker/airflow.Dockerfile -t precursor-airflow:ci .
 
+      - name: Build the MLflow image
+        if: steps.changes.outputs.build == 'true'
+        run: docker build -f docker/mlflow.Dockerfile --build-arg PI_GIT_SHA="$GITHUB_SHA" -t precursor-mlflow:ci .
+
       # precursor-pipeline --help imports every node's CLI, so a dependency missing from the pipeline extra fails here.
       - name: The pipeline image runs its CLIs and records the commit
         if: steps.changes.outputs.build == 'true'
         run: |
           docker run --rm precursor-pipeline:ci precursor-ingest --help > /dev/null
           docker run --rm precursor-pipeline:ci precursor-pipeline --help > /dev/null
+          docker run --rm precursor-pipeline:ci python -c "import fairlearn, lightgbm, mlflow, optuna, shap, sklearn"
           test "$(docker run --rm precursor-pipeline:ci printenv PI_GIT_SHA)" = "$GITHUB_SHA"
+
+      # The server's flags exist in this MLflow version (the compose command uses them), and so do its two drivers.
+      - name: The MLflow image has the server, the GCS client and the Postgres driver
+        if: steps.changes.outputs.build == 'true'
+        run: |
+          help=$(docker run --rm precursor-mlflow:ci mlflow server --help)
+          for flag in --allowed-hosts --serve-artifacts --artifacts-destination --workers; do
+            grep -q -- "$flag" <<< "$help" || { echo "::error::mlflow server has no $flag"; exit 1; }
+          done
+          docker run --rm precursor-mlflow:ci python -c "import google.cloud.storage, psycopg2"
 
       # Against the DAGs baked into the image, as it ships: only tests/dags is mounted (it is not part of the image).
       - name: DAG tests inside the Airflow image
@@ -123,14 +138,14 @@ jobs:
             precursor-airflow:ci python -m pytest -q -p no:cacheprovider /opt/airflow/tests/dags
 
       # The compose bundle the VM deploys from, checked the way the VM uses it: the base file plus the VM file (never
-      # the laptop override), with init-db.sh executable. The base file alone must still need only a laptop's four
+      # the laptop override), with init-db.sh executable. The base file alone must still need only a laptop's five
       # secrets. The values are dummies: `config -q` only needs them set.
       - name: The compose bundle in the Airflow image works on its own
         if: steps.changes.outputs.build == 'true'
         run: |
           cid=$(docker create precursor-airflow:ci) && docker cp "$cid:/opt/precursor/compose" bundle && docker rm "$cid"
           test -x bundle/init-db.sh
-          export AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x
+          export AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x MLFLOW_DB_PASSWORD=x
           docker compose -f bundle/docker-compose.yaml config -q
           export AIRFLOW_API_SECRET_KEY=x PI_RELEASE_SHA=x PI_ALERT_EMAIL_TO=x PI_ALERT_SMTP_USER=x \
             PI_ALERT_SMTP_PASSWORD=x
@@ -140,6 +155,36 @@ jobs:
             echo "::error::the VM compose config names a :latest image: a service missing from docker-compose.vm.yaml?"
             exit 1
           fi
+
+      # The bundle really runs on a new database: airflow-init (migrate + the pool `heavy`), postgres-setup's SQL, the
+      # server's command and health check, a client on the task network logging a run and reading its artifact back,
+      # and the task network's limits (L11): no airflow login, and mlflow only on its own database.
+      - name: MLflow and airflow-init run in the compose bundle, within the task network's limits
+        if: steps.changes.outputs.build == 'true'
+        run: |
+          export AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x \
+            MLFLOW_DB_PASSWORD=x PI_MLFLOW_IMAGE=precursor-mlflow:ci PI_AIRFLOW_IMAGE=precursor-airflow:ci
+          compose() { docker compose -f bundle/docker-compose.yaml "$@"; }
+          trap 'compose logs --tail 50 airflow-init postgres-setup mlflow; compose down -v' EXIT
+          compose up -d --wait --wait-timeout 300 mlflow airflow-init
+          # as the airflow user (airflow-init runs as root, whose Python has no airflow)
+          compose run --rm --no-deps --entrypoint "" airflow-apiserver airflow pools get heavy -o plain \
+            | grep -Eq '^heavy +1 '
+          login() { docker run --rm --network pi-airflow-tasks -e PGPASSWORD=x postgres:16.10 \
+            psql -h postgres -U "$1" -d "$2" -tAc 'SELECT 1' > /dev/null 2>&1; }
+          ! login airflow airflow || { echo "::error::the task network can log in as airflow"; exit 1; }
+          ! login mlflow precursor_meta || { echo "::error::mlflow can reach precursor_meta"; exit 1; }
+          login mlflow mlflow || { echo "::error::mlflow can't reach its own database"; exit 1; }
+          docker run --rm --network pi-airflow-tasks -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
+            precursor-pipeline:ci python -c "
+          import mlflow, urllib.request
+          assert urllib.request.urlopen('http://mlflow:5000/health').status == 200
+          mlflow.set_experiment('ci-smoke')
+          with mlflow.start_run() as run:
+              mlflow.log_metric('ok', 1)
+              mlflow.log_text('hello', 'hello.txt')
+          assert mlflow.artifacts.load_text(f'runs:/{run.info.run_id}/hello.txt') == 'hello'
+          "
 
       - name: Image sizes
         if: steps.changes.outputs.build == 'true'
