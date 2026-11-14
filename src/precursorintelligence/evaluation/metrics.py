@@ -38,16 +38,20 @@ def pct(frac: float) -> str:
 
 
 def top_k(y: npt.ArrayLike, p: npt.ArrayLike, frac: float) -> dict[str, float]:
-    """Precision, recall and lift among the ``frac`` highest-scored rows (at least one row; ties by row order).
+    """Precision, recall and lift among the ``frac`` highest-scored rows (at least one row).
 
     ``k = round(frac x rows)``, so the same fraction flags the same number of rows for every model on a frame.
+    Rows tied at the cut-off share it: those strictly above count fully, and the remaining places go to the tied
+    rows at their mean label (the expected value over every order of the ties). Row order never decides, which
+    matters for coarse scores such as the 0/1 prior-G+ rule.
     """
     ya, pa = _arrays(y, p)
     if not 0 < frac <= 1:
         raise ValueError(f"frac must be in (0, 1], got {frac}")
     k = max(1, int(round(len(ya) * frac)))
-    top = np.argsort(-pa, kind="stable")[:k]
-    hits = float(ya[top].sum())
+    cut = np.sort(pa)[::-1][k - 1]
+    above, tied = pa > cut, pa == cut
+    hits = float(ya[above].sum()) + (k - int(above.sum())) * float(ya[tied].mean())
     positives, base = float(ya.sum()), float(ya.mean())
     precision = hits / k
     return {
@@ -138,11 +142,13 @@ def calibration_line(y: npt.ArrayLike, p: npt.ArrayLike, clip: float = 1e-6) -> 
 
     Perfect calibration is slope 1, intercept 0; a slope below 1 means the scores are too spread out (too sure).
     Fitted by Newton's method on the two-parameter, unpenalised log-likelihood. Probabilities are clipped to
-    ``[clip, 1 - clip]`` before the logit.
+    ``[clip, 1 - clip]`` before the logit. Undefined (NaN) for one class, or for a constant score, whose logit is
+    collinear with the intercept; G4 then fails instead of the evaluation crashing.
     """
     ya, pa = _arrays(y, p)
-    if not 0 < ya.mean() < 1:
-        return {"slope": float("nan"), "intercept": float("nan")}
+    nan = {"slope": float("nan"), "intercept": float("nan")}
+    if not 0 < ya.mean() < 1 or np.ptp(pa) == 0:
+        return nan
     q = np.clip(pa, clip, 1 - clip)
     x = np.column_stack([np.log(q / (1 - q)), np.ones(len(q))])
     beta = np.array([1.0, 0.0])
@@ -150,10 +156,15 @@ def calibration_line(y: npt.ArrayLike, p: npt.ArrayLike, clip: float = 1e-6) -> 
         mu = 1 / (1 + np.exp(-(x @ beta)))
         grad = x.T @ (ya - mu)
         hess = (x * (mu * (1 - mu))[:, None]).T @ x
-        step = np.linalg.solve(hess, grad)
+        try:
+            step = np.linalg.solve(hess, grad)
+        except np.linalg.LinAlgError:  # (near-)collinear after clipping
+            return nan
         beta = beta + step
         if np.abs(step).max() < 1e-10:
             break
+    if not np.isfinite(beta).all():
+        return nan
     return {"slope": float(beta[0]), "intercept": float(beta[1])}
 
 

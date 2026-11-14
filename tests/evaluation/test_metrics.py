@@ -66,9 +66,23 @@ def test_top_k_flags_at_least_one_row():
     assert t["k"] == 1 and t["precision"] == 0.0
 
 
-def test_top_k_breaks_ties_by_row_order():
-    assert top_k([1, 0], [0.5, 0.5], 0.5)["precision"] == 1.0
-    assert top_k([0, 1], [0.5, 0.5], 0.5)["precision"] == 0.0
+def test_top_k_shares_the_cut_off_among_tied_rows():
+    # row order never decides: the tied rows fill the remaining places at their mean label
+    assert top_k([1, 0], [0.5, 0.5], 0.5)["precision"] == 0.5
+    assert top_k([0, 1], [0.5, 0.5], 0.5)["precision"] == 0.5
+    # one row above the tie (a positive), two places left among four tied rows with one positive
+    t = top_k([1, 1, 0, 0, 0, 0], [0.9, 0.5, 0.5, 0.5, 0.5, 0.1], 0.5)
+    assert t["precision"] == pytest.approx((1 + 2 * 0.25) / 3)
+
+
+def test_a_0_1_score_gets_the_same_precision_in_any_row_order():
+    rng = np.random.default_rng(3)
+    y = rng.integers(0, 2, 500)
+    rule = rng.integers(0, 2, 500).astype(float)
+    order = rng.permutation(500)
+    assert top_k(y, rule, 0.1)["precision"] == pytest.approx(
+        top_k(y[order], rule[order], 0.1)["precision"]
+    )
 
 
 def test_ranking_metrics_name_every_fraction():
@@ -169,6 +183,13 @@ def test_calibration_line_matches_an_unpenalised_logistic_fit():
 
 def test_calibration_line_of_one_class_is_nan():
     assert np.isnan(calibration_line([1, 1], [0.2, 0.4])["slope"])
+
+
+def test_calibration_line_of_a_constant_score_is_nan_not_an_error():
+    # a degenerate candidate (every row the same p) must not crash evaluate: G4 fails on the NaN instead
+    line = calibration_line([0, 1, 0, 1, 0], [0.2344] * 5)
+    assert np.isnan(line["slope"]) and np.isnan(line["intercept"])
+    assert np.isnan(probability_metrics([0, 1, 0, 1, 0], [0.2344] * 5, 2)["calibration_slope"])
 
 
 def test_classification_metrics_match_scikit_learn():
