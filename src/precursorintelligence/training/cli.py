@@ -250,6 +250,7 @@ def evaluate(
         "--mitigation/--no-mitigation",
         help="measure the reweighting trade-off on the eval window's OOF predictions (§7)",
     ),
+    mode: ModeOpt = typer.Option(ModeOpt.auto, help="the DAG run's mode, recorded as a tag"),
 ) -> None:
     """Evaluate the eval fit on the test frame, with baselines, the champion's eval fit, bias slices and the sanity
     checks; writes evaluation.json (§6-§8). Last stdout line: a JSON summary."""
@@ -267,6 +268,7 @@ def evaluate(
             meta=ctx.metadata,
             shuffled_label=shuffled_label,
             mitigation=mitigation,
+            mode=mode.value,
         )
         r = out.report
         sel = r.candidates[r.selected]

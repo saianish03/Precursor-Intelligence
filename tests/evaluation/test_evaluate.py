@@ -1,5 +1,6 @@
 """evaluation/evaluate.py on a trained synthetic run (docs/ML_PIPELINE_SPEC.md §6, §7, §17.1 leakage tests 1, 3, 10)."""
 
+import copy
 import hashlib
 import io
 import json
@@ -19,8 +20,9 @@ from precursorintelligence.evaluation.evaluate import (
     run_evaluate,
 )
 from precursorintelligence.evaluation.report import EvaluationReport, comparison_key
+from precursorintelligence.gold.splits import shift
 from precursorintelligence.training import MlInputError
-from precursorintelligence.training.contracts import RunPaths
+from precursorintelligence.training.contracts import RunPaths, TrainResult
 from precursorintelligence.training.data import read_frame, read_windows
 from precursorintelligence.training.ensemble import read_package
 
@@ -136,16 +138,61 @@ def test_permuting_the_test_labels_leaves_the_threshold_alone(trained):
     )
 
 
-def test_a_package_trained_into_the_test_window_is_refused(trained):
-    # leakage test 3
+def test_leakage_test_3_sits_exactly_at_the_horizon(trained):
+    # trained on L: a test window starting at L + H is refused (an outcome window reaches it), L + H + 1 is not
     store, p = trained.store(), paths(trained)
     windows = read_windows(store, p)
     model = read_package(store, trained.train.result.eval_packages["lr"])
     check_training_months(model, "lr", windows)  # the real one passes
-    last = max(model.meta.training_months["eval"])
-    late = windows.model_copy(update={"test": windows.test.model_copy(update={"months": [last]})})
+    last, h = max(model.meta.training_months["eval"]), windows.horizon_months
     with pytest.raises(MlInputError, match="reaches the test window"):
-        check_training_months(model, "lr", late)
+        check_training_months(model, "lr", windows, shift(last, h))
+    check_training_months(model, "lr", windows, shift(last, h + 1))
+
+
+def test_the_refit_package_is_never_scored_on_test(trained):
+    # leakage test 3 end to end: train.json pointing evaluate at the refit (trained up to the test months)
+    store, p = trained.store(), paths(trained)
+    with store.open_read(p.train_result) as f:
+        train = TrainResult.model_validate_json(f.read())
+    chosen = train.selected
+    bad = train.model_copy(
+        update={"eval_packages": {**train.eval_packages, chosen: train.refit_package}}
+    )
+    store.put_bytes(p.train_result, bad.model_dump_json().encode(), overwrite=True)
+    with pytest.raises(MlInputError, match="not an eval fit"):
+        evaluate(trained)
+
+
+def champion_with(run, model):
+    reg = FakeRegistry({"models:/champ-eval": model})
+    reg.register("models:/champ-refit", {"eval_model_uri": "models:/champ-eval"})
+    reg.set_alias("champion", 1)
+    return reg
+
+
+def test_a_champion_trained_into_the_test_window_is_refused(trained):
+    # its eval_model_uri may point at the wrong package (a UI edit, a logging bug): it would win G5 unfairly
+    store, p = trained.store(), paths(trained)
+    model = read_package(store, trained.train.result.eval_packages[trained.train.result.selected])
+    test_month = min(read_windows(store, p).test.months)
+    leaky = copy.copy(model)
+    leaky.meta = model.meta.model_copy(update={"training_months": {"eval": [test_month]}})
+    with pytest.raises(MlInputError, match="champion trained on"):
+        evaluate(trained, registry=champion_with(trained, leaky))
+
+
+def test_a_champion_alias_moved_outside_the_gates_is_refused(trained):
+    # §9.4: the alias must be what the latest promotion row in ml_runs recorded, before anything is loaded
+    store = trained.store()
+    model = read_package(store, trained.train.result.eval_packages[trained.train.result.selected])
+    meta = trained.meta()
+    with pytest.raises(MlInputError, match="moved outside gate/promote"):
+        evaluate(trained, registry=champion_with(trained, model), meta=meta)
+    meta.append(
+        "ml_runs", [{"ml_run_id": "m1", "action": "manual_promote", "champion_version_after": 1}]
+    )
+    assert evaluate(trained, registry=champion_with(trained, model), meta=meta).report.champion
 
 
 def test_the_champions_eval_fit_is_compared_on_the_same_rows(trained):

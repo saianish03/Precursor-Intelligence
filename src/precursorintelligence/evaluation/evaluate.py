@@ -25,7 +25,7 @@ from ..common.io.metadata_store import MetadataStore
 from ..common.io.object_store import ObjectStore
 from ..gold.splits import shift
 from ..training import MlInputError
-from ..training.contracts import RunPaths, Selection, TrainResult, Windows
+from ..training.contracts import Mode, RunPaths, Selection, TrainResult, Windows
 from ..training.data import (
     average_precision,
     read_frame,
@@ -38,7 +38,7 @@ from . import baselines, metrics, sanity, slices
 from .bootstrap import facility_bootstrap
 from .gates import Interval
 from .mitigation import tradeoff as mitigation_tradeoff
-from .registry import Registry
+from .registry import Registry, check_champion_integrity
 from .report import (
     ChampionRef,
     EvaluationReport,
@@ -73,17 +73,22 @@ def _headline(y: np.ndarray, p: np.ndarray) -> dict[str, float]:
     }
 
 
-def check_training_months(model: PrecursorModel, name: str, windows: Windows) -> None:
-    """Leakage test 3: every month an eval-fit package trained on, plus the horizon, is before the test window."""
-    months = (model.meta.training_months.get("eval") if model.meta else None) or []
-    if not months:
-        raise MlInputError(f"eval package {name} records no training months")
-    first_test = min(windows.test.months)
+def check_training_months(
+    model: PrecursorModel, name: str, windows: Windows, first_test: str | None = None
+) -> None:
+    """Leakage test 3: a package scored on the test frame is an eval fit (``training_months`` has ``eval``), and
+    every month it trained on (any fit), plus the horizon, is before the first test month. ``first_test`` is the
+    first month of the frame actually scored (default: ``windows.test``)."""
+    recorded = model.meta.training_months if model.meta else {}
+    if not recorded.get("eval"):
+        raise MlInputError(f"package {name} is not an eval fit: it records no eval training months")
+    months = [m for ms in recorded.values() for m in ms]
+    first = first_test or min(windows.test.months)
     last = max(months)
-    if not shift(last, windows.horizon_months) < first_test:
+    if not shift(last, windows.horizon_months) < first:
         raise MlInputError(
-            f"eval package {name} trained on {last}: + {windows.horizon_months} months reaches the test window "
-            f"({first_test})"
+            f"package {name} trained on {last}: + {windows.horizon_months} months reaches the test window "
+            f"({first})"
         )
 
 
@@ -230,8 +235,9 @@ def evaluate_run(
 
     # ---- the eval fits on the test frame
     models = {c: read_package(store, prefix) for c, prefix in train.eval_packages.items()}
+    first_test = str(test["t"].min())
     for c, model in models.items():
-        check_training_months(model, c, windows)
+        check_training_months(model, c, windows, first_test)
     preds = {c: model.predict_frame(test) for c, model in models.items()}
     probs: dict[str, np.ndarray] = {c: preds[c]["p"].to_numpy() for c in models}
     raw_selected = _sigmoid(preds[chosen]["logit_raw"].to_numpy())
@@ -244,7 +250,12 @@ def evaluate_run(
     base_scores = baselines.baseline_scores(test)
     champ = champion_ref(registry, cfg)
     if champ is not None and registry is not None:
+        if (
+            meta is not None
+        ):  # §9.4: an alias moved outside gate/promote is neither trusted nor loaded
+            check_champion_integrity(meta, champ.version)
         champ_model = registry.load_model(champ.eval_model_uri)
+        check_training_months(champ_model, "champion", windows, first_test)
         probs[CHAMPION] = champ_model.predict_frame(test)["p"].to_numpy()
 
     # ---- paired bootstrap on shared facility draws
@@ -307,12 +318,18 @@ def evaluate_run(
     bias_cfg = slices.slice_config(cfg)
     report_slices = list(dict.fromkeys([*bias_cfg.slices.single, *cfg.bias.gate_slices]))
     table = slices.slice_table(
-        test, y, probs[chosen], slices=report_slices, bias_cfg=bias_cfg, registry=fregistry
+        test,
+        y,
+        probs[chosen],
+        slices=report_slices,
+        bias_cfg=bias_cfg,
+        registry=fregistry,
+        min_facilities=bias_cfg.thresholds.min_slice_facilities,
     )
     failures = slices.calibration_failures(table, cfg)
     vs_champion = None
     if CHAMPION in probs:
-        gated_values = slices.gated(table, cfg).filter(pl.col("slice").is_in(cfg.bias.gate_slices))
+        gated_values = slices.gated(table, cfg)  # non-geographic: see gates.g7_bias on state and BH
         vs_champion = slices.slice_comparisons(
             test,
             y,
@@ -428,6 +445,7 @@ def run_evaluate(
     meta: MetadataStore | None = None,
     shuffled_label: bool | None = None,
     mitigation: bool = True,
+    mode: Mode = "auto",
 ) -> EvaluateOutput:
     """The ``evaluate`` task: ``evaluate_run``, then ``evaluation.json`` and the report files in the run folder
     and, with tracking on, one MLflow run with the metrics, plots and files (§14.2)."""
@@ -465,6 +483,7 @@ def run_evaluate(
         ml_run_id=ml_run_id,
         recipe_hash=out.report.recipe_hash,
         decision=read_decision(store, paths),
+        mode=mode,
     )
     with mlflow_log.task_run(cfg, "evaluate", tags) as run_id:
         if run_id is not None:
@@ -500,8 +519,14 @@ def evaluation_metrics(report: EvaluationReport) -> dict[str, float]:
         for k, v in group.items():
             if v is not None:
                 out[f"test_{k}"] = float(v)
+
+    def put(name: str, v: float | None) -> None:
+        if v is not None:
+            out[name] = float(v)
+
     for k, iv in sel.intervals.items():
-        out[f"test_{k}_ci_low"], out[f"test_{k}_ci_high"] = iv.ci_low, iv.ci_high
+        put(f"test_{k}_ci_low", iv.ci_low)
+        put(f"test_{k}_ci_high", iv.ci_high)
     for c, r in report.candidates.items():
         if r.ranking.get("pr_auc") is not None:
             out[f"candidate_{c}_pr_auc"] = float(r.ranking["pr_auc"])
@@ -510,11 +535,9 @@ def evaluation_metrics(report: EvaluationReport) -> dict[str, float]:
             out[f"baseline_{b}_pr_auc"] = float(r.ranking["pr_auc"])
     for key, iv in report.comparisons.items():
         name = key.replace(":", "_diff_").replace("-", "_vs_")
-        out[name], out[f"{name}_ci_low"], out[f"{name}_ci_high"] = (
-            iv.estimate,
-            iv.ci_low,
-            iv.ci_high,
-        )
+        put(name, iv.estimate)
+        put(f"{name}_ci_low", iv.ci_low)
+        put(f"{name}_ci_high", iv.ci_high)
     out["slices_miscalibrated"] = float(len(report.calibration_failures))
     if report.mitigation is not None:
         for v in report.mitigation.variants:
