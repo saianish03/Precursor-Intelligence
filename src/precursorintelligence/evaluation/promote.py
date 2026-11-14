@@ -81,24 +81,27 @@ def run_promote(
             f"version {version} did not pass G1 and G2 (failed: {target.tags.get('failed_gates') or 'unknown'}): "
             "it cannot be promoted by hand"
         )
-    current = registry.by_alias(cfg.registry.champion_alias)
-    before = current.version if current else None
-    action = "rollback" if before is not None and version < before else "manual_promote"
+    paths = RunPaths.of(cfg, ml_run_id)
+    done = meta.read("ml_runs", {"ml_run_id": ml_run_id, "action": list(PROMOTE_ACTIONS)})
+    if done:  # a retry: the row already records what happened (the alias may have moved since)
+        row = max(done, key=lambda r: r["id"])
+        before, action = row["champion_version_before"], row["action"]
+        log.info("ml_runs already holds the promote row of %s: not written again", ml_run_id)
+    else:
+        current = registry.by_alias(cfg.registry.champion_alias)
+        before = current.version if current else None
+        action = "rollback" if before is not None and version < before else "manual_promote"
+        # The audit row first, the alias second: a failure in between leaves the alias unmoved (the integrity
+        # check refuses while they disagree) and a retry, finding the row, only moves the alias (§9.3, §9.4).
+        meta.append(
+            "ml_runs",
+            [_row(store, paths, ml_run_id, target.tags, action, reason, actor, before, version)],
+        )
     registry.set_alias(cfg.registry.champion_alias, version)
     challenger = registry.by_alias(cfg.registry.challenger_alias)
     if challenger is not None and challenger.version == version:  # it is no longer waiting
         registry.delete_alias(cfg.registry.challenger_alias)
     registry.set_tags(version, {"promoted_by": actor, "promote_reason": reason[:500]})
-
-    paths = RunPaths.of(cfg, ml_run_id)
-    done = meta.read("ml_runs", {"ml_run_id": ml_run_id, "action": list(PROMOTE_ACTIONS)})
-    if done:
-        log.info("ml_runs already holds the promote row of %s: not written again", ml_run_id)
-    else:
-        meta.append(
-            "ml_runs",
-            [_row(store, paths, ml_run_id, target.tags, action, reason, actor, before, version)],
-        )
     champion = Champion(model_name=cfg.registry.model_name, version=version, source="promote")
     store.put_bytes(paths.champion, champion.model_dump_json(indent=2).encode(), overwrite=True)
     log.info("promote %s: champion %s -> %s (%s): %s", ml_run_id, before, version, action, reason)

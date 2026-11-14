@@ -117,3 +117,36 @@ def test_a_bad_request_is_a_usage_error(monkeypatch, version, reason, message):
     monkeypatch.setenv("PI_ML_REASON", reason)
     with pytest.raises(PromoteUsageError, match=message):
         request_from_env()
+
+
+class AliasFailsOnce(FakeRegistry):
+    def __init__(self):
+        super().__init__()
+        self.armed = False
+
+    def set_alias(self, alias, version):
+        if self.armed:
+            self.armed = False
+            raise RuntimeError("MLflow went away")
+        super().set_alias(alias, version)
+
+
+def test_a_retried_rollback_still_records_a_rollback(trained):
+    # the audit row is written before the alias moves, so a retry cannot read the moved alias as "before"
+    reg = AliasFailsOnce()
+    for v in registry().versions.values():
+        reg.register("models:/x", v)
+    reg.set_alias("champion", 2)
+    reg.armed = True
+    with pytest.raises(RuntimeError):
+        promote(trained, reg, 1)
+    assert reg.by_alias("champion").version == 2  # not moved yet, and the row says what will happen
+    out = promote(trained, reg, 1)
+    assert (out.action, out.champion_before) == ("rollback", 2)
+    (row,) = promote_rows(trained)
+    assert (row["action"], row["champion_version_before"], row["champion_version_after"]) == (
+        "rollback",
+        2,
+        1,
+    )
+    assert reg.by_alias("champion").version == 1
