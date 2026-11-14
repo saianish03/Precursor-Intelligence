@@ -171,8 +171,8 @@ stages:
   toy_ml:
     cmd: rm -rf data/toy_ml && python tests/ml/make_ml_gold.py data/toy_ml && 
       precursor-pipeline ml prepare --env-file data/toy_ml/env.yaml --ml-config 
-      data/toy_ml/ml.yaml --run-id toy-ml > data/toy_ml/prepare.out && tail -n 1
-      data/toy_ml/prepare.out > metrics/toy_ml.json
+      data/toy_ml/ml.yaml --run-id toy-ml > data/toy_ml/prepare.out && python 
+      scripts/dvc_ml_summary.py metrics/toy_ml.json data/toy_ml/prepare.out
     deps:
     - path: configs/feature_registry.yaml
       hash: md5
@@ -194,6 +194,10 @@ stages:
       hash: md5
       md5: 58fd46a9b5f4b65e2a0a74c748a85f41
       size: 854
+    - path: scripts/dvc_ml_summary.py
+      hash: md5
+      md5: f2c0e343009386b1b4b478c72a659357
+      size: 1020
     - path: src/precursorintelligence/common
       hash: md5
       md5: c6a9ac5fd695f4a1e498065a49fa8ea7.dir
@@ -230,5 +234,5 @@ stages:
     outs:
     - path: metrics/toy_ml.json
       hash: md5
-      md5: b0c093913153519ba183a1f300e5fd31
-      size: 397
+      md5: 5390431689f9cc22b5e0ffdf58399481
+      size: 556

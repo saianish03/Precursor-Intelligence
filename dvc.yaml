@@ -65,9 +65,10 @@ stages:
       python tests/ml/make_ml_gold.py data/toy_ml &&
       precursor-pipeline ml prepare --env-file data/toy_ml/env.yaml --ml-config data/toy_ml/ml.yaml
       --run-id toy-ml > data/toy_ml/prepare.out &&
-      tail -n 1 data/toy_ml/prepare.out > metrics/toy_ml.json
+      python scripts/dvc_ml_summary.py metrics/toy_ml.json data/toy_ml/prepare.out
     deps:
       - tests/ml/make_ml_gold.py
+      - scripts/dvc_ml_summary.py
       # the parquet hash (dataset_version) records the writer's library version
       - uv.lock
       # what the fixture and `ml prepare` import and load

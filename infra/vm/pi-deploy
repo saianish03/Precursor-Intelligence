@@ -138,7 +138,9 @@ promote() { # staged folder -> the stable folder and the env file (the folder ke
 # After `up`: the Airflow containers run this sha's image and tell tasks to use this sha's pipeline image, and
 # Postgres's first pg_hba.conf lines name the task network's real subnet (L11 review: else the rule silently
 # stops matching). A database created before MLflow (W4) has two (pi_meta, reject), a newer one three (pi_meta,
-# mlflow, reject): a restore or a new disk must not fail every deploy. The services are docker-compose.yaml's.
+# mlflow, reject): a restore or a new disk must not fail every deploy. The two-line form passes only while mlflow is
+# off (the phase2 profile): once it runs, a database without its line would restart-loop it, so that is a failed
+# deploy. `config --services` prints service names only, never the env. The services are docker-compose.yaml's.
 check_running() { # sha
   local want_img svc cid vars subnet top meta ml rej
   want_img=$(docker image inspect --format '{{.Id}}' "$REGISTRY/airflow:$1")
@@ -156,7 +158,12 @@ check_running() { # sha
   meta="host precursor_meta pi_meta $subnet scram-sha-256"
   ml="host mlflow mlflow $subnet scram-sha-256"
   rej="host all all $subnet reject"
-  [ "$top" = "$meta"$'\n'"$ml"$'\n'"$rej" ] || [ "$(head -n 2 <<< "$top")" = "$meta"$'\n'"$rej" ] \
+  [ "$top" = "$meta"$'\n'"$ml"$'\n'"$rej" ] && return 0
+  if dc config --services | grep -qx mlflow; then
+    err "pg_hba.conf has no mlflow rule for the task network, and mlflow runs: add it (runbooks/airflow-local.md §2.1)"
+    return 1
+  fi
+  [ "$(head -n 2 <<< "$top")" = "$meta"$'\n'"$rej" ] \
     || { err "pg_hba.conf's task-network rules don't match the network's subnet ($subnet)"; return 1; }
 }
 
