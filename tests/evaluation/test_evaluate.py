@@ -7,7 +7,7 @@ import json
 import numpy as np
 import polars as pl
 import pytest
-from conftest import FakeRegistry
+from ml_eval_fixtures import FakeRegistry
 
 from precursorintelligence.evaluation import metrics
 from precursorintelligence.evaluation.evaluate import (

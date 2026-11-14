@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from conftest import FakeRegistry
+from ml_eval_fixtures import FakeRegistry
 
 from precursorintelligence.evaluation.evaluate import run_evaluate
 from precursorintelligence.evaluation.gate import refit_check, run_gate

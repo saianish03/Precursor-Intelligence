@@ -35,6 +35,9 @@ def test_register_find_alias_tag_and_load(trained, tracking):
     champ = reg.by_alias("champion")
     assert champ.version == 1 and champ.tags["gate_outcome"] == "pass"
     assert reg.get(99) is None
+    reg.delete_alias("champion")
+    reg.delete_alias("champion")  # not set: no error
+    assert reg.by_alias("champion") is None
 
     loaded = reg.load_model(uri)
     assert np.allclose(loaded.predict_frame(sample)["p"], model.predict_frame(sample)["p"])

@@ -11,6 +11,7 @@ its gates went. Two aliases: ``champion`` (what ``score`` loads, moved only by `
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
@@ -33,6 +34,7 @@ class Registry(Protocol):
     def register(self, model_uri: str, tags: Mapping[str, str]) -> RegisteredVersion: ...
     def set_tags(self, version: int, tags: Mapping[str, str]) -> None: ...
     def set_alias(self, alias: str, version: int) -> None: ...
+    def delete_alias(self, alias: str) -> None: ...
     def load_model(self, model_uri: str) -> PrecursorModel: ...
 
 
@@ -91,6 +93,12 @@ class MlflowRegistry:
 
     def set_alias(self, alias: str, version: int) -> None:
         self.client.set_registered_model_alias(self.name, alias, str(version))
+
+    def delete_alias(self, alias: str) -> None:
+        from mlflow.exceptions import MlflowException
+
+        with suppress(MlflowException):  # not set: nothing to delete
+            self.client.delete_registered_model_alias(self.name, alias)
 
     def load_model(self, model_uri: str) -> PrecursorModel:
         import mlflow
