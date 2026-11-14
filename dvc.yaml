@@ -73,6 +73,7 @@ stages:
       # what the fixture and `ml prepare` import and load
       - src/precursorintelligence/common
       - src/precursorintelligence/gold
+      - src/precursorintelligence/harmonize
       - src/precursorintelligence/ingestion
       - src/precursorintelligence/training
       - configs/feature_registry.yaml

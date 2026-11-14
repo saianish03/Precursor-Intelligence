@@ -1,6 +1,6 @@
 name: CI
 
-# Runs on every pull request into dev (feature work) and main (releases): lint and tests, plus the two images and
+# Runs on every pull request into dev (feature work) and main (releases): lint and tests, plus the three images and
 # the DAG tests when the PR touches them.
 # Make the "ci-ok" check required in the branch rulesets: a PR can then merge only when every job passes.
 on:
@@ -156,16 +156,25 @@ jobs:
             exit 1
           fi
 
-      # MLflow really runs from the bundle: postgres-setup's SQL, the pg_hba line of a new database, the server's
-      # command and health check, and a client on the task network logging a run and reading its artifact back.
-      - name: MLflow runs in the compose bundle and a task container logs a run
+      # The bundle really runs on a new database: airflow-init (migrate + the pool `heavy`), postgres-setup's SQL, the
+      # server's command and health check, a client on the task network logging a run and reading its artifact back,
+      # and the task network's limits (L11): no airflow login, and mlflow only on its own database.
+      - name: MLflow and airflow-init run in the compose bundle, within the task network's limits
         if: steps.changes.outputs.build == 'true'
         run: |
           export AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x \
-            MLFLOW_DB_PASSWORD=x PI_MLFLOW_IMAGE=precursor-mlflow:ci
+            MLFLOW_DB_PASSWORD=x PI_MLFLOW_IMAGE=precursor-mlflow:ci PI_AIRFLOW_IMAGE=precursor-airflow:ci
           compose() { docker compose -f bundle/docker-compose.yaml "$@"; }
-          trap 'compose logs --tail 50 postgres-setup mlflow; compose down -v' EXIT
-          compose up -d --wait --wait-timeout 300 mlflow
+          trap 'compose logs --tail 50 airflow-init postgres-setup mlflow; compose down -v' EXIT
+          compose up -d --wait --wait-timeout 300 mlflow airflow-init
+          # as the airflow user (airflow-init runs as root, whose Python has no airflow)
+          compose run --rm --no-deps --entrypoint "" airflow-apiserver airflow pools get heavy -o plain \
+            | grep -Eq '^heavy +1 '
+          login() { docker run --rm --network pi-airflow-tasks -e PGPASSWORD=x postgres:16.10 \
+            psql -h postgres -U "$1" -d "$2" -tAc 'SELECT 1' > /dev/null 2>&1; }
+          ! login airflow airflow || { echo "::error::the task network can log in as airflow"; exit 1; }
+          ! login mlflow precursor_meta || { echo "::error::mlflow can reach precursor_meta"; exit 1; }
+          login mlflow mlflow || { echo "::error::mlflow can't reach its own database"; exit 1; }
           docker run --rm --network pi-airflow-tasks -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
             precursor-pipeline:ci python -c "
           import mlflow, urllib.request
@@ -175,31 +184,6 @@ jobs:
               mlflow.log_metric('ok', 1)
               mlflow.log_text('hello', 'hello.txt')
           assert mlflow.artifacts.load_text(f'runs:/{run.info.run_id}/hello.txt') == 'hello'
-          "
-
-      # MLflow as the laptop stack runs it, on a new database (so init-db.sh's pg_hba rules apply): postgres-setup
-      # creates the role, the server starts and passes its health check, and a task container on the task network
-      # logs a run with an artifact through it. Dummy secrets; everything is removed afterwards.
-      - name: A task container logs a run to the stack's MLflow
-        if: steps.changes.outputs.build == 'true'
-        env:
-          AIRFLOW_DB_PASSWORD: x
-          PI_META_DB_PASSWORD: x
-          AIRFLOW_JWT_SECRET: x
-          AIRFLOW_FERNET_KEY: x
-          MLFLOW_DB_PASSWORD: x
-          PI_MLFLOW_IMAGE: precursor-mlflow:ci
-        run: |
-          compose() { docker compose -f docker/airflow-local/docker-compose.yaml "$@"; }
-          trap 'compose logs postgres-setup mlflow | tail -40; compose down -v' EXIT
-          compose up -d --wait mlflow
-          docker run --rm --network pi-airflow-tasks -e MLFLOW_TRACKING_URI=http://mlflow:5000 precursor-pipeline:ci \
-            python -c "
-          import mlflow
-          with mlflow.start_run() as run:
-              mlflow.log_metric('ok', 1)
-              mlflow.log_text('ok', 'ok.txt')
-          assert [a.path for a in mlflow.MlflowClient().list_artifacts(run.info.run_id)] == ['ok.txt']
           "
 
       - name: Image sizes

@@ -94,6 +94,7 @@ jobs:
           done
           docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" precursor-ingest --help > /dev/null
           docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" precursor-pipeline --help > /dev/null
+          docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" python -c "import fairlearn, lightgbm, mlflow, optuna, shap, sklearn"
           test "$(docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" printenv PI_GIT_SHA)" = "$GITHUB_SHA"
           docker run --rm --entrypoint "" -v "$PWD/tests/dags:/opt/airflow/tests/dags:ro" \
             "$REGISTRY/airflow:$GITHUB_SHA" python -m pytest -q -p no:cacheprovider /opt/airflow/tests/dags

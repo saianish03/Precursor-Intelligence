@@ -608,7 +608,7 @@ uv run pytest                             # offline tests must pass (live CMS te
 - **Unit tests must not call the network or cloud services.** Mark live tests with `@pytest.mark.network`.
 - **Add only required code for the feature, or only tiny fixes** (a few rows). Never put real downloaded data in the repo.
 - **No hard-coded paths, buckets or credentials.** Read them from `configs/` and environment variables.
-- **New dependencies go into the right extra with `uv add --optional <extra> <package>`** (`pipeline`, `ml`, `agents`, `api`, `ui`, `mlflow-server`, `dvc`, `bias`; tools: `uv add --group dev <package>`). Never type versions by hand; commit the updated `uv.lock`. Say why in the PR.
+- **New dependencies go into the right extra with `uv add --optional <extra> <package>`** (`pipeline`, `ml`, `ml-extra`, `agents`, `api`, `ui`, `mlflow-server`, `dvc`, `bias`; tools: `uv add --group dev <package>`). Never type versions by hand; commit the updated `uv.lock`. Say why in the PR.
 
 ### 4. Never commit
 - data files (`data/`, CSV / Parquet / zip downloads), logs, model artefacts;

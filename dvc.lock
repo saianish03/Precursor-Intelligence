@@ -51,8 +51,8 @@ stages:
       size: 1718
     - path: src/precursorintelligence/common
       hash: md5
-      md5: 67a4043b354f406b7beca71b80ae1831.dir
-      size: 74330
+      md5: c6a9ac5fd695f4a1e498065a49fa8ea7.dir
+      size: 77591
       nfiles: 11
     - path: src/precursorintelligence/gold
       hash: md5
@@ -79,8 +79,8 @@ stages:
       size: 28062
     - path: uv.lock
       hash: md5
-      md5: 8aeb87c27f410674642bb67f619579cd
-      size: 746768
+      md5: 4f03965416199754f6739909f82ef4f6
+      size: 746867
     outs:
     - path: data/toy/gold/dim_facility_latest
       hash: md5
@@ -188,22 +188,27 @@ stages:
       size: 1117
     - path: configs/ml.yaml
       hash: md5
-      md5: ad1db64d4d8e9203866e8d9f12fb0548
-      size: 4850
+      md5: 585a634f3726164844b8ab5d85cc6f7b
+      size: 6154
     - path: configs/splits.yaml
       hash: md5
       md5: 58fd46a9b5f4b65e2a0a74c748a85f41
       size: 854
     - path: src/precursorintelligence/common
       hash: md5
-      md5: 67a4043b354f406b7beca71b80ae1831.dir
-      size: 74330
+      md5: c6a9ac5fd695f4a1e498065a49fa8ea7.dir
+      size: 77591
       nfiles: 11
     - path: src/precursorintelligence/gold
       hash: md5
       md5: e9be42984d530ec16c12bf3a6ddeb795.dir
       size: 89546
       nfiles: 17
+    - path: src/precursorintelligence/harmonize
+      hash: md5
+      md5: d72266e7c90cd8eb9f27bbdb34e290fe.dir
+      size: 113509
+      nfiles: 18
     - path: src/precursorintelligence/ingestion
       hash: md5
       md5: c90c8bc2bf235c6188d860e523b1d244.dir
@@ -211,17 +216,17 @@ stages:
       nfiles: 19
     - path: src/precursorintelligence/training
       hash: md5
-      md5: feb075448f0e0d1a0f7dc6f515a18df1.dir
-      size: 45741
-      nfiles: 4
+      md5: 2d384e75cca1b9a583ff7229cd2f1a98.dir
+      size: 137354
+      nfiles: 11
     - path: tests/ml/make_ml_gold.py
       hash: md5
       md5: 1913cd326c4e1928ddcc203a177cb9e9
       size: 10099
     - path: uv.lock
       hash: md5
-      md5: 8aeb87c27f410674642bb67f619579cd
-      size: 746768
+      md5: 4f03965416199754f6739909f82ef4f6
+      size: 746867
     outs:
     - path: metrics/toy_ml.json
       hash: md5

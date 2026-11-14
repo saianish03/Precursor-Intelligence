@@ -166,6 +166,9 @@ services:
       PI_MLFLOW_ARTIFACTS: ${PI_MLFLOW_ARTIFACTS:-/mlflow/artifacts}
       GOOGLE_APPLICATION_CREDENTIALS: /var/run/gcp/adc.json
       GOOGLE_CLOUD_PROJECT: ${PI_GCP_PROJECT:-precursor-intel-mlops}
+      # No server-side jobs (GenAI scorers, prompt optimisation): MLflow 3.17 otherwise starts seven huey workers of
+      # ~170 MB each, which put the server past mem_limit (OOM-killed in a loop). Tracking and the registry don't use them.
+      MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
     # The backend URI holds the password, so the server reads it from the environment (MLFLOW_BACKEND_STORE_URI); only
     # the short-lived `db upgrade` gets it as an argument. `db upgrade` can't be undone: dump the database before an
     # MLflow version bump.
@@ -256,8 +259,9 @@ networks:
   default:
     name: pi-airflow # the Airflow services and Postgres
   tasks:
-    # pipeline task containers: Postgres (precursor_meta only, as pi_meta) and internet egress for CMS, nothing
-    # else. They cannot reach the Airflow API server, the scheduler or the Docker proxy.
+    # pipeline task containers and the MLflow server: Postgres (precursor_meta as pi_meta, mlflow as mlflow), MLflow
+    # (no login, ML spec §16.1) and internet egress for CMS, nothing else. They cannot reach the Airflow API server,
+    # the scheduler or the Docker proxy.
     name: pi-airflow-tasks
     enable_ipv6: false # the Postgres rule is IPv4 only
     ipam:
