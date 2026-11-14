@@ -1,0 +1,228 @@
+"""Evaluation metrics for one set of labels and scores (docs/ML_PIPELINE_SPEC.md §6.1).
+
+Every function takes plain arrays: ``y`` (0/1 labels) and ``p`` (scores; calibrated probabilities where a metric
+needs them). The test frame holds one row per facility and test month, so the same functions serve the overall
+numbers and the per-month ones. Ported from PR #49 (``exp_common.py``, ``final_model_metrics.py``); the tests
+check them against scikit-learn where it has the same metric.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+import numpy as np
+import numpy.typing as npt
+from sklearn.metrics import roc_auc_score
+
+from ..training.data import average_precision
+
+Array = npt.NDArray[np.float64]
+
+
+def _arrays(y: npt.ArrayLike, p: npt.ArrayLike) -> tuple[Array, Array]:
+    ya, pa = np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64)
+    if ya.shape != pa.shape or ya.ndim != 1:
+        raise ValueError(
+            f"y and p must be 1-D arrays of the same length, got {ya.shape} and {pa.shape}"
+        )
+    if ya.size == 0:
+        raise ValueError("no rows")
+    if np.isnan(pa).any():
+        raise ValueError("scores contain NaN")
+    return ya, pa
+
+
+def pct(frac: float) -> str:
+    """0.05 -> "5", 0.025 -> "2.5": the suffix of ``precision_at_<pct>`` and friends."""
+    return f"{frac * 100:g}"
+
+
+def top_k(y: npt.ArrayLike, p: npt.ArrayLike, frac: float) -> dict[str, float]:
+    """Precision, recall and lift among the ``frac`` highest-scored rows (at least one row; ties by row order).
+
+    ``k = round(frac x rows)``, so the same fraction flags the same number of rows for every model on a frame.
+    """
+    ya, pa = _arrays(y, p)
+    if not 0 < frac <= 1:
+        raise ValueError(f"frac must be in (0, 1], got {frac}")
+    k = max(1, int(round(len(ya) * frac)))
+    top = np.argsort(-pa, kind="stable")[:k]
+    hits = float(ya[top].sum())
+    positives, base = float(ya.sum()), float(ya.mean())
+    precision = hits / k
+    return {
+        "k": float(k),
+        "precision": precision,
+        "recall": hits / positives if positives else float("nan"),
+        "lift": precision / base if base else float("nan"),
+    }
+
+
+def ranking_metrics(
+    y: npt.ArrayLike, p: npt.ArrayLike, fractions: Sequence[float]
+) -> dict[str, float]:
+    """PR-AUC, its lift over the base rate, ROC-AUC, and precision, recall and lift at each top fraction."""
+    ya, pa = _arrays(y, p)
+    base = float(ya.mean())
+    both = 0 < base < 1
+    pr_auc = average_precision(ya, pa) if base > 0 else float("nan")
+    out = {
+        "rows": float(len(ya)),
+        "positives": float(ya.sum()),
+        "base_rate": base,
+        "pr_auc": pr_auc,
+        "pr_auc_lift": pr_auc / base if base > 0 else float("nan"),
+        "roc_auc": float(roc_auc_score(ya, pa)) if both else float("nan"),
+    }
+    for frac in fractions:
+        t = top_k(ya, pa, frac)
+        out[f"precision_at_{pct(frac)}"] = t["precision"]
+        out[f"recall_at_{pct(frac)}"] = t["recall"]
+        out[f"lift_at_{pct(frac)}"] = t["lift"]
+    return out
+
+
+def reliability_table(y: npt.ArrayLike, p: npt.ArrayLike, bins: int) -> list[dict[str, float]]:
+    """``bins`` equal-mass bins of the sorted scores (``np.array_split``, ties by row order): per bin its rows, score
+    range, mean predicted probability, observed rate and their gap (observed minus predicted)."""
+    ya, pa = _arrays(y, p)
+    if bins < 1:
+        raise ValueError(f"bins must be >= 1, got {bins}")
+    order = np.argsort(pa, kind="stable")
+    rows = []
+    for i, idx in enumerate(np.array_split(order, min(bins, len(ya)))):
+        predicted, observed = float(pa[idx].mean()), float(ya[idx].mean())
+        rows.append(
+            {
+                "bin": float(i + 1),
+                "rows": float(len(idx)),
+                "p_min": float(pa[idx].min()),
+                "p_max": float(pa[idx].max()),
+                "mean_predicted": predicted,
+                "observed_rate": observed,
+                "gap": observed - predicted,
+            }
+        )
+    return rows
+
+
+def ece(y: npt.ArrayLike, p: npt.ArrayLike, bins: int) -> float:
+    """Expected calibration error: the row-weighted mean |observed - predicted| over equal-mass bins."""
+    table = reliability_table(y, p, bins)
+    n = sum(b["rows"] for b in table)
+    return sum(b["rows"] * abs(b["gap"]) for b in table) / n
+
+
+def probability_metrics(y: npt.ArrayLike, p: npt.ArrayLike, bins: int) -> dict[str, float]:
+    """Brier score, its skill against always predicting the base rate, ECE, the mean prediction vs the rate, and
+    the calibration slope and intercept."""
+    ya, pa = _arrays(y, p)
+    if ((pa < 0) | (pa > 1)).any():
+        raise ValueError("probabilities must be in [0, 1]")
+    base = float(ya.mean())
+    brier = float(np.mean((pa - ya) ** 2))
+    reference = base * (1 - base)  # the Brier score of predicting the base rate for every row
+    return {
+        "brier": brier,
+        "brier_reference": reference,
+        "brier_skill": 1 - brier / reference if reference else float("nan"),
+        "ece": ece(ya, pa, bins),
+        "mean_predicted": float(pa.mean()),
+        "observed_rate": base,
+        **{f"calibration_{k}": v for k, v in calibration_line(ya, pa).items()},
+    }
+
+
+def calibration_line(y: npt.ArrayLike, p: npt.ArrayLike, clip: float = 1e-6) -> dict[str, float]:
+    """Slope and intercept of the logistic recalibration ``y ~ sigmoid(a * logit(p) + b)`` (gate G4).
+
+    Perfect calibration is slope 1, intercept 0; a slope below 1 means the scores are too spread out (too sure).
+    Fitted by Newton's method on the two-parameter, unpenalised log-likelihood. Probabilities are clipped to
+    ``[clip, 1 - clip]`` before the logit.
+    """
+    ya, pa = _arrays(y, p)
+    if not 0 < ya.mean() < 1:
+        return {"slope": float("nan"), "intercept": float("nan")}
+    q = np.clip(pa, clip, 1 - clip)
+    x = np.column_stack([np.log(q / (1 - q)), np.ones(len(q))])
+    beta = np.array([1.0, 0.0])
+    for _ in range(100):
+        mu = 1 / (1 + np.exp(-(x @ beta)))
+        grad = x.T @ (ya - mu)
+        hess = (x * (mu * (1 - mu))[:, None]).T @ x
+        step = np.linalg.solve(hess, grad)
+        beta = beta + step
+        if np.abs(step).max() < 1e-10:
+            break
+    return {"slope": float(beta[0]), "intercept": float(beta[1])}
+
+
+def max_f1_threshold(y: npt.ArrayLike, p: npt.ArrayLike) -> float:
+    """The score cut-off with the highest F1 when rows with ``p >= threshold`` are flagged.
+
+    Chosen on the out-of-fold predictions, never on the test frame (§6.1). Candidates are the distinct scores; a
+    tie in F1 goes to the higher cut-off (fewer rows flagged).
+    """
+    ya, pa = _arrays(y, p)
+    positives = ya.sum()
+    if positives == 0:
+        raise ValueError("no positive rows: F1 is undefined")
+    order = np.argsort(-pa, kind="stable")
+    ys, ps = ya[order], pa[order]
+    last_of_tie = np.r_[np.diff(ps) != 0, True]  # flagging every row down to here = threshold ps[i]
+    tp = np.cumsum(ys)[last_of_tie]
+    flagged = np.arange(1, len(ys) + 1)[last_of_tie]
+    f1 = 2 * tp / (flagged + positives)
+    return float(ps[last_of_tie][int(np.argmax(f1))])
+
+
+def classification_metrics(
+    y: npt.ArrayLike, p: npt.ArrayLike, threshold: float
+) -> dict[str, float]:
+    """The confusion matrix and accuracy, precision, recall, F1 and MCC when rows with ``p >= threshold`` are
+    flagged (the course's classification metrics, §6.1)."""
+    ya, pa = _arrays(y, p)
+    flag, pos = pa >= threshold, ya == 1
+    tp, fp = float((flag & pos).sum()), float((flag & ~pos).sum())
+    fn, tn = float((~flag & pos).sum()), float((~flag & ~pos).sum())
+    precision = tp / (tp + fp) if tp + fp else float("nan")
+    recall = tp / (tp + fn) if tp + fn else float("nan")
+    denom = float(np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)))
+    return {
+        "threshold": float(threshold),
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "flag_rate": (tp + fp) / len(ya),
+        "accuracy": (tp + tn) / len(ya),
+        "precision": precision,
+        "recall": recall,
+        "f1": 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else float("nan"),
+        "mcc": (tp * tn - fp * fn) / denom if denom else 0.0,
+    }
+
+
+def within_group(
+    y: npt.ArrayLike, p: npt.ArrayLike, groups: npt.ArrayLike, frac: float
+) -> dict[str, float]:
+    """PR-AUC and precision at the top ``frac`` computed inside each group (e.g. state), then averaged with equal
+    weight per group (§6.1). It shows how well the model ranks homes against others in the same group, which the
+    overall numbers mix with differences between groups. Groups without both classes are skipped."""
+    ya, pa = _arrays(y, p)
+    ga = np.asarray(groups)
+    if ga.shape != ya.shape:
+        raise ValueError(f"groups must have one value per row, got {ga.shape} for {ya.shape}")
+    pr_aucs, precisions = [], []
+    for g in np.unique(ga):
+        mask = ga == g
+        yg = ya[mask]
+        if 0 < yg.mean() < 1:
+            pr_aucs.append(average_precision(yg, pa[mask]))
+            precisions.append(top_k(yg, pa[mask], frac)["precision"])
+    nan = float("nan")
+    return {
+        "groups": float(len(pr_aucs)),
+        "pr_auc": float(np.mean(pr_aucs)) if pr_aucs else nan,
+        f"precision_at_{pct(frac)}": float(np.mean(precisions)) if precisions else nan,
+    }

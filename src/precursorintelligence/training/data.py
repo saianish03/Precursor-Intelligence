@@ -71,6 +71,14 @@ def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def gold_config_sha(manifest: InputManifest) -> str:
+    """§15.2: sha256 of the canonical JSON of gold's ``{"config_sha256", "git_commit"}``. Gold built with other
+    configs or other code is another gold. ``gate`` writes it into ``ml_runs`` and ``decide`` matches on it, so
+    both call this one function."""
+    payload = {"config_sha256": manifest.gold_config_sha256, "git_commit": manifest.gold_git_commit}
+    return sha256_hex(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
 def _forbidden(name: str) -> bool:
     return (
         name in _FORBIDDEN_NAMES

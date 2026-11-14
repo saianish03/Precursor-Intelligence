@@ -311,3 +311,30 @@ def test_nan_rating_and_zero_beds_are_missing(cfg):
     out = build_slice_columns(df, cfg)
     assert out[slice_col("star_band")].to_list() == [MISSING, "2", MISSING]
     assert out[slice_col("bed_band")].to_list() == [MISSING, MISSING, "<50"]
+
+
+@pytest.mark.parametrize("scheme", ["inverse_frequency", "balance_label_rate"])
+def test_weights_fit_on_the_rows_they_are_given(cfg, scheme):
+    # an ML training frame has no gold train split of its own: it passes its rows (leakage test 9)
+    df = build_slice_columns(make_gold(rate={"government": 0.6, "non_profit": 0.3}), cfg)
+    frame = df.filter(pl.col("split_g12") == "test").drop("split_g12")
+    everything = pl.Series([True] * frame.height)
+    w = sample_weights(frame, cfg, scheme, fit=everything)
+    assert w["weight"].null_count() == 0 and w["weight"].mean() == pytest.approx(1.0)
+    assert (
+        sample_weights(frame, cfg, scheme)["weight"].null_count() == frame.height
+    )  # the default: no train
+
+    half = pl.Series([i % 2 == 0 for i in range(frame.height)])
+    flipped = frame.with_columns(
+        pl.when(~half).then(1 - pl.col("y_g12")).otherwise(pl.col("y_g12")).alias("y_g12")
+    )
+    a = sample_weights(frame, cfg, scheme, fit=half)
+    assert a["weight"].equals(sample_weights(flipped, cfg, scheme, fit=half)["weight"])
+    assert a.filter(~half)["weight"].null_count() == (~half).sum()
+
+
+def test_the_fit_mask_must_match_the_frame(cfg):
+    df = build_slice_columns(make_gold(), cfg)
+    with pytest.raises(ValueError, match="one value per row"):
+        sample_weights(df, cfg, "inverse_frequency", fit=pl.Series([True]))
