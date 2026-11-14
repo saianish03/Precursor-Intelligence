@@ -41,3 +41,47 @@ def test_register_find_alias_tag_and_load(trained, tracking):
 
     loaded = reg.load_model(uri)
     assert np.allclose(loaded.predict_frame(sample)["p"], model.predict_frame(sample)["p"])
+
+
+class _Client:
+    """An MlflowClient stand-in that raises the given MLflow error on every call."""
+
+    def __init__(self, exc):
+        self.exc = exc
+
+    def __getattr__(self, name):
+        def fail(*a, **kw):
+            raise self.exc
+
+        return fail
+
+
+def test_only_a_missing_resource_reads_as_none():
+    import pytest
+    from mlflow.exceptions import MlflowException
+    from mlflow.protos.databricks_pb2 import (
+        INTERNAL_ERROR,
+        INVALID_PARAMETER_VALUE,
+        RESOURCE_DOES_NOT_EXIST,
+    )
+
+    reg = MlflowRegistry.__new__(MlflowRegistry)
+    reg.name = "m"
+    missing = MlflowException(
+        "Model Version (name=m, version=1) not found", RESOURCE_DOES_NOT_EXIST
+    )
+    reg.client = _Client(missing)
+    assert reg.by_alias("champion") is None and reg.get(1) is None
+    reg.client = _Client(
+        MlflowException("Registered model alias champion not found.", INVALID_PARAMETER_VALUE)
+    )
+    assert reg.by_alias("champion") is None
+    # a server error is not "no champion": it propagates, so the task fails and is retried
+    reg.client = _Client(MlflowException("bad gateway", INTERNAL_ERROR))
+    for call in (
+        lambda: reg.by_alias("champion"),
+        lambda: reg.get(1),
+        lambda: reg.find_by_ml_run_id("r"),
+    ):
+        with pytest.raises(MlflowException):
+            call()

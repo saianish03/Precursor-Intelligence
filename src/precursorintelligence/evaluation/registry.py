@@ -11,11 +11,11 @@ its gates went. Two aliases: ``champion`` (what ``score`` loads, moved only by `
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from ..common.config import MlConfig
+from ..common.io.metadata_store import MetadataStore
 
 if TYPE_CHECKING:
     from ..training.ensemble import PrecursorModel
@@ -47,6 +47,18 @@ class MlflowRegistry:
         self.name = model_name
         self.client = MlflowClient()
 
+    @staticmethod
+    def _missing(exc: Exception) -> bool:
+        """MLflow raises the same exception type for "no such alias/version/model" and for a network error or a
+        5xx. Only the first means None; anything else propagates (exit 1, retried), so a server blip never reads
+        as "no champion" and a retried gate never registers a second version."""
+        code = getattr(exc, "error_code", None)
+        if code == "RESOURCE_DOES_NOT_EXIST":
+            return True
+        # MLflow reports an unset alias as an invalid parameter: "Registered model alias <a> not found."
+        msg = str(exc)
+        return code == "INVALID_PARAMETER_VALUE" and "alias" in msg and "not found" in msg
+
     def _version(self, mv: object) -> RegisteredVersion:
         return RegisteredVersion(int(mv.version), dict(mv.tags or {}))  # type: ignore[attr-defined]
 
@@ -55,16 +67,20 @@ class MlflowRegistry:
 
         try:
             return self._version(self.client.get_model_version_by_alias(self.name, alias))
-        except MlflowException:  # no such alias, or no such model yet
-            return None
+        except MlflowException as exc:
+            if self._missing(exc):  # no such alias, or no such model yet
+                return None
+            raise
 
     def get(self, version: int) -> RegisteredVersion | None:
         from mlflow.exceptions import MlflowException
 
         try:
             return self._version(self.client.get_model_version(self.name, str(version)))
-        except MlflowException:
-            return None
+        except MlflowException as exc:
+            if self._missing(exc):
+                return None
+            raise
 
     def find_by_ml_run_id(self, ml_run_id: str) -> RegisteredVersion | None:
         """The version a retried ``gate`` already registered for this run (§9.2: registration is idempotent)."""
@@ -72,8 +88,10 @@ class MlflowRegistry:
 
         try:
             versions = self.client.search_model_versions(f"name = '{self.name}'")
-        except MlflowException:
-            return None
+        except MlflowException as exc:
+            if self._missing(exc):
+                return None
+            raise
         hits = [v for v in versions if (v.tags or {}).get("ml_run_id") == ml_run_id]
         return self._version(min(hits, key=lambda v: int(v.version))) if hits else None
 
@@ -82,7 +100,9 @@ class MlflowRegistry:
 
         try:
             self.client.get_registered_model(self.name)
-        except MlflowException:
+        except MlflowException as exc:
+            if not self._missing(exc):
+                raise
             self.client.create_registered_model(self.name)
         mv = self.client.create_model_version(self.name, model_uri, tags=dict(tags))
         return self._version(mv)
@@ -97,8 +117,11 @@ class MlflowRegistry:
     def delete_alias(self, alias: str) -> None:
         from mlflow.exceptions import MlflowException
 
-        with suppress(MlflowException):  # not set: nothing to delete
+        try:
             self.client.delete_registered_model_alias(self.name, alias)
+        except MlflowException as exc:
+            if not self._missing(exc):  # not set: nothing to delete
+                raise
 
     def load_model(self, model_uri: str) -> PrecursorModel:
         import mlflow
@@ -109,6 +132,31 @@ class MlflowRegistry:
         if not isinstance(model, PrecursorModel):
             raise TypeError(f"{model_uri} is not a PrecursorModel package")
         return model
+
+
+PROMOTION_ACTIONS = ("promote", "manual_promote", "rollback")
+
+
+def recorded_champion(meta: MetadataStore) -> int | None:
+    """``champion_version_after`` of the latest ``ml_runs`` row that moved the champion (§9.4), or None."""
+    rows = [r for r in meta.read("ml_runs") if r.get("action") in PROMOTION_ACTIONS]
+    if not rows:
+        return None
+    latest: int | None = max(rows, key=lambda r: r["id"])["champion_version_after"]
+    return latest
+
+
+def check_champion_integrity(meta: MetadataStore, alias_version: int | None) -> None:
+    """§9.4: ``@champion`` must be the version the latest promote, manual_promote or rollback row recorded. An
+    alias moved by hand in the MLflow UI, outside the gates, is refused (exit 2). ``score`` (W3) uses this too."""
+    recorded = recorded_champion(meta)
+    if alias_version != recorded:
+        from ..training import MlInputError
+
+        raise MlInputError(
+            f"@champion is version {alias_version} but ml_runs last recorded {recorded}: the alias was moved "
+            "outside gate/promote"
+        )
 
 
 def default_registry(cfg: MlConfig) -> Registry | None:
