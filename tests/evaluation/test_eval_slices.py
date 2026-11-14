@@ -182,3 +182,28 @@ def test_small_or_missing_values_are_not_gated():
 
 def test_w1_selection_finds_this_check():
     assert default_bias_check() is bias_check_oof
+
+
+def test_slice_comparisons_see_a_group_get_worse():
+    from precursorintelligence.evaluation.slices import slice_comparisons
+
+    rows, y, p = homes(n_homes=3000, seed=8)
+    worse = p + np.where(rows["ownership_group"].to_numpy() == "for_profit", -0.1, 0.0)
+    values = pl.DataFrame({"slice": ["ownership_group"] * 2, "value": ["for_profit", "non_profit"]})
+    out = {
+        c.value: c
+        for c in slice_comparisons(
+            rows, y, worse, p, values=values, bias_cfg=CFG, replicates=100, seed=0
+        )
+    }
+    assert out["for_profit"].abs_oe_diff.ci_low > 0.05  # its calibration got clearly worse
+    same = out["non_profit"]
+    assert same.abs_oe_diff.estimate == pytest.approx(0) and same.pr_auc_diff.estimate == 0
+
+
+def test_no_values_no_comparisons():
+    from precursorintelligence.evaluation.slices import slice_comparisons
+
+    rows, y, p = homes()
+    empty = pl.DataFrame({"slice": [], "value": []}, schema={"slice": pl.Utf8, "value": pl.Utf8})
+    assert slice_comparisons(rows, y, p, p, values=empty, bias_cfg=CFG, replicates=5, seed=0) == []

@@ -35,6 +35,8 @@ from ..bias.slices import MISSING, build_slice_columns, slice_col
 from ..common.config import FeatureRegistry, MlConfig, load_feature_registry, project_root
 from ..training.data import average_precision
 from ..training.select import BiasOutcome
+from .bootstrap import facility_bootstrap
+from .gates import Interval, SliceComparison
 
 GEOGRAPHIC = (
     "state",
@@ -259,3 +261,55 @@ def bias_check_oof(rows: pl.DataFrame, p: np.ndarray, cfg: MlConfig) -> BiasOutc
     if failures.height:
         detail["failing"] = describe(failures)
     return BiasOutcome(passed=failures.height == 0, detail=detail)
+
+
+def _slice_metric(y: np.ndarray, p: np.ndarray) -> dict[str, float]:
+    base = float(y.mean())
+    return {
+        "abs_oe": abs(base - float(p.mean())),
+        "pr_auc": average_precision(y, p) if 0 < base < 1 else float("nan"),
+    }
+
+
+def slice_comparisons(
+    rows: pl.DataFrame,
+    y: npt.ArrayLike,
+    p_new: npt.ArrayLike,
+    p_ref: npt.ArrayLike,
+    *,
+    values: pl.DataFrame,
+    bias_cfg: BiasConfig,
+    registry: FeatureRegistry | None = None,
+    replicates: int,
+    seed: int,
+) -> list[SliceComparison]:
+    """G7(a): for each (``slice``, ``value``) row of ``values``, |O-E| and PR-AUC of ``p_new`` minus ``p_ref`` on
+    the same rows, with paired facility-bootstrap intervals. ``rows`` are the scored rows in the order of ``y``."""
+    ya = np.asarray(y, dtype=np.float64)
+    new, ref = np.asarray(p_new, dtype=np.float64), np.asarray(p_ref, dtype=np.float64)
+    names = sorted(set(values["slice"].to_list()))
+    if not names:
+        return []
+    only = bias_cfg.model_copy(update={"slices": SlicesCfg(single=names)})
+    frame = build_slice_columns(rows, only, registry)
+    ccn = frame["ccn"].to_numpy()
+    out = []
+    for r in values.select("slice", "value").iter_rows(named=True):
+        mask = (frame[slice_col(r["slice"])] == r["value"]).to_numpy()
+        boot = facility_bootstrap(
+            ya[mask],
+            {"new": new[mask], "ref": ref[mask]},
+            ccn[mask],
+            _slice_metric,
+            replicates=replicates,
+            seed=seed,
+        )
+        out.append(
+            SliceComparison(
+                slice=r["slice"],
+                value=r["value"],
+                abs_oe_diff=Interval(**boot.difference("new", "ref", "abs_oe")),
+                pr_auc_diff=Interval(**boot.difference("new", "ref", "pr_auc")),
+            )
+        )
+    return out
