@@ -43,6 +43,7 @@ SECRETS=(
   smtp-password:PI_ALERT_SMTP_PASSWORD
   alert-smtp-user:PI_ALERT_SMTP_USER
   alert-email-to:PI_ALERT_EMAIL_TO
+  mlflow-db-password:MLFLOW_DB_PASSWORD
 )
 # What a deploy waits for. The release check counts here (a deploy would kill its task), unlike for the idle shutdown.
 BUSY_DAGS="cms_nh_pipeline cms_nh_ml cms_nh_release_check"
@@ -135,10 +136,11 @@ promote() { # staged folder -> the stable folder and the env file (the folder ke
 }
 
 # After `up`: the Airflow containers run this sha's image and tell tasks to use this sha's pipeline image, and
-# Postgres's first two pg_hba.conf lines name the task network's real subnet (L11 review: else the rule silently
-# stops matching). The services are docker-compose.yaml's.
+# Postgres's first pg_hba.conf lines name the task network's real subnet (L11 review: else the rule silently
+# stops matching). A database created before MLflow (W4) has two (pi_meta, reject), a newer one three (pi_meta,
+# mlflow, reject): a restore or a new disk must not fail every deploy. The services are docker-compose.yaml's.
 check_running() { # sha
-  local want_img svc cid vars subnet top
+  local want_img svc cid vars subnet top meta ml rej
   want_img=$(docker image inspect --format '{{.Id}}' "$REGISTRY/airflow:$1")
   for svc in airflow-apiserver airflow-scheduler airflow-dag-processor airflow-triggerer; do
     cid=$(running "$svc")
@@ -150,9 +152,12 @@ check_running() { # sha
     || { err "the scheduler points tasks at another pipeline image"; return 1; }
   subnet=$(docker network inspect pi-airflow-tasks --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}')
   # shellcheck disable=SC2016 # $PGDATA is the container's
-  top=$(dc exec -T postgres sh -c 'head -n 2 "$PGDATA/pg_hba.conf"')
-  [ "$top" = "host precursor_meta pi_meta $subnet scram-sha-256"$'\n'"host all all $subnet reject" ] \
-    || { err "pg_hba.conf's task-network rule doesn't match the network's subnet ($subnet)"; return 1; }
+  top=$(dc exec -T postgres sh -c 'head -n 3 "$PGDATA/pg_hba.conf"')
+  meta="host precursor_meta pi_meta $subnet scram-sha-256"
+  ml="host mlflow mlflow $subnet scram-sha-256"
+  rej="host all all $subnet reject"
+  [ "$top" = "$meta"$'\n'"$ml"$'\n'"$rej" ] || [ "$(head -n 2 <<< "$top")" = "$meta"$'\n'"$rej" ] \
+    || { err "pg_hba.conf's task-network rules don't match the network's subnet ($subnet)"; return 1; }
 }
 
 # Don't replace the stack under a running or queued run. Returns 3 when paused meanwhile.

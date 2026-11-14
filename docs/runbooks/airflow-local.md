@@ -6,11 +6,12 @@ One DAG, `cms_nh_pipeline` (spec §15), runs the implemented nodes **ingestion �
 
 ```
 docker compose (docker/airflow-local/)
-  postgres:16         databases airflow + precursor_meta (named volume; on the VM, the data disk)
+  postgres:16         databases airflow + precursor_meta + mlflow (named volume; on the VM, the data disk)
+  mlflow              tracking server and registry, on the task network only (off on the VM until Phase 2)
   airflow-*           precursor-airflow image: api-server, scheduler (LocalExecutor), dag-processor, triggerer
   docker-proxy        the only Docker API access (containers + images), on an internal network only the
                       scheduler joins
-  task containers     own network: Postgres + internet egress only (not Airflow, not the Docker API)
+  task containers     own network: Postgres, MLflow + internet egress only (not Airflow, not the Docker API)
 DAG task → PipelineDockerOperator → precursor-pipeline container on the compose network
   laptop: --env dev,  host folder bind-mounted at /app/data (the "bucket")
   VM:     --env prod, gs://precursor-intel-mlops-data via the VM's service account (no mount)
@@ -20,15 +21,16 @@ DAG task → PipelineDockerOperator → precursor-pipeline container on the comp
 ```bash
 docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) -t precursor-pipeline:latest .   # full SHA: gold's manifest records it
 docker build -f docker/airflow.Dockerfile -t precursor-airflow:latest .
+docker build -f docker/mlflow.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) -t precursor-mlflow:latest .
 ```
 Rebuild `precursor-pipeline` after any change to `src/` or `configs/`; a task runs whatever the image holds. `precursor-airflow` contains the DAGs too, but on a laptop `docker-compose.override.yaml` (loaded automatically by `docker compose` in `docker/airflow-local/`) mounts the working tree over them, so a DAG edit needs no rebuild. If you run compose with `-f`, name both files: `-f docker-compose.yaml -f docker-compose.override.yaml`. Rebuild `precursor-airflow` after any change to `docker/airflow.Dockerfile`, and **once after the DAGs moved into the image**: `PYTHONPATH` now comes from the image, so an older `precursor-airflow` fails to import the DAG (`airflow dags list-import-errors` shows `No module named 'precursorintelligence'`).
 
 ## 2. Configure and start
 ```bash
 cd docker/airflow-local
-cp .env.example .env && chmod 600 .env   # set the 4 secrets (required; commands in the file), PI_HOST_DATA_DIR
+cp .env.example .env && chmod 600 .env   # set the 5 secrets (required; commands in the file), PI_HOST_DATA_DIR
 mkdir -p "$PI_HOST_DATA_DIR"
-docker compose up -d --wait --pull never     # --pull never: the two precursor-* images are local builds
+docker compose up -d --wait --pull never     # --pull never: the three precursor-* images are local builds
 ```
 - **UI:** http://localhost:8080. User `admin`; the password is in the `airflow-config` volume:
   `docker compose exec airflow-apiserver cat /opt/airflow/config/simple_auth_manager_passwords.json`
@@ -36,7 +38,35 @@ docker compose up -d --wait --pull never     # --pull never: the two precursor-*
 - **The DAG starts paused.** Unpause it: `docker compose exec airflow-scheduler airflow dags unpause cms_nh_pipeline`.
 - **Once after the task network got its fixed subnet** (`172.16.77.0/24`): with no DAG run in flight, run `docker compose down`, then `up` again. Compose can't change an existing network's subnet; volumes are kept. Several compose projects on one laptop (e.g. `-p dp_gcp_test`) share the network names, so take all of them down first. Check: `docker network inspect pi-airflow-tasks -f '{{(index .IPAM.Config 0).Subnet}}'` prints `172.16.77.0/24`. An existing database keeps its old access rules: only a new Postgres volume gets the task-network rule (the VM's database is created new).
 
-### 2.1 Against the GCS bucket from a laptop
+### 2.1 MLflow
+The stack runs an MLflow tracking server and model registry (ML spec §16.1): service `mlflow`, database `mlflow` in the same Postgres, created by the one-shot `postgres-setup` at every start.
+- **UI:** http://localhost:5001 (`PI_MLFLOW_HOST_PORT`; 5000 is AirPlay on macOS). Task containers use `http://mlflow:5000` (`MLFLOW_TRACKING_URI`, set by `docker_kwargs`).
+- **Network:** the server has no login, so it is on the task network only: the Airflow services can't reach it, and it can't reach them.
+- **Artifacts:** in the named volume `mlflow-artifacts` by default. For the shared bucket, set `PI_MLFLOW_ARTIFACTS=gs://precursor-intel-mlops-mlflow/ml-dev` and `PI_GCP_CREDENTIALS_FILE` (§2.2); the `ml-dev/` prefix keeps laptop runs apart from the VM's, so they can be deleted on their own. A run logged against one destination keeps its artifact paths: switch before the first real run, or start with a new `mlflow` database.
+- **Once, on a database that has the task-network rule but no `mlflow` line** (created after the subnet was fixed and before W4): Postgres refuses the task network everything but `pi_meta` (`init-db.sh` runs only on an empty volume), so add the `mlflow` line on top and reload. Check first with the last command below: a database with no `172.16.77.0/24` lines at all is older than the rule and needs nothing.
+  ```bash
+  docker compose exec postgres sh -c 'sed -i "/^host all all 172\.16\.77\.0\/24 reject\$/i host mlflow mlflow 172.16.77.0/24 scram-sha-256" "$PGDATA/pg_hba.conf"'
+  docker compose exec postgres psql -U airflow -d airflow -c 'SELECT pg_reload_conf()'
+  docker compose exec postgres psql -U airflow -d airflow -c 'SELECT line_number, database, user_name, address, auth_method FROM pg_hba_file_rules LIMIT 3'
+  ```
+  The order must be `pi_meta`, `mlflow`, then the reject line, as on a new database: that is the order `pi-deploy` checks, so the VM's Phase 2 step is this same command. Without the line, `mlflow` restarts with `no pg_hba.conf entry`.
+- **After pulling a change to the compose file or the DAGs, run `docker compose up -d --wait`** before triggering a run: the override mounts the new DAGs at once, and a task in the pool `heavy` waits forever (holding the pipeline lock) until `airflow-init` has created that pool.
+- **One compose project at a time:** projects share the network name `pi-airflow-tasks`, so `mlflow` (like `postgres`) could resolve to the other project's server.
+- **Check:** from the task network, the health URL answers and a run is logged:
+  ```bash
+  docker run --rm --network pi-airflow-tasks -e MLFLOW_TRACKING_URI=http://mlflow:5000 precursor-pipeline:latest python -c "
+  import mlflow, urllib.request
+  print(urllib.request.urlopen('http://mlflow:5000/health').status)
+  mlflow.set_experiment('smoke')
+  with mlflow.start_run(run_name='smoke') as run:
+      mlflow.log_metric('ok', 1)
+      mlflow.log_text('hello', 'hello.txt')
+  print(run.info.run_id)"
+  ```
+  It prints `200` and a run id; the run shows in the UI under `smoke` with its artifact. Delete the experiment in the UI afterwards.
+- **An MLflow version bump** runs `mlflow db upgrade` on start, which can't be undone: dump the database first (`docker compose exec postgres pg_dump -U airflow -Fc mlflow > mlflow.dump`).
+
+### 2.2 Against the GCS bucket from a laptop
 Each layer gets its own folder in one bucket: `gs://precursor-intel-mlops-data/{landing,bronze,silver,gold,reports,metadata}/…`. `quarantine/` appears only if a download failed. Each folder appears on its first write.
 
 **Don't create folders by hand in the console:** a zero-byte placeholder inside a table folder breaks the reads.
@@ -166,9 +196,10 @@ The VM `pi-airflow` and its Postgres data disk are in Terraform (T19; `infra/REA
   - `PI_ALERT_SMTP_HOST=smtp.gmail.com`: the alert sender is a Gmail account (port 587, the default);
   - Postgres data in `${PI_PGDATA_DIR:-/mnt/disks/pgdata}/data` on the data disk, instead of the named volume. The disk's setup creates that folder once; compose never does, so an unmounted disk stops Postgres instead of starting an empty database on the boot disk.
 - **The env file must set these, or compose stops** (none has a default on the VM):
-  - the laptop's four secrets plus `AIRFLOW_API_SECRET_KEY`, all from Secret Manager;
+  - the laptop's five secrets plus `AIRFLOW_API_SECRET_KEY`, all from Secret Manager (`MLFLOW_DB_PASSWORD` too, although MLflow is off on the VM: compose checks every required variable);
   - `PI_RELEASE_SHA`: the full git sha of the release. Both images come from Artifact Registry with that tag, so they can't come from different commits;
   - `PI_ALERT_SMTP_USER`, `PI_ALERT_SMTP_PASSWORD` and `PI_ALERT_EMAIL_TO`, from the secrets `alert-smtp-user`, `smtp-password` and `alert-email-to`, so a failed run emails someone. The two addresses aren't secret, but email addresses stay out of this public repository.
+- **MLflow is off on the VM until Phase 2:** `docker-compose.vm.yaml` puts `mlflow` and `postgres-setup` in the profile `phase2`, which nothing enables. Phase 2 publishes the image, adds the database to `pi-pg-backup` and `pi-pg-restore`, and removes the profile (ML spec §16.1).
 - **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The scripts are `infra/vm/pi-pg-backup` and `pi-pg-restore`; a restore is done by a person with their own login (steps in `infra/vm/README.md`). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` run or an SSH session.
 - **Credentials:** the VM runs as `sa-pipeline`, with no key file: gcsfs and gcloud get its tokens from the GCE metadata server. Its roles (Terraform, #41):
   - `storage.objectAdmin` on the data bucket;
@@ -177,7 +208,7 @@ The VM `pi-airflow` and its Postgres data disk are in Terraform (T19; `infra/REA
   - `artifactregistry.reader` on the `precursor` repository;
   - `logging.logWriter` and `monitoring.metricWriter` on the project.
 
-  **Task containers reach the metadata server too, so they get the same identity.** A compromised task could therefore read the secrets as well, including the Postgres superuser password (`airflow-db-password`). So Postgres refuses every login from the task network except `pi_meta` on `precursor_meta` (`init-db.sh`, on the network's fixed subnet `172.16.77.0/24`), and that password is useless from a task. The other secrets stay readable from a task but are of little use there: the Airflow API is unreachable from the task network, the Fernet key is useless without the Airflow database, and the SMTP password could only send email as the alert sender.
+  **Task containers reach the metadata server too, so they get the same identity.** A compromised task could therefore read the secrets as well, including the Postgres superuser password (`airflow-db-password`) and, once MLflow runs on the VM, `mlflow-db-password`. So Postgres refuses every login from the task network except `pi_meta` on `precursor_meta` (`init-db.sh`, on the network's fixed subnet `172.16.77.0/24`), and that password is useless from a task. The other secrets stay readable from a task but are of little use there: the Airflow API is unreachable from the task network, the Fernet key is useless without the Airflow database, and the SMTP password could only send email as the alert sender.
 - **Images:** CD (`.github/workflows/cd.yml`) pushes both on every merge into `dev` or `main` that changes an image input, tagged with the full commit sha: `us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/{pipeline,airflow}:<sha>` (immutable tags, never `latest`; run it by hand from the Actions tab to publish the current tip of `dev` or `main`, e.g. a commit whose push changed no image input). The VM pre-pulls by sha on deploy (`gcloud auth configure-docker us-central1-docker.pkg.dev`, `docker pull`). The Docker proxy sends no registry credentials, and `force_pull` is off.
 - **Release check (production):** unpause it only once gold is published, and pause it during a backfill or a node-by-node (`stop_after`) run: a RESUME starts the default monthly run, which neither calibrates nor re-validates every month. Unpause `cms_nh_pipeline` first, then `cms_nh_release_check`. Airflow does not queue an asset event for a paused DAG, so a release found while the pipeline is paused starts nothing until the pipeline is unpaused (each check emits it again, since no run started). While developing, keep the release check paused and trigger runs by hand. The checks so far: `select checked_at, decision, target, reason from vintage_registry order by id desc limit 24;` in `precursor_meta`.
 - **A failure that keeps happening reruns about once a day:** e.g. new penalties headers (they fail closed, #44) or validation errors after gold give RESUME → the run fails and emails → BLOCKED for `release_check.repeat_after_hours` (24 h) → RESUME again. So while the VM is up, expect one rerun and one failure email a day until a fix is deployed (a new commit proceeds at the next check), CMS publishes something new, or you pause `cms_nh_release_check`.

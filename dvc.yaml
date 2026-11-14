@@ -56,3 +56,31 @@ stages:
     metrics:
       - metrics/toy_gold.json:
           cache: false
+  # The ML smoke run (ML spec §16.2) on the synthetic ML gold, with the toy settings the fixture writes
+  # (<dir>/ml.yaml). Today it runs `ml prepare` only; each work package adds its command (train, evaluate, gate,
+  # score) as it lands. Only the summary is tracked: the run folder and an MLflow store carry run ids.
+  toy_ml:
+    cmd: >-
+      rm -rf data/toy_ml &&
+      python tests/ml/make_ml_gold.py data/toy_ml &&
+      precursor-pipeline ml prepare --env-file data/toy_ml/env.yaml --ml-config data/toy_ml/ml.yaml
+      --run-id toy-ml > data/toy_ml/prepare.out &&
+      tail -n 1 data/toy_ml/prepare.out > metrics/toy_ml.json
+    deps:
+      - tests/ml/make_ml_gold.py
+      # the parquet hash (dataset_version) records the writer's library version
+      - uv.lock
+      # what the fixture and `ml prepare` import and load
+      - src/precursorintelligence/common
+      - src/precursorintelligence/gold
+      - src/precursorintelligence/harmonize
+      - src/precursorintelligence/ingestion
+      - src/precursorintelligence/training
+      - configs/feature_registry.yaml
+      - configs/labels.yaml
+      - configs/logging.yaml
+      - configs/ml.yaml
+      - configs/splits.yaml
+    metrics:
+      - metrics/toy_ml.json:
+          cache: false

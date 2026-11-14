@@ -8,7 +8,10 @@ built on it match what real gold gives. The label depends on a hidden facility r
 model can learn it. ``gold/`` holds what ``prepare`` reads: the merged parquet, ``dataset_manifest.json`` and
 ``_current.json``.
 
-    python tests/ml/make_ml_gold.py <dir>      # writes <dir>/gold/... and <dir>/env.yaml
+    python tests/ml/make_ml_gold.py <dir>      # writes <dir>/gold/..., <dir>/env.yaml and <dir>/ml.yaml
+
+``<dir>/ml.yaml`` is the toy smoke run's settings (DVC stage ``toy_ml``, spec §16.2): the repo's ml.yaml made small
+and fast, with ``gates.first_run: promote`` so the chain reaches ``score``.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from precursorintelligence.common.config import (
     load_labels_config,
     load_ml_config,
     load_splits_config,
+    project_root,
 )
 from precursorintelligence.gold.dataset import settings_sha256
 from precursorintelligence.gold.splits import add_splits, last_labeled_t, shift
@@ -40,6 +44,14 @@ CMS_GAPS = ("2021-12", "2022-12", "2023-12", "2024-12", "2025-01", "2025-08", "2
 STATES = ("CA", "TX", "NY", "FL", "OH", "PA")
 OWNERSHIP = ("For profit", "Non profit", "Government")
 RUN_ID = "20261111T000000Z-fixture"
+TOY_ML = {  # merged over configs/ml.yaml
+    "windows": {"train_months": 4, "min_train_months": 2},
+    "folds": {"k": 2},
+    "members": {"lgbm": {"n_estimators": 50}},
+    "checks": {"min_score_facilities": 100},
+    "evaluation": {"bootstrap": {"replicates": 200}},
+    "gates": {"first_run": "promote"},
+}
 _SIGNAL = {  # feature -> how strongly it follows the facility's risk
     "n_cit_GI_24m": 0.9,
     "sev_points_12m": 0.8,
@@ -72,6 +84,20 @@ def ml_config(**checks: object) -> MlConfig:
     cfg = load_ml_config()
     merged = {**cfg.checks.model_dump(), "min_score_facilities": 50, **checks}
     return cfg.model_copy(update={"checks": type(cfg.checks).model_validate(merged)})
+
+
+def write_toy_ml_config(path: Path) -> MlConfig:
+    """configs/ml.yaml with TOY_ML merged in, checked by MlConfig, written to ``path``."""
+
+    def merge(base: dict, over: dict) -> dict:
+        return {k: merge(base[k], v) if isinstance(v, dict) else v for k, v in over.items()} | {
+            k: v for k, v in base.items() if k not in over
+        }
+
+    merged = merge(yaml.safe_load((project_root() / "configs" / "ml.yaml").read_text()), TOY_ML)
+    cfg = MlConfig.model_validate(merged)
+    path.write_text(yaml.safe_dump(merged, sort_keys=False))
+    return cfg
 
 
 def build_frame(n_facilities: int, v: str, v_labels: str, seed: int) -> pl.DataFrame:
@@ -224,4 +250,5 @@ if __name__ == "__main__":
     p.add_argument("--facilities", type=int, default=300)
     a = p.parse_args()
     g = make_ml_gold(a.out, n_facilities=a.facilities)
+    write_toy_ml_config(g.root / "ml.yaml")
     print(f"gold V {g.v} at {g.root}/gold ({g.merged_sha256[:12]})")

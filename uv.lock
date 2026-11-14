@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11, <3.13"
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform == 'darwin'",
@@ -3536,9 +3536,6 @@ dvc = [
     { name = "dvc", extra = ["gs"] },
 ]
 ml = [
-    { name = "catboost" },
-    { name = "evidently" },
-    { name = "interpret" },
     { name = "joblib" },
     { name = "lightgbm" },
     { name = "mlflow" },
@@ -3546,6 +3543,11 @@ ml = [
     { name = "scikit-learn" },
     { name = "shap", version = "0.51.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "shap", version = "0.53.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+ml-extra = [
+    { name = "catboost" },
+    { name = "evidently" },
+    { name = "interpret" },
 ]
 mlflow-server = [
     { name = "google-cloud-storage" },
@@ -3593,11 +3595,11 @@ notebooks = [
 
 [package.metadata]
 requires-dist = [
-    { name = "catboost", marker = "extra == 'ml'", specifier = ">=1.2.10" },
+    { name = "catboost", marker = "extra == 'ml-extra'", specifier = ">=1.2.10" },
     { name = "certifi", marker = "extra == 'pipeline'", specifier = ">=2026.7.22" },
     { name = "duckdb", marker = "extra == 'pipeline'", specifier = ">=1.5.6" },
     { name = "dvc", extras = ["gs"], marker = "extra == 'dvc'", specifier = ">=3.67.1" },
-    { name = "evidently", marker = "extra == 'ml'", specifier = ">=0.7.23" },
+    { name = "evidently", marker = "extra == 'ml-extra'", specifier = ">=0.7.23" },
     { name = "fairlearn", marker = "extra == 'bias'", specifier = ">=0.15.0" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.143.0" },
     { name = "fsspec", marker = "extra == 'pipeline'", specifier = ">=2026.9.0" },
@@ -3610,7 +3612,7 @@ requires-dist = [
     { name = "google-cloud-storage", marker = "extra == 'pipeline'", specifier = ">=3.17.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'ui'", specifier = ">=0.28.1" },
-    { name = "interpret", marker = "extra == 'ml'", specifier = ">=0.7.8" },
+    { name = "interpret", marker = "extra == 'ml-extra'", specifier = ">=0.7.8" },
     { name = "joblib", marker = "extra == 'ml'", specifier = ">=1.6.0" },
     { name = "lightgbm", marker = "extra == 'ml'", specifier = ">=4.7.0" },
     { name = "matplotlib", marker = "extra == 'bias'", specifier = ">=3.11.2" },
@@ -3639,7 +3641,7 @@ requires-dist = [
     { name = "typer", marker = "extra == 'pipeline'", specifier = ">=0.27.3" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.54.0" },
 ]
-provides-extras = ["pipeline", "ml", "agents", "api", "ui", "mlflow-server", "dvc", "bias"]
+provides-extras = ["pipeline", "ml", "ml-extra", "agents", "api", "ui", "mlflow-server", "dvc", "bias"]
 
 [package.metadata.requires-dev]
 dev = [
