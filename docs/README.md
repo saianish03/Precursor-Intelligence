@@ -10,6 +10,7 @@
 | `BRONZE_CONTRACT.md` | What the bronze node guarantees and what silver may assume: layout, columns, metadata tables, flags, exit codes, measured numbers |
 | `ALERTS_HANDOFF.md` | Ticket 2 (pipeline alerts): the signals the pipeline already records, what to alert on, how to force each case, and every problem found while wiring gold into the DAG |
 | `GOLD_HANDOFF.md` | Gold so far (spine, labels, `precursor-pipeline gold`) and what the features and assembly work must build: outputs, runs, toy world, leakage and join rules, open questions |
+| `ML_W2_HANDOFF.md` | ML W2 → W3: what `ml evaluate`, `ml gate` and `ml promote` give scoring: `champion.json`, the registry version and its tags, the `ml_runs` integrity check, the `serving/explain.py` contract (G2 additivity), and how to get a champion locally |
 | `VALIDATION.md` | `precursor-pipeline validate`: schema (Pandera) and month-over-month drift checks of silver and gold, outputs, exit codes, baselines, DAG wiring, follow-ups |
 | `STEP2_HANDOFF.md` | Step 2 profiling facts and reference drafts (`data/step2_reference/`) |
 | `bias/` | Data bias slicing on gold (`precursor-pipeline bias-report`): how to run it, what each output means, the gold schema findings and the assignment mapping |
