@@ -54,9 +54,14 @@ source is the **refit** package (trained on the refit window), which is the mode
 
 ### `ml_runs` (Postgres, `common/io/schemas.py`) and the integrity check (§9.4)
 `score` must refuse (exit 2, alert) unless `@champion` equals `champion_version_after` of the **latest row whose
-`action` is `promote`, `manual_promote` or `rollback`**. `gate` writes `promote` (all gates passed) or `hold`; a
-`hold` row also carries `champion_version_after` (the unchanged champion), so filter on the action, not on the
-column. `promote` writes `manual_promote` or `rollback`. Order by `id` (autoincrement), not by `at`.
+`action` is `promote`, `manual_promote` or `rollback`**. **Reuse `evaluation/registry.py:
+check_champion_integrity(meta, alias_version)`**: it is that rule (it raises `MlInputError`, exit 2), and
+`evaluate` already runs it before loading the champion. `gate` writes `promote` (all gates passed) or `hold`; a
+`hold` row also carries `champion_version_after` (the unchanged champion), which is why the check filters on the
+action. `promote` writes `manual_promote` or `rollback`. Rows are ordered by `id` (autoincrement), not by `at`.
+
+`gate` and `promote` write their `ml_runs` row **before** moving the alias. A crash in between leaves the alias
+where it was and the check above refuses until the retry moves it; expect that window, don't "fix" it by hand.
 
 W2's rows always have `scores_published = false`. `publish` (yours) records published scores; `decide` (W6) and
 `prepare` (`training/data.py: last_scored_v`) read `scores_published` and `v` from `ml_runs`.
@@ -114,7 +119,12 @@ never need a server).
 
 ---
 
-## 5. Numbers from the first real run (ml-dev gold `20261112T020010Z-543cdc`)
+## 5. Phase 1 deviations you may meet
+- G7(a) leaves out `state` until Benjamini–Hochberg lands (spec §9.1); per-state O−E is in the model card.
+- W1's `write_package` returns sha256 values that nothing stores or verifies yet. Before `score` loads packages
+  for production, consider recording them (e.g. as version tags) and checking them on load.
+
+## 6. Numbers from the first real run (ml-dev gold `20261112T020010Z-543cdc`)
 LightGBM selected (OOF PR-AUC 0.511). Test month 2025-02, a development month: PR-AUC 0.470 [0.454, 0.486] vs the
 prior-G+ rule's 0.311, ECE 0.027, slope 0.835. All gates pass (G5 skipped, no champion). The refit's mean score on
 V = 2026-10 is 0.248. Expect `p_g12` around 0.25 on average, and `state` as the largest contribution for many homes
