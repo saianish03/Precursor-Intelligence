@@ -576,10 +576,35 @@ class LrParams(_Strict):
     onehot_min_frequency: int = Field(ge=1)
 
 
+class LgbmParams(_Strict):
+    """``members.lgbm``: the LightGBM parameters (scikit-learn-style names, which LightGBM accepts as aliases). An
+    unknown key is a config error (Appendix B, exit 3), never a parameter LightGBM silently ignores. A key left out
+    (``None``) takes LightGBM's own default; ``n_estimators`` has none here: the number of rounds is always stated."""
+
+    n_estimators: int = Field(ge=1)
+    learning_rate: _Positive | None = None
+    num_leaves: int | None = Field(default=None, ge=2)
+    max_depth: int | None = None
+    min_child_samples: int | None = Field(default=None, ge=1)
+    subsample: Annotated[float, Field(gt=0, le=1)] | None = None
+    subsample_freq: int | None = Field(default=None, ge=0)
+    colsample_bytree: Annotated[float, Field(gt=0, le=1)] | None = None
+    reg_alpha: _NonNegative | None = None
+    reg_lambda: _NonNegative | None = None
+    min_split_gain: _NonNegative | None = None
+    cat_smooth: _NonNegative | None = None
+    seed: int | None = None
+    deterministic: bool | None = None
+    force_col_wise: bool | None = None
+    num_threads: int | None = Field(default=None, ge=0)
+
+    def as_dict(self) -> dict[str, bool | int | float]:
+        """The keys that are set, as plain values (for LightGBM, MLflow and the tuning proposal)."""
+        return self.model_dump(exclude_none=True)
+
+
 class MlMembersCfg(_Strict):
-    lgbm: dict[
-        str, bool | int | float | str
-    ]  # passed to LightGBM as they are (W1); tuning proposes new ones
+    lgbm: LgbmParams  # W1 owns the values; tuning proposes new ones
     lr: LrParams
 
 
@@ -705,12 +730,55 @@ class MlMonitorCfg(_Strict):
     champion_lag_months_max: int = Field(ge=0)
 
 
+class TuningParamCfg(_Strict):
+    """One dimension of the tuning search: a ``float`` or ``int`` range ``[low, high]`` (``log``: sampled on a log
+    scale) or a ``categorical`` list of ``choices``."""
+
+    kind: Literal["float", "int", "categorical"]
+    low: float | None = None
+    high: float | None = None
+    log: bool = False
+    choices: list[float] = []
+
+    @model_validator(mode="after")
+    def _shape(self) -> TuningParamCfg:
+        if self.kind == "categorical":
+            if not self.choices or self.low is not None or self.high is not None or self.log:
+                raise ValueError("a categorical tuning parameter takes only choices")
+            _unique([str(c) for c in self.choices], "tuning choices")
+            return self
+        if self.choices or self.low is None or self.high is None:
+            raise ValueError(f"a {self.kind} tuning parameter takes low and high, not choices")
+        _ordered_pair((self.low, self.high), "tuning range")
+        if self.log and self.low <= 0:
+            raise ValueError("a log-scale tuning range needs low > 0")
+        if self.kind == "int" and not (self.low.is_integer() and self.high.is_integer()):
+            raise ValueError("an int tuning range needs integer low and high")
+        return self
+
+
+TUNING_LR_C = "lr_C"  # the tuning.space key of LR's C; every other key is a members.lgbm parameter
+
+
 class MlTuningCfg(_Strict):
     n_trials: int = Field(ge=1)
     folds: int = Field(ge=2)
     timeout_minutes: _Positive
     early_stopping_rounds: int = Field(ge=1)
+    max_rounds: int = Field(ge=1)  # the boosting-round cap early stopping runs within
     seed: int
+    space: dict[str, TuningParamCfg] = Field(min_length=1)
+
+    @field_validator("space")
+    @classmethod
+    def _known(cls, v: dict[str, TuningParamCfg]) -> dict[str, TuningParamCfg]:
+        allowed = set(LgbmParams.model_fields) - {"n_estimators"}
+        bad = sorted(k for k in v if k != TUNING_LR_C and k not in allowed)
+        if bad:
+            raise ValueError(
+                f"tuning.space keys must be members.lgbm parameters or {TUNING_LR_C}, got {bad}"
+            )
+        return v
 
 
 class MlRegistryCfg(_Strict):

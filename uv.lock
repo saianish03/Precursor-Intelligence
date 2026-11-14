@@ -3536,6 +3536,7 @@ dvc = [
     { name = "dvc", extra = ["gs"] },
 ]
 ml = [
+    { name = "joblib" },
     { name = "lightgbm" },
     { name = "mlflow" },
     { name = "optuna" },
@@ -3612,6 +3613,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'ui'", specifier = ">=0.28.1" },
     { name = "interpret", marker = "extra == 'ml-extra'", specifier = ">=0.7.8" },
+    { name = "joblib", marker = "extra == 'ml'", specifier = ">=1.6.0" },
     { name = "lightgbm", marker = "extra == 'ml'", specifier = ">=4.7.0" },
     { name = "matplotlib", marker = "extra == 'bias'", specifier = ">=3.11.2" },
     { name = "mlflow", marker = "extra == 'ml'", specifier = ">=3.17.0" },

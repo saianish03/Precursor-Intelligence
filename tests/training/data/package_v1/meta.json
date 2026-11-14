@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "package_format": 1,
+  "candidate": "ensemble",
+  "features": [
+    {
+      "schema_version": 1,
+      "name": "a",
+      "dtype": "f64"
+    },
+    {
+      "schema_version": 1,
+      "name": "b",
+      "dtype": "i64"
+    },
+    {
+      "schema_version": 1,
+      "name": "c",
+      "dtype": "bool"
+    },
+    {
+      "schema_version": 1,
+      "name": "d",
+      "dtype": "str"
+    }
+  ],
+  "categorical_levels": {
+    "d": [
+      "__missing__",
+      "p",
+      "q"
+    ]
+  },
+  "member_weights": {
+    "lgbm": 0.6,
+    "lr": 0.4
+  },
+  "training_months": {
+    "eval": [
+      "2023-01"
+    ]
+  },
+  "recipe_hash": "package_v1",
+  "library_versions": {
+    "lightgbm": "4.7.0",
+    "scikit-learn": "1.9.1",
+    "numpy": "2.4.6",
+    "mlflow": "3.17.0"
+  }
+}
