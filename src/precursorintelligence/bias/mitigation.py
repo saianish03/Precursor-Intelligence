@@ -1,8 +1,10 @@
 """Mitigation helper: per-row sample weights for the ML phase. The data is never changed.
 
-Weights are fit on, and written for, the training rows only (``split_<weight_label> == "train"``), whatever
-the report's scope: a weight that read calibration, purge, test or score rows would leak held-out labels into
-training. Every other row gets a null weight.
+Weights are fit on, and written for, the training rows only, whatever the report's scope: a weight that read
+calibration, purge, test or score rows would leak held-out labels into training. Every other row gets a null
+weight. By default the training rows are gold's (``split_<weight_label> == "train"``); the ML pipeline passes
+``fit`` instead, so each of its training frames (eval window, refit window) is weighted on its own rows
+(docs/ML_PIPELINE_SPEC.md §7, leakage test 9).
 
   inverse_frequency   w = N / (K * n_slice), so every slice value carries the same total weight
   balance_label_rate  Kamiran-Calders reweighing on labeled rows, w = P(slice) * P(y) / P(slice, y), so each
@@ -58,13 +60,25 @@ def _renormalise(w: pl.Series, lo: float, hi: float) -> pl.Series:
     return w
 
 
-def sample_weights(df: pl.DataFrame, cfg: BiasConfig, scheme: str | None = None) -> pl.DataFrame:
+def sample_weights(
+    df: pl.DataFrame,
+    cfg: BiasConfig,
+    scheme: str | None = None,
+    *,
+    fit: pl.Series | None = None,
+) -> pl.DataFrame:
     """ccn, t, weight, scheme: one row per row of ``df``, in its order; weight is null outside the training
-    rows (fit_rows), and nothing outside them is read."""
+    rows, and nothing outside them is read. The training rows are ``fit`` (a boolean mask, one value per row of
+    ``df``) when given, else ``fit_rows`` (gold's train split)."""
     m = cfg.mitigation
     scheme = scheme or m.weights
     col = slice_col(m.weight_slice)
-    fit = fit_rows(df, cfg)
+    if fit is None:
+        fit = fit_rows(df, cfg)
+    elif fit.len() != df.height or fit.dtype != pl.Boolean:
+        raise ValueError("fit must be a boolean mask with one value per row of df")
+    else:
+        fit = fit.fill_null(False)
     train = df.filter(fit)
     base = train.select("ccn", "t", col)
     if scheme == "none":

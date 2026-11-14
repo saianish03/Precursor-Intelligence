@@ -397,6 +397,7 @@ All comparisons with the champion are **paired on the current test frame**: the 
 - Any gate fails → **hold**: the version is registered as `challenger`, the champion stays, an email names the failed gates. A hold is exit 0, not a failure.
 - **First run (no champion):** G5 and G7(a) are skipped; the version becomes `challenger` and 🛑 **Checkpoint ML-A** applies (§17.3): a human promotes it with `mode=promote`. Until then nothing is scored (§15.2).
 - The thresholds are starting values; Checkpoint ML-A reviews them on the first real numbers (O2) and changes them only in `ml.yaml`.
+- **Phase 1 deviation (G7(a), with the Benjamini–Hochberg cut-line item):** G7(a) compares the non-geographic gated slices only. `state` joins (a) together with BH at `bias.fdr_alpha`; adding ~50 state values without BH would hold models on noise (ML-27). Until then, per-state O−E is reported in the model card. G7 also fails when the selected candidate failed the OOF bias check at selection (§4.3).
 
 ### 9.2 Registry (MLflow Model Registry)
 - Model name `precursor_y_g12` (case-sensitive), one per label.
