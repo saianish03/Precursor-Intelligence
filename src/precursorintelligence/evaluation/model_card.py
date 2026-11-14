@@ -50,6 +50,53 @@ def _table(header: list[str], rows: list[list[str]]) -> list[str]:
     ]
 
 
+def _mitigation(r: EvaluationReport) -> list[str]:
+    """§7: reweighting vs none on the eval window's OOF predictions (never test)."""
+    m = r.mitigation
+    if m is None:
+        return [
+            "",
+            "## Bias mitigation",
+            "- The reweighting trade-off was not run for this evaluation.",
+        ]
+    out = [
+        "",
+        f"## Bias mitigation: reweighting ({m.scheme} on `{m.weight_slice}`), eval-window OOF, {m.candidate}",
+        f"- {m.rows:,} rows; effective sample size with the weights {m.effective_sample_size:,.0f}. Adopting it is a "
+        "recipe change (`ml.yaml: bias.mitigation: reweight`) that goes through the gates.",
+        *_table(
+            [
+                "variant",
+                "OOF PR-AUC",
+                "OOF Brier",
+                "OOF ECE",
+                "max abs. O−E (gated slices)",
+                "miscalibrated",
+            ],
+            [
+                [
+                    v.variant,
+                    _f(v.pr_auc),
+                    _f(v.brier, 4),
+                    _f(v.ece, 4),
+                    _f(v.max_abs_oe),
+                    str(v.miscalibrated),
+                ]
+                for v in m.variants
+            ],
+        ),
+    ]
+    rows = [x for x in m.by_value if x["slice"] == m.weight_slice]
+    if rows:
+        out.append(
+            f"- O−E by `{m.weight_slice}` (none → reweight): "
+            + ", ".join(
+                f"{x['value']} {_f(x.get('oe_none'))} → {_f(x.get('oe_reweight'))}" for x in rows
+            )
+        )
+    return out
+
+
 def render_model_card(
     report: EvaluationReport,
     outcome: GateReport,
@@ -174,6 +221,7 @@ def render_model_card(
             "- States with the largest |O−E| (reported, not gated; empirical-Bayes shrinkage is Phase 2): "
             + ", ".join(f"{x['value']} {x['oe']:+.3f}" for x in states)
         )
+    lines += _mitigation(r)
     lines += [
         "",
         "## Top features (mean absolute contribution, calibrated log-odds, test frame)",

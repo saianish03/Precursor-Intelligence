@@ -245,6 +245,11 @@ def evaluate(
         "--shuffled-label/--no-shuffled-label",
         help="run the shuffled-label check (default: only for a recipe no gate judged yet)",
     ),
+    mitigation: bool = typer.Option(
+        True,
+        "--mitigation/--no-mitigation",
+        help="measure the reweighting trade-off on the eval window's OOF predictions (§7)",
+    ),
 ) -> None:
     """Evaluate the eval fit on the test frame, with baselines, the champion's eval fit, bias slices and the sanity
     checks; writes evaluation.json (§6-§8). Last stdout line: a JSON summary."""
@@ -261,6 +266,7 @@ def evaluate(
             registry=default_registry(cfg),
             meta=ctx.metadata,
             shuffled_label=shuffled_label,
+            mitigation=mitigation,
         )
         r = out.report
         sel = r.candidates[r.selected]

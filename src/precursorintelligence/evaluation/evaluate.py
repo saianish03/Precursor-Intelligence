@@ -37,6 +37,7 @@ from ..training.train import read_decision, resolve_features
 from . import baselines, metrics, sanity, slices
 from .bootstrap import facility_bootstrap
 from .gates import Interval
+from .mitigation import tradeoff as mitigation_tradeoff
 from .registry import Registry
 from .report import (
     ChampionRef,
@@ -203,6 +204,7 @@ def evaluate_run(
     feature_registry: FeatureRegistry | None = None,
     meta: MetadataStore | None = None,
     shuffled_label: bool | None = None,
+    mitigation: bool = True,
 ) -> EvaluateOutput:
     """Compute everything ``evaluation.json`` holds, without writing it. ``shuffled_label`` None runs the check
     only for a recipe no gate judged yet (§6.4)."""
@@ -330,11 +332,33 @@ def evaluate_run(
         if shuffled_label is not None
         else not recipe_evaluated(meta, train.recipe_hash)
     )
+    eval_frame = read_frame(store, paths, "eval_train") if (run_shuffled or mitigation) else None
     shuffled_roc = (
-        sanity.shuffled_label_roc(read_frame(store, paths, "eval_train"), test, features, cfg)
-        if run_shuffled
+        sanity.shuffled_label_roc(eval_frame, test, features, cfg)
+        if eval_frame is not None and run_shuffled
         else None
     )
+
+    # ---- bias mitigation trade-off on the eval window's OOF predictions (§7), never on test
+    tradeoff = None
+    if mitigation and eval_frame is not None:
+        keyed = eval_frame.select("ccn", "t").join(
+            oof.select("ccn", "t", f"p_{chosen}"),
+            on=["ccn", "t"],
+            how="left",
+            maintain_order="left",
+        )
+        if keyed[f"p_{chosen}"].null_count():
+            raise MlInputError("oof/eval.parquet does not cover the eval frame's rows")
+        tradeoff = mitigation_tradeoff(
+            eval_frame,
+            features,
+            cfg,
+            chosen,
+            keyed[f"p_{chosen}"].to_numpy(),
+            bias_cfg=bias_cfg,
+            registry=fregistry,
+        )
     uncleared = sorted({f.feature for f in manifest.leakage_flags if not f.cleared})
 
     oof_pr: dict[str, float] = {r.candidate: r.oof_pr_auc for r in selection.candidates}
@@ -384,6 +408,7 @@ def evaluate_run(
             shuffled_label_roc=shuffled_roc,
         ),
         bootstrap_replicates=boot.replicates,
+        mitigation=tradeoff,
         flags=list(train.flags),
     )
     scores = test.select("ccn", "t").with_columns(
@@ -402,6 +427,7 @@ def run_evaluate(
     feature_registry: FeatureRegistry | None = None,
     meta: MetadataStore | None = None,
     shuffled_label: bool | None = None,
+    mitigation: bool = True,
 ) -> EvaluateOutput:
     """The ``evaluate`` task: ``evaluate_run``, then ``evaluation.json`` and the report files in the run folder
     and, with tracking on, one MLflow run with the metrics, plots and files (§14.2)."""
@@ -417,6 +443,7 @@ def run_evaluate(
         feature_registry=feature_registry,
         meta=meta,
         shuffled_label=shuffled_label,
+        mitigation=mitigation,
     )
     paths = RunPaths.of(cfg, ml_run_id)
     report_dir = report_prefix(paths)
@@ -489,6 +516,12 @@ def evaluation_metrics(report: EvaluationReport) -> dict[str, float]:
             iv.ci_high,
         )
     out["slices_miscalibrated"] = float(len(report.calibration_failures))
+    if report.mitigation is not None:
+        for v in report.mitigation.variants:
+            out[f"mitigation_{v.variant}_oof_pr_auc"] = v.pr_auc
+            out[f"mitigation_{v.variant}_oof_brier"] = v.brier
+            if v.max_abs_oe is not None:
+                out[f"mitigation_{v.variant}_max_abs_oe"] = v.max_abs_oe
     if report.sanity.shuffled_label_roc is not None:
         out["shuffled_label_roc"] = report.sanity.shuffled_label_roc
     return out

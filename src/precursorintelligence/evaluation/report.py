@@ -14,6 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, field_serializer
 
 from .gates import Interval, SliceComparison
+from .mitigation import MitigationTradeoff
 
 Number = float | None
 
@@ -96,6 +97,7 @@ class EvaluationReport(_Report):
     top_features: list[dict[str, Any]]  # mean |contribution| on the test frame, top 20
     sanity: Sanity
     bootstrap_replicates: int
+    mitigation: MitigationTradeoff | None = None  # §7: reweighting vs none, on OOF
     flags: list[str]
 
     @field_serializer("oof_test_gap", "per_month", "reliability", "slices", "top_features")

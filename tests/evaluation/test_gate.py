@@ -75,7 +75,9 @@ def test_gate_without_tracking_records_the_outcome_and_registers_nothing(trained
     with store.open_read(p.champion) as f:
         champ = Champion.model_validate_json(f.read())
     assert champ.version is None and champ.source == "gate"
-    assert store.exists(f"{p.run_dir}report/model_card.md")
+    with store.open_read(f"{p.run_dir}report/model_card.md") as f:
+        card = f.read().decode("utf-8")
+    assert "## Bias mitigation: reweighting" in card and "| reweight |" in card
 
     (row,) = gate_rows(trained)
     assert row["ml_run_id"] == trained.run_id and row["action"] == "hold"

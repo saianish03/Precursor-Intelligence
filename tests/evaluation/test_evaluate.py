@@ -126,6 +126,11 @@ def test_permuting_the_test_labels_leaves_the_threshold_alone(trained):
     after = evaluate(trained)
     chosen = trained.train.result.selected
     assert after.report.threshold == before.report.threshold
+    # the mitigation trade-off is on OOF predictions: the test labels never reach it (equal up to float sums)
+    for a, b in zip(
+        after.report.mitigation.variants, before.report.mitigation.variants, strict=True
+    ):
+        assert a.model_dump() == pytest.approx(b.model_dump(), abs=1e-9)
     assert after.report.candidates[chosen].ranking["pr_auc"] != pytest.approx(
         before.report.candidates[chosen].ranking["pr_auc"]
     )
