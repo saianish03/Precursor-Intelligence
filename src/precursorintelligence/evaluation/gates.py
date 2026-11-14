@@ -10,10 +10,11 @@ excludes zero, so a retrain is never held on noise (ML-27). Differences are alwa
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..common.config import MlConfig
 
@@ -26,11 +27,25 @@ class _Model(BaseModel):
 
 
 class Interval(_Model):
-    """A point estimate with its paired-bootstrap interval (``BootstrapResult.difference``)."""
+    """A point estimate with its paired-bootstrap interval (``BootstrapResult.difference``). An undefined value
+    (NaN, e.g. no usable bootstrap draw) is None, so it survives the JSON round trip; a gate that needs it fails."""
 
-    estimate: float
-    ci_low: float
-    ci_high: float
+    estimate: float | None
+    ci_low: float | None
+    ci_high: float | None
+
+    @field_validator("estimate", "ci_low", "ci_high", mode="before")
+    @classmethod
+    def _nan_is_none(cls, v: object) -> object:
+        return None if isinstance(v, float) and not math.isfinite(v) else v
+
+    @property
+    def defined(self) -> bool:
+        return None not in (self.estimate, self.ci_low, self.ci_high)
+
+
+def _num(v: float | None) -> str:
+    return "undefined" if v is None else f"{v:+.4f}"
 
 
 class GateResult(_Model):
@@ -95,12 +110,13 @@ def g3_beats_rule(diff: Interval) -> GateResult:
     values = {"pr_auc_diff": diff.estimate, "ci_low": diff.ci_low, "ci_high": diff.ci_high}
     fails = (
         []
-        if diff.ci_low > 0
+        if diff.ci_low is not None and diff.ci_low > 0
         else [
-            f"PR-AUC vs the rule {diff.estimate:+.4f}, interval [{diff.ci_low:+.4f}, {diff.ci_high:+.4f}] not above 0"
+            f"PR-AUC vs the rule {_num(diff.estimate)}, interval [{_num(diff.ci_low)}, {_num(diff.ci_high)}] "
+            "not above 0"
         ]
     )
-    return _result("G3", fails, f"beats the prior-G+ rule by {diff.estimate:+.4f} PR-AUC", values)
+    return _result("G3", fails, f"beats the prior-G+ rule by {_num(diff.estimate)} PR-AUC", values)
 
 
 def g4_calibration(*, ece: float, slope: float, cfg: MlConfig) -> GateResult:
@@ -108,9 +124,9 @@ def g4_calibration(*, ece: float, slope: float, cfg: MlConfig) -> GateResult:
     c = cfg.gates.calibration
     lo, hi = c.slope_range
     fails = []
-    if not ece <= c.ece_max:
+    if not ece <= c.ece_max:  # NaN fails too
         fails.append(f"ECE {ece:.4f} > {c.ece_max}")
-    if not lo <= slope <= hi:
+    if not lo <= slope <= hi:  # NaN (a constant score) fails too
         fails.append(f"calibration slope {slope:.3f} outside [{lo}, {hi}]")
     return _result("G4", fails, f"ECE {ece:.4f}, slope {slope:.3f}", {"ece": ece, "slope": slope})
 
@@ -125,6 +141,13 @@ def g5_vs_champion(
         return GateResult(gate="G5", status="skip", reason="no champion to compare with")
     v = cfg.gates.vs_champion
     fails = []
+    for name, d in (("PR-AUC", pr_auc_diff), ("Brier", brier_diff)):
+        if not d.defined:
+            fails.append(f"{name} difference vs the champion is undefined")
+    if fails:
+        return _result("G5", fails, "", {})
+    assert pr_auc_diff.estimate is not None and pr_auc_diff.ci_high is not None
+    assert brier_diff.estimate is not None and brier_diff.ci_low is not None
     if pr_auc_diff.estimate < -v.pr_auc_worse_max and pr_auc_diff.ci_high < 0:
         fails.append(
             f"PR-AUC {pr_auc_diff.estimate:+.4f} vs the champion (interval [{pr_auc_diff.ci_low:+.4f}, {pr_auc_diff.ci_high:+.4f}])"
@@ -191,14 +214,27 @@ def g7_bias(
     calibration_failures: Sequence[str],
     vs_champion: Sequence[SliceComparison] | None,
     cfg: MlConfig,
+    oof_bias_check_passed: bool = True,
 ) -> GateResult:
     """(b) no gated slice value is clearly miscalibrated (``evaluation.slices.calibration_failures`` on the
-    test frame); (a) against the champion, no gated slice value's |O-E| grows by more than ``oe_worse_max`` nor
-    its PR-AUC drops by more than ``pr_auc_worse_max``, each significant. (a) is skipped with no champion."""
+    test frame), and the selected candidate passed the same check on its OOF predictions at selection; (a) against
+    the champion, no gated slice value's |O-E| grows by more than ``oe_worse_max`` nor its PR-AUC drops by more
+    than ``pr_auc_worse_max``, each significant. (a) is skipped with no champion.
+
+    Phase 1 deviation (§9.1, the Benjamini-Hochberg cut-line item): (a) compares the non-geographic gated slices
+    only. ``state`` joins (a) together with BH at ``bias.fdr_alpha``; ~50 state values without BH would hold
+    models on noise (ML-27). Per-state O-E is reported in the model card meanwhile."""
     b = cfg.bias
     fails = [f"miscalibrated: {f}" for f in calibration_failures]
+    if not oof_bias_check_passed:  # W1 kept it only "so that gate G7 holds it" (training/select.py)
+        fails.append("the selected candidate failed the OOF bias check at selection")
     for s in vs_champion or []:
         name = f"{s.slice}={s.value}"
+        if not (s.abs_oe_diff.defined and s.pr_auc_diff.defined):
+            fails.append(f"{name}: the comparison with the champion is undefined")
+            continue
+        assert s.abs_oe_diff.estimate is not None and s.abs_oe_diff.ci_low is not None
+        assert s.pr_auc_diff.estimate is not None and s.pr_auc_diff.ci_high is not None
         if s.abs_oe_diff.estimate > b.oe_worse_max and s.abs_oe_diff.ci_low > 0:
             fails.append(f"{name}: |O-E| up {s.abs_oe_diff.estimate:+.3f} vs the champion")
         if s.pr_auc_diff.estimate < -b.pr_auc_worse_max and s.pr_auc_diff.ci_high < 0:
@@ -212,7 +248,11 @@ def g7_bias(
         "G7",
         fails,
         f"no slice clearly miscalibrated; vs champion: {part_a}",
-        {"calibration_failures": len(calibration_failures), "vs_champion": part_a},
+        {
+            "calibration_failures": len(calibration_failures),
+            "oof_bias_check_passed": oof_bias_check_passed,
+            "vs_champion": part_a,
+        },
     )
 
 

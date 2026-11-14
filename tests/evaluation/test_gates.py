@@ -194,3 +194,28 @@ def test_the_report_passes_unless_a_gate_fails():
 def test_the_report_round_trips_through_json():
     report = GateReport(results=[g4_calibration(ece=0.03, slope=1.0, cfg=CFG)])
     assert GateReport.model_validate_json(report.model_dump_json()) == report
+
+
+def test_an_undefined_interval_survives_json_as_none():
+    iv_nan = Interval(estimate=float("nan"), ci_low=0.1, ci_high=float("inf"))
+    assert (iv_nan.estimate, iv_nan.ci_high) == (None, None) and not iv_nan.defined
+    assert Interval.model_validate_json(iv_nan.model_dump_json()) == iv_nan
+
+
+def test_undefined_comparisons_fail_instead_of_crashing():
+    undefined = Interval(estimate=None, ci_low=None, ci_high=None)
+    assert g3_beats_rule(undefined).status == "fail"
+    ok = iv(0.0, -0.001, 0.001)
+    assert g5_vs_champion(pr_auc_diff=undefined, brier_diff=ok, cfg=CFG).status == "fail"
+    slice_vs = [comparison(undefined, ok)]
+    assert g7_bias(calibration_failures=[], vs_champion=slice_vs, cfg=CFG).status == "fail"
+
+
+def test_g4_fails_a_nan_slope():
+    assert g4_calibration(ece=0.02, slope=float("nan"), cfg=CFG).status == "fail"
+
+
+def test_g7_holds_a_candidate_that_failed_the_oof_bias_check():
+    # W1 keeps such a candidate only "so that gate G7 holds it", even when the test slices pass
+    r = g7_bias(calibration_failures=[], vs_champion=None, cfg=CFG, oof_bias_check_passed=False)
+    assert r.status == "fail" and "OOF bias check" in r.reason
