@@ -3,8 +3,7 @@
     "champion_version": null,
     "ml_run_id": "toy-ml",
     "selected": "ensemble",
-    "slices_miscalibrated": 0,
-    "test_pr_auc": 0.4119950000739867
+    "slices_miscalibrated": 0
   },
   "gate": {
     "action": "promote",
@@ -16,7 +15,6 @@
     "version": 1
   },
   "prepare": {
-    "dataset_version": "1c97450686934db3",
     "eval": [
       "2023-01",
       "2023-04"
@@ -58,7 +56,6 @@
     "v": "2026-10"
   },
   "score": {
-    "mean_p": 0.25185960039405336,
     "ml_run_id": "toy-ml",
     "model_version": 1,
     "n_facilities": 2000,
@@ -71,7 +68,6 @@
   "train": {
     "flags": [],
     "ml_run_id": "toy-ml",
-    "recipe_hash": "4032ed250c6d1c2214382bab655b129de0b953507da26031e032a5846c41241f",
     "refit_package": "ml/runs/toy-ml/models/refit/ensemble/",
     "selected": "ensemble"
   }

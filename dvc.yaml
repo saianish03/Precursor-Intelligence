@@ -57,24 +57,16 @@ stages:
       - metrics/toy_gold.json:
           cache: false
   # The ML smoke run (ML spec §16.2, course "training on code change"): the whole chain on the synthetic ML gold,
-  # with the toy settings the fixture writes (<dir>/ml.yaml): train, validate, bias-check and gate, register in
-  # MLflow, score and publish. It fails if a step fails or the chain stops short of publishing scores.
-  # The MLflow store is a SQLite file in data/toy_ml (never a shared server, whatever the shell sets); the steps
-  # run from there because a SQLite store puts its artifacts in ./mlruns. Only the summary is tracked: the run
-  # folder and the MLflow store carry run ids.
+  # with the toy settings the fixture writes (<dir>/ml.yaml): train, validate, bias-check and gate, register in a
+  # SQLite MLflow store, score and publish. It fails if a step fails, the gate holds or a step skips (the script's
+  # docstring). Only the summary is tracked, and only its machine-independent facts: the run folder and the MLflow
+  # store carry run ids. Its only output is committed, so plain `dvc repro` skips it when the lock is current:
+  # CI forces it.
   toy_ml:
-    cmd: >-
-      rm -rf data/toy_ml &&
-      python tests/ml/make_ml_gold.py data/toy_ml --facilities 2000 &&
-      (cd data/toy_ml && export MLFLOW_TRACKING_URI=sqlite:///mlflow.db &&
-      for step in prepare train evaluate gate score publish; do
-      precursor-pipeline ml $step --env-file env.yaml --ml-config ml.yaml --run-id toy-ml > $step.out || exit;
-      done) &&
-      python scripts/dvc_ml_summary.py metrics/toy_ml.json data/toy_ml/prepare.out data/toy_ml/train.out
-      data/toy_ml/evaluate.out data/toy_ml/gate.out data/toy_ml/score.out data/toy_ml/publish.out
+    cmd: python scripts/dvc_toy_ml.py data/toy_ml metrics/toy_ml.json
     deps:
       - tests/ml/make_ml_gold.py
-      - scripts/dvc_ml_summary.py
+      - scripts/dvc_toy_ml.py
       # the parquet hash (dataset_version) records the writer's library version
       - uv.lock
       # what the fixture and the `ml` commands import and load
