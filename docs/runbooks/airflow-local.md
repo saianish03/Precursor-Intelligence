@@ -113,6 +113,22 @@ docker compose exec airflow-scheduler airflow dags trigger cms_nh_pipeline --run
 | `stop_after` | `null` | `ingestion`, `bronze` or `silver`: skip the later nodes (first backfill, node by node) |
 | `entry_ids` | `""` | **development only:** ingest just these catalog entries. Empty = every in-scope zip. List them with `precursor-ingest catalog`. Ids are `theme:<zip date>:<zip name>` or `current:<date>:theme_nursing-homes_current.zip` |
 
+**The ML DAG `cms_nh_ml`** (ML spec §15) starts on every `cms_nh_gold` event once it is unpaused (it is created paused; unpause it *before* the pipeline run whose gold should start it), or by hand:
+```bash
+docker compose exec airflow-scheduler airflow dags unpause cms_nh_ml
+docker compose exec airflow-scheduler airflow dags trigger cms_nh_ml --conf '{"mode": "retrain"}'
+# Checkpoint ML-A, or a rollback to an earlier version: the version and the reason go to the container's environment
+docker compose exec airflow-scheduler airflow dags trigger cms_nh_ml \
+  --conf '{"mode": "promote", "version": 1, "reason": "ML-A approved by <name> after reading model_card.md"}'
+```
+| Param | Default | Meaning |
+|---|---|---|
+| `mode` | `auto` | `auto` (decide picks: RETRAIN, RETUNE, SCORE or SKIP), `retrain`, `retune`, `score_only`, `promote` |
+| `version`, `reason` | — | `promote` only: the version `champion` moves to (an earlier one is a rollback) and why |
+| `allow_unverified` | `null` | `null` = `configs/ml.yaml`; `true`/`false` overrides it for this run |
+
+Every finished run emails its summary (`notify`: decision, gate outcome, champion, test PR-AUC and Brier with CIs, drift flags); a failed run emails the failure. `status/latest.json` under the ML prefix is the latest run's status.
+
 - **Exit codes:** 1 is retried (2 × 5 min); 2 (data or validation), 3 (config or wiring) and 137 (killed, usually out of memory) fail at once (`PipelineDockerOperator`).
 - **Lock:** `release_lock` is a **teardown** of `acquire_lock`. It runs whenever the lock was taken, also after a failure or a `stop_after` skip, and retries twice (release is owner-checked and idempotent). A failed run still shows as failed. Two things would break that, both verified:
   - the spec sketch's `trigger_rule=all_done` leaf;
