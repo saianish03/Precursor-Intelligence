@@ -168,21 +168,20 @@ def test_predict_index_is_kept(data, ensemble):
 def test_contributions_add_up_to_the_calibrated_logit(data, members, candidate):
     x, _ = data
     model = package(members, candidate)
-    for fn in (model.contributions, model.explain):
-        base, contrib = fn(x)
-        assert list(contrib.columns) == ["a", "b", "c", "d"]
-        np.testing.assert_allclose(
-            base + contrib.sum(axis=1).to_numpy(),
-            model.predict_frame(x)["logit"].to_numpy(),
-            atol=1e-6,
-        )
+    base, contrib = model.explain(x)
+    assert list(contrib.columns) == ["a", "b", "c", "d"]
+    np.testing.assert_allclose(
+        base + contrib.sum(axis=1).to_numpy(),
+        model.predict_frame(x)["logit"].to_numpy(),
+        atol=1e-6,
+    )
 
 
 def test_contributions_are_platt_scaled_member_contributions(data, members):
     x, _ = data
     _, _, lr = members
     model = package(members, "lr")
-    base, contrib = model.contributions(x)
+    base, contrib = model.explain(x)
     lb, lc = lr.contributions(x)
     np.testing.assert_allclose(base, PLATT.a * lb + PLATT.b)
     np.testing.assert_allclose(contrib.to_numpy(), PLATT.a * lc.to_numpy())

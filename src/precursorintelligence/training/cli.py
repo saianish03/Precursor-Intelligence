@@ -371,14 +371,76 @@ def promote(
     _run_task("ml_promote", env, env_file, log_level, run_id, body)
 
 
+@ml_app.command()
+def score(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+    mode: ModeOpt = typer.Option(ModeOpt.auto, help="the DAG run's mode, recorded as a tag"),
+) -> None:
+    """Score V with the champion version in champion.json, with reasons, SHAP and the chain roll-up, into
+    scores/v=YYYY-MM/ (§10). Skips without a champion; exit 2 if @champion disagrees with ml_runs or the package
+    fails its sha256 check (§9.4), exit 3 if a champion is named but no registry is configured. Last stdout line:
+    a JSON summary."""
+
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from ..evaluation.registry import default_registry
+        from ..serving.score import run_score
+
+        cfg = load_ml_config(ml_config)
+        out = run_score(
+            ctx.object_store,
+            ctx.metadata,
+            ml_run_id=rid,
+            cfg=cfg,
+            registry=default_registry(cfg),
+            mode=mode.value,
+        )
+        if out.skipped:
+            typer.echo(f"run {rid}: score skipped ({out.reason})")
+        else:
+            typer.echo(
+                f"run {rid}: {out.n_facilities} facilities at {out.v} with version {out.model_version}, "
+                f"mean p {out.mean_p:.3f} -> {out.scores_dir}"
+            )
+        return out.summary(rid)
+
+    _run_task("ml_score", env, env_file, log_level, run_id, body)
+
+
+@ml_app.command()
+def publish(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+    mode: ModeOpt = typer.Option(ModeOpt.auto, help="the DAG run's mode, recorded in ml_runs"),
+) -> None:
+    """Verify scores_manifest.json against the month's files and record the published scores in ml_runs (§11,
+    Phase 1; the DAG emits the cms_nh_scores asset). Last stdout line: a JSON summary."""
+
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from ..serving.publish import run_publish
+
+        cfg = load_ml_config(ml_config)
+        out = run_publish(ctx.object_store, ctx.metadata, ml_run_id=rid, cfg=cfg, mode=mode.value)
+        typer.echo(
+            f"run {rid}: publish {out.reason}" + (f" ({out.v}: {out.rows})" if out.v else "")
+        )
+        return out.summary(rid)
+
+    _run_task("ml_publish", env, env_file, log_level, run_id, body)
+
+
 # Commands of the later work packages (§18.3). Same options as prepare's core, so the DAG can call them today.
 _STUBS = {
     "decide": (
         "W6",
         "Decide what this run does: SKIP, RETRAIN, RETUNE, SCORE, PROMOTE or REFUSE (§15.2).",
     ),
-    "score": ("W3", "Score V with the champion, with reasons and the chain roll-up (§10)."),
-    "publish": ("W3", "Publish the scores (§11)."),
     "monitor": ("W6", "Drift and performance signals, the status file and the run summary (§12)."),
 }
 

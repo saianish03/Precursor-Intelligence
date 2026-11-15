@@ -171,29 +171,11 @@ class PrecursorModel(PythonModel):
 
     def explain(self, df: pd.DataFrame | pl.DataFrame) -> tuple[np.ndarray, pd.DataFrame]:
         """Per-feature contributions in calibrated log-odds: (base per row, one column per feature), with
-        base + row sum = the calibrated ``logit`` (§8.1). W3's ``serving/explain.py`` owns this when present."""
-        try:
-            fn = importlib.import_module("precursorintelligence.serving.explain").contributions
-        except (ImportError, AttributeError):
-            return self.contributions(df)
+        base + row sum = the calibrated ``logit`` (§8.1). ``serving/explain.py`` owns the maths (imported here
+        lazily: serving imports this module)."""
+        fn = importlib.import_module("precursorintelligence.serving.explain").contributions
         result: tuple[np.ndarray, pd.DataFrame] = fn(self, df)
         return result
-
-    def contributions(self, df: pd.DataFrame | pl.DataFrame) -> tuple[np.ndarray, pd.DataFrame]:
-        """The members' exact contributions, averaged with the member weights, then scaled by Platt's ``a``
-        (base also gets ``+ b``)."""
-        x = self.model_frame(df)
-        weights = self._meta.member_weights
-        total = float(sum(weights.values()))
-        base = np.zeros(len(x))
-        contrib = pd.DataFrame(0.0, index=range(len(x)), columns=self.feature_names)
-        for m, member in self.members.items():
-            b, c = member.contributions(x)
-            w = float(weights[m]) / total
-            base = base + w * b
-            contrib = contrib + w * c.to_numpy()
-        a, b0 = self._platt.a, self._platt.b
-        return a * base + b0, contrib * a
 
     # ------------------------------------------------------------------ persistence
 

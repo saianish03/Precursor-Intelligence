@@ -52,6 +52,8 @@ def test_reason_labels_has_one_entry_per_model_feature_in_registry_order():
     labels = yaml.safe_load((project_root() / "configs" / "reason_labels.yaml").read_text())
     model = [f.name for f in load_feature_registry().features if f.model_use == "model"]
     assert list(labels["labels"]) == model
+    unwritten = [name for name, entry in labels["labels"].items() if not (entry or {}).get("label")]
+    assert unwritten == []  # W3 wrote every label (§8.1)
 
 
 def test_an_unknown_key_is_a_config_error(tmp_path):
