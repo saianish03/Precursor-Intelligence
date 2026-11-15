@@ -11,6 +11,7 @@ from precursorintelligence.evaluation.report import EvaluationReport
 from precursorintelligence.training import MlInputError
 from precursorintelligence.training.contracts import Champion, RunPaths, Selection, TrainResult
 from precursorintelligence.training.data import gold_config_sha, read_input_manifest, read_windows
+from precursorintelligence.training.ensemble import write_package
 
 REFIT_URI = "models:/refit-fixture"
 EVAL_URI = "models:/eval-fixture"
@@ -50,6 +51,7 @@ def evaluate(run, cfg=None, registry=None):
         ml_run_id=run.run_id,
         cfg=cfg or run.cfg,
         registry=registry,
+        meta=run.meta(),
         shuffled_label=False,
     )
 
@@ -61,7 +63,11 @@ def gate(run, cfg=None, registry=None, meta=None):
 
 
 def gate_rows(run):
-    return [r for r in run.meta().read("ml_runs") if r["action"] in ("promote", "hold")]
+    return [
+        r
+        for r in run.meta().read("ml_runs")
+        if r["action"] in ("promote", "hold") and r["ml_run_id"] == run.run_id
+    ]
 
 
 def test_gate_without_tracking_records_the_outcome_and_registers_nothing(trained):
@@ -122,9 +128,30 @@ def test_a_retried_gate_reuses_its_version_and_row(trained):
 
 
 def champion_registry(run, model_uri=EVAL_URI, cls=FakeRegistry):
-    """A registry whose champion (version 1) is this run's own selected eval fit."""
-    chosen = run.train.result.selected
-    reg = cls({model_uri: run.train.eval_models[chosen]})
+    """A registry whose champion (version 1) was registered by run "older"'s gate and audited in ml_runs. Its eval
+    fit (this run's own selected one) sits in older's run folder with the sha256 older's train.json recorded:
+    evaluate loads it from there (§9.4); the registry holds no model."""
+    store, train = run.store(), run.train.result
+    chosen = train.selected
+    older = RunPaths.of(run.cfg, "older")
+    prefix = older.package("eval", chosen)
+    sha = write_package(store, prefix, run.train.eval_models[chosen])
+    older_train = train.model_copy(
+        update={
+            "ml_run_id": "older",
+            "eval_packages": {chosen: prefix},
+            "eval_package_sha256": {chosen: sha},
+        }
+    )
+    store.put_bytes(older.train_result, older_train.model_dump_json().encode(), overwrite=True)
+    run.meta().append(
+        "ml_runs",
+        [
+            {"ml_run_id": "older", "action": "hold", "candidate_version": 1},
+            {"ml_run_id": "older", "action": "manual_promote", "champion_version_after": 1},
+        ],
+    )
+    reg = cls()
     reg.register("models:/old-refit", {"ml_run_id": "older", "eval_model_uri": model_uri})
     reg.set_alias("champion", 1)
     return reg
