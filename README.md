@@ -413,7 +413,9 @@ uv run pytest tests/leakage            # the leakage suite
 ```
 
 - **CI (GitHub Actions, `.github/workflows/ci.yml`):** ruff, the full offline suite and `dvc repro` of the test
-  pipeline, on Python 3.11 and 3.12. The `ci-ok` check is required to merge.
+  pipelines, on Python 3.11 and 3.12. The `toy_ml` stage trains, validates, bias-checks, gates, registers (a SQLite
+  MLflow store), scores and publishes on a synthetic gold on every PR; a held gate fails it. The `ci-ok` check is
+  required to merge.
 - **DAG tests** (`tests/dags`) run inside the official Airflow 3 image: the chain, the only leaf, asset outlets
   and the commands each task runs.
 - **Terraform** (`.github/workflows/terraform.yml`): `plan` on PRs, `apply` only in CI.
@@ -425,13 +427,13 @@ uv run pytest tests/leakage            # the leakage suite
 [DVC](https://dvc.org) versions data the way Git versions code: Git tracks small pointer files (`dvc.yaml`, `dvc.lock`, `metrics/`), and the data itself lives in a DVC cache plus a remote, `gs://precursor-intel-mlops-dvc`, a bucket of its own so nobody needs write access to the production data bucket to share DVC data (created in `infra/terraform/envs/prod`).
 
 What DVC tracks here is the **test pipeline**: a small silver world (`tests/gold/make_toy_silver.py`) is turned into gold by the real `precursor-pipeline gold` node, then summarised into `metrics/toy_gold.json` (`scripts/dvc_gold_summary.py`). The stage's outputs include the merged gold
-file `data/toy/gold/facility_month_dataset.parquet`, and `uv.lock` is one of its inputs (parquet files record the writer's library version). It needs no network or credentials, so anyone can rebuild it. (The stage, folder and file names still say `toy`: `toy_gold`, `data/toy/`, `metrics/toy_gold.json`.)
+file `data/toy/gold/facility_month_dataset.parquet`, and `uv.lock` is one of its inputs (parquet files record the writer's library version). It needs no network or credentials, so anyone can rebuild it. (The stage, folder and file names still say `toy`: `toy_gold`, `data/toy/`, `metrics/toy_gold.json`.) A second stage, `toy_ml`, runs the whole ML chain on a synthetic ML gold (`tests/ml/make_ml_gold.py`) into `data/toy_ml/` and summarises each step in `metrics/toy_ml.json` (`scripts/dvc_ml_summary.py`).
 
 ```bash
 uv sync --all-extras        # includes dvc[gs]
 uv run dvc repro            # runs only the stages whose code, configs or inputs changed
 uv run dvc status           # "Data and pipelines are up to date" when nothing is stale
-uv run dvc dag              # toy_gold -> toy_summary
+uv run dvc dag              # toy_gold -> toy_summary; toy_ml
 uv run dvc metrics show     # row and file counts per gold table
 ```
 

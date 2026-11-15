@@ -61,9 +61,11 @@ jobs:
           fi
           exit $code
 
-      # The toy pipeline is network-free, so CI can rebuild it from scratch (no GCS credentials: nothing is
-      # pushed or pulled). The step fails only if the pipeline cannot run. A stale dvc.lock is a warning, not a
-      # failure: it depends on all of src/ and configs/, so most PRs would otherwise have to regenerate it.
+      # The toy pipelines are network-free, so CI can rebuild them from scratch (no GCS credentials: nothing is
+      # pushed or pulled). toy_ml is the ML smoke run: train, validate, bias-check, gate, register (a SQLite
+      # MLflow store on the runner), score and publish on every PR; a failed step, or a gate that holds the
+      # model (validation or bias), fails this step. A stale dvc.lock is a warning, not a failure: it depends on
+      # all of src/ and configs/, so most PRs would otherwise have to regenerate it.
       - name: DVC pipeline reproduces (toy world)
         run: |
           uv run dvc repro
