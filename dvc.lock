@@ -169,11 +169,19 @@ stages:
       md5: f978a0768dc820c842b19576e3363071
       size: 628
   toy_ml:
-    cmd: rm -rf data/toy_ml && python tests/ml/make_ml_gold.py data/toy_ml && 
-      precursor-pipeline ml prepare --env-file data/toy_ml/env.yaml --ml-config 
-      data/toy_ml/ml.yaml --run-id toy-ml > data/toy_ml/prepare.out && python 
-      scripts/dvc_ml_summary.py metrics/toy_ml.json data/toy_ml/prepare.out
+    cmd: rm -rf data/toy_ml && python tests/ml/make_ml_gold.py data/toy_ml 
+      --facilities 2000 && (cd data/toy_ml && export 
+      MLFLOW_TRACKING_URI=sqlite:///mlflow.db && for step in prepare train 
+      evaluate gate score publish; do precursor-pipeline ml $step --env-file 
+      env.yaml --ml-config ml.yaml --run-id toy-ml > $step.out || exit; done) &&
+      python scripts/dvc_ml_summary.py metrics/toy_ml.json 
+      data/toy_ml/prepare.out data/toy_ml/train.out data/toy_ml/evaluate.out 
+      data/toy_ml/gate.out data/toy_ml/score.out data/toy_ml/publish.out
     deps:
+    - path: configs/bias_slices.yaml
+      hash: md5
+      md5: 13e2d4ab325ee42717c9202e0a0904c2
+      size: 4556
     - path: configs/feature_registry.yaml
       hash: md5
       md5: 3e682c95c53b9e0742cc63ce640ff834
@@ -190,19 +198,33 @@ stages:
       hash: md5
       md5: 585a634f3726164844b8ab5d85cc6f7b
       size: 6154
+    - path: configs/reason_labels.yaml
+      hash: md5
+      md5: f1587168ff337a2da37ba01d4ed164ab
+      size: 16158
     - path: configs/splits.yaml
       hash: md5
       md5: 58fd46a9b5f4b65e2a0a74c748a85f41
       size: 854
     - path: scripts/dvc_ml_summary.py
       hash: md5
-      md5: f2c0e343009386b1b4b478c72a659357
-      size: 1020
+      md5: 586fdd5f7fc2f6f22255ad6abfedd76e
+      size: 1623
+    - path: src/precursorintelligence/bias
+      hash: md5
+      md5: 4f39f56019ddc6d2d2c66c4ac3b2700e.dir
+      size: 107517
+      nfiles: 13
     - path: src/precursorintelligence/common
       hash: md5
       md5: c6a9ac5fd695f4a1e498065a49fa8ea7.dir
       size: 77591
       nfiles: 11
+    - path: src/precursorintelligence/evaluation
+      hash: md5
+      md5: ad4a7f8e4aa2f42a825e77f5a8a36324.dir
+      size: 120268
+      nfiles: 15
     - path: src/precursorintelligence/gold
       hash: md5
       md5: e9be42984d530ec16c12bf3a6ddeb795.dir
@@ -218,15 +240,20 @@ stages:
       md5: c90c8bc2bf235c6188d860e523b1d244.dir
       size: 136096
       nfiles: 19
+    - path: src/precursorintelligence/serving
+      hash: md5
+      md5: 3b604dcf0e04a62ebce10ceca1f0bd28.dir
+      size: 39689
+      nfiles: 5
     - path: src/precursorintelligence/training
       hash: md5
-      md5: 2d384e75cca1b9a583ff7229cd2f1a98.dir
-      size: 137354
+      md5: dde50c55bc12230007053628127399f8.dir
+      size: 144626
       nfiles: 11
     - path: tests/ml/make_ml_gold.py
       hash: md5
-      md5: 1913cd326c4e1928ddcc203a177cb9e9
-      size: 10099
+      md5: d5d8c13bfc6b218fe33da3279421888f
+      size: 10264
     - path: uv.lock
       hash: md5
       md5: 4f03965416199754f6739909f82ef4f6
@@ -234,5 +261,5 @@ stages:
     outs:
     - path: metrics/toy_ml.json
       hash: md5
-      md5: 5390431689f9cc22b5e0ffdf58399481
-      size: 556
+      md5: 040a6cacdd0f0231057322ebb1c3489a
+      size: 1691

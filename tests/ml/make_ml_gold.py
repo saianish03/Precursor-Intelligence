@@ -11,7 +11,7 @@ model can learn it. ``gold/`` holds what ``prepare`` reads: the merged parquet, 
     python tests/ml/make_ml_gold.py <dir>      # writes <dir>/gold/..., <dir>/env.yaml and <dir>/ml.yaml
 
 ``<dir>/ml.yaml`` is the toy smoke run's settings (DVC stage ``toy_ml``, spec §16.2): the repo's ml.yaml made small
-and fast, with ``gates.first_run: promote`` so the chain reaches ``score``.
+and fast, with ``gates.first_run: promote`` and a toy G6 limit so the chain reaches ``score``.
 """
 
 from __future__ import annotations
@@ -50,7 +50,8 @@ TOY_ML = {  # merged over configs/ml.yaml
     "members": {"lgbm": {"n_estimators": 50}},
     "checks": {"min_score_facilities": 100},
     "evaluation": {"bootstrap": {"replicates": 200}},
-    "gates": {"first_run": "promote"},
+    # G6's 0.9 assumes real gold: the toy eval fit and refit (4 months, 50 trees) rank 2,000 homes at about 0.84.
+    "gates": {"first_run": "promote", "refit": {"spearman_min": 0.7}},
 }
 _SIGNAL = {  # feature -> how strongly it follows the facility's risk
     "n_cit_GI_24m": 0.9,
