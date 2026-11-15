@@ -18,6 +18,8 @@ idle shutdown).
 - `sa-pipeline` (the VM's identity) and its access: the data bucket, upload only on the backups bucket (never read, list,
   overwrite or delete), objects in the MLflow bucket, pull from the image repository, read on each VM secret, and writing logs and metrics;
 - the image repository `precursor` and `sa-deployer`, which only runs on `dev` or `main` can act as (CD pushes);
+- `sa-release`, the same way (the Deploy workflow): sets `pi-release` on the VM (`compute.instanceAdmin.v1` on that
+  instance, actAs `sa-pipeline`), reads the image repository and compute settings;
 - nine empty Secret Manager secrets for the VM (values are added by hand, never by Terraform);
 - the VM network: `pi-vpc`, `pi-subnet` with Private Google Access, Cloud NAT, and SSH from IAP as the only
   inbound rule;
@@ -33,7 +35,7 @@ recreated.
 - **What Terraform builds:** the machine only. A 30 GB boot disk, plus a 10 GB data disk for Postgres that outlives the
   VM (`prevent_destroy`). The startup script (`infra/vm/startup.sh`) installs Docker and the files of `infra/vm/` at
   every boot. What runs on it is the release that the instance metadata `pi-release` names: `pi-deploy` deploys it at
-  boot and whenever it changes (`infra/vm/README.md` "Deploys"); the Deploy workflow (T22) will set it. Terraform
+  boot and whenever it changes (`infra/vm/README.md` "Deploys"); the Deploy workflow (T22) sets it. Terraform
   ignores that pointer and new Debian images, so neither ever replaces the VM. CI refuses any replacement anyway.
 - **Created running:** the apply that creates it starts it. It costs about $0.13 an hour ($3.22 a day); a stopped VM
   costs only its disks (about $4 a month). The idle shutdown (T21) stops it after an hour with no run and no SSH

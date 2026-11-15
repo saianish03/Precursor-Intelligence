@@ -13,3 +13,4 @@ Planned files (added by the owning teammate; empty workflow files are not commit
 | `workflows/deploy-backend.yml`, `deploy-frontend.yml` | main: build → Cloud Run services |
 | `workflows/cd.yml` | ✅ added: after a merge into dev/main, build, test and push both images to Artifact Registry (`<image>:<sha>`) |
 | `workflows/deploy-dags.yml` | not needed: the DAGs ship inside the Airflow image (`cd.yml`) |
+| `workflows/deploy.yml` | ✅ added: by hand, points the VM at a release (`pi-release`); the VM deploys it |

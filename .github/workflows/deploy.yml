@@ -1,0 +1,219 @@
+name: Deploy
+
+# Points the VM at a release (task T22; VM plan D5): sets the instance metadata pi-release of pi-airflow to one full
+# git sha whose two images CD pushed. pi-deploy on the VM then deploys it, at once if the VM runs (after any pipeline
+# run), else at its next start (infra/vm/README.md, "Deploys"). A rollback is the same run with an older sha. Start it
+# from a laptop (the Actions tab's button needs this file on the default branch, main):
+#   gh workflow run deploy.yml --ref dev                  # dev's newest commit with images
+#   gh workflow run deploy.yml --ref dev -f sha=<sha>     # a given commit of dev, e.g. to roll back
+# The run's branch decides which commits it may deploy, and only runs on dev and main can log in as sa-release.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit to deploy (default: this branch's newest commit with images, i.e. its last green CD run)"
+        required: false
+        default: ""
+  # A PR that changes this file dry-runs the checks that need no Google login, against dev. That run also makes GitHub
+  # list the workflow, which `gh workflow run` needs while the file isn't on the default branch.
+  pull_request:
+    paths:
+      - ".github/workflows/deploy.yml"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash # -eo pipefail
+
+env:
+  # The two images CD pushes per sha (cd.yml); MLflow adds a third (VM plan §9)
+  REGISTRY: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor
+  IMAGES: pipeline airflow
+  WIF_PROVIDER: projects/852874974077/locations/global/workloadIdentityPools/github/providers/github-repo
+  RELEASE_SA: sa-release@precursor-intel-mlops.iam.gserviceaccount.com
+  PROJECT: precursor-intel-mlops
+  ZONE: us-central1-a
+  VM: pi-airflow
+
+jobs:
+  # A deploy stops at once while a Terraform run is queued or running, so it almost never waits in the shared
+  # `terraform` group below, where it could replace a pending apply of a merge that nobody is watching.
+  guard:
+    name: no Terraform run going on
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Stop if terraform.yml has a run that isn't finished
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          n=$(gh run list --workflow terraform.yml --limit 20 --json status -q '[.[] | select(.status != "completed")] | length')
+          if [ "$n" != 0 ]; then
+            echo "::error::a Terraform run is queued or running: start this deploy again once it has finished"
+            exit 1
+          fi
+
+  set:
+    name: set pi-release
+    needs: guard
+    # the PR dry run skips the guard and still runs; a dispatch runs only after the guard passed
+    if: ${{ !cancelled() && (needs.guard.result == 'success' || (needs.guard.result == 'skipped' && github.event_name == 'pull_request')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # A deploy never runs alongside a Terraform run: an apply writes the VM's whole metadata map back, pi-release with
+    # the value it read when it planned. GitHub keeps one pending run per group and a newer one replaces it, either
+    # way: a deploy that waits can cancel a queued Terraform run, and the reverse (the guard above makes this rare;
+    # rerun whichever shows as cancelled). So a dry run, or a dispatch from anything but the dev or main branch, stays
+    # out of the group.
+    concurrency:
+      group: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["refs/heads/dev", "refs/heads/main"]'), github.ref) && 'terraform' || format('deploy-{0}', github.run_id) }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read # the newest successful CD run
+      id-token: write # the OIDC token that workload identity federation exchanges for Google credentials
+    outputs:
+      sha: ${{ steps.pick.outputs.sha }}
+      changed: ${{ steps.point.outputs.changed }}
+      status: ${{ steps.point.outputs.status }}
+      at: ${{ steps.point.outputs.at }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # the ancestry check below
+          persist-credentials: false # nothing here pushes to git
+
+      - name: Pick and check the commit
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANT: ${{ inputs.sha }}
+          REF: ${{ github.event_name == 'pull_request' && 'refs/heads/dev' || github.ref }}
+        run: |
+          case "$REF" in
+            refs/heads/dev | refs/heads/main) branch=${REF#refs/heads/} ;;
+            *) echo "::error::deploys run from the dev or main branch (only those can log in as sa-release), not $REF"; exit 1 ;;
+          esac
+          if [ -n "$WANT" ]; then
+            [[ "$WANT" =~ ^[0-9a-f]{7,40}$ ]] || { echo "::error::${WANT@Q} is not a commit sha"; exit 1; }
+            sha=$(git rev-parse --verify --quiet "$WANT^{commit}") || { echo "::error::no commit $WANT here"; exit 1; }
+          else
+            # CD runs only when an image input changed, so its last green run is the newest commit with images
+            sha=$(gh run list --workflow cd.yml --branch "$branch" --status success --limit 1 --json headSha -q '.[0].headSha')
+            [ -n "$sha" ] || { echo "::error::no successful CD run on $branch, so nothing has images"; exit 1; }
+          fi
+          git merge-base --is-ancestor "$sha" "origin/$branch" || { echo "::error::$sha is not on $branch"; exit 1; }
+          # The floor, checked on content as pi-deploy's stage() does (L11, #46): a release whose init-db.sh lacks the
+          # task-network rule never starts on the VM's data disk. Content, not ancestry: a squashed merge keeps it.
+          init=$(git show "$sha:docker/airflow-local/init-db.sh" 2> /dev/null) || init=""
+          grep -q PI_TASKS_SUBNET <<< "$init" \
+            || { echo "::error::$sha is older than the oldest release the VM accepts (L11, #46: init-db.sh's task-network rule)"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Release \`$sha\`: $(git log -1 --format='%cs %s' "$sha") (branch $branch)" >> "$GITHUB_STEP_SUMMARY"
+
+      # A pull request stops here: it can't log in (only dev and main can), and it must not deploy.
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.RELEASE_SA }}
+
+      # A pointer to a sha without images fails on the VM three times and is then marked failed (infra/vm/README.md).
+      - name: Both images in the registry?
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SHA: ${{ steps.pick.outputs.sha }}
+        run: |
+          for image in $IMAGES; do
+            gcloud artifacts docker images describe "$REGISTRY/$image:$SHA" --quiet > /dev/null || {
+              echo "::error::no $image image for $SHA: never built (no CD run), or deleted (the registry drops versions older than 30 days beyond the 5 newest)"
+              exit 1
+            }
+          done
+
+      - name: Point the VM at it
+        id: point
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SHA: ${{ steps.pick.outputs.sha }}
+        run: |
+          out=$(gcloud compute instances describe "$VM" --zone "$ZONE" --project "$PROJECT" \
+            --format='value(status,metadata.items.pi-release)')
+          status=$(cut -f1 <<< "$out")
+          current=$(cut -sf2 <<< "$out")
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$current" = "$SHA" ]; then # the same value would wake nothing on the VM
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "pi-release already names \`$SHA\`: nothing changes. To deploy it again: \`sudo pi-deploy now\` on the VM." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          # only this key: the startup script and the other files stay as Terraform wrote them
+          gcloud compute instances add-metadata "$VM" --zone "$ZONE" --project "$PROJECT" --metadata "pi-release=$SHA"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "pi-release: \`${current:-none}\` → \`$SHA\`"
+            case "$status" in
+              RUNNING | STAGING | PROVISIONING)
+                echo "The VM is ${status,,}: pi-deploy deploys it now, after any pipeline run. The next job waits for the result." ;;
+              *) echo "The VM is ${status,,}: pi-deploy deploys it at the next start (\`gcloud compute instances start $VM --zone $ZONE\`)." ;;
+            esac
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  watch:
+    name: wait for the VM
+    needs: set
+    if: needs.set.outputs.changed == 'true' && contains(fromJSON('["RUNNING", "STAGING", "PROVISIONING"]'), needs.set.outputs.status)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+    steps:
+      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.RELEASE_SA }}
+
+      # pi-deploy reports each result as the guest attribute precursor/last-result, "<UTC time> <sha> <result>":
+      # informational only (anything on the VM can write it). A failure has emailed already. A result for another
+      # sha (a boot redeploy, an earlier deploy that waited for a run) doesn't decide this one, but a rollback does:
+      # it names the previous sha and replaces "<this sha> failed-after-up" within seconds.
+      - name: The VM's result (up to 15 minutes)
+        env:
+          SHA: ${{ needs.set.outputs.sha }}
+          AT: ${{ needs.set.outputs.at }}
+        run: |
+          fails=0
+          for _ in $(seq 30); do
+            if out=$(gcloud compute instances get-guest-attributes "$VM" --zone "$ZONE" --project "$PROJECT" \
+                --query-path=precursor/ --format='value(key,value)' 2>&1); then
+              fails=0
+              r=$(awk -F'\t' '$1 == "last-result" {print $2}' <<< "$out")
+            else
+              fails=$((fails + 1))
+              [ "$fails" -lt 3 ] || { echo "::error::can't read the VM's guest attributes: $out"; exit 1; }
+              r=""
+            fi
+            read -r at sha result <<< "$r"
+            if [ -n "$at" ] && ! [[ "$at" < "$AT" ]]; then # a result since this run set the pointer
+              case "$sha $result" in
+                "$SHA deployed")
+                  echo "✅ The VM deployed \`$SHA\` at $at." >> "$GITHUB_STEP_SUMMARY"
+                  exit 0 ;;
+                "$SHA failed-"* | *" rolled-back" | *" rollback-failed")
+                  echo "::error::the VM did not deploy $SHA: '$r' (journalctl -u pi-deploy on the VM; pi-deploy emailed)"
+                  echo "❌ \`$r\`" >> "$GITHUB_STEP_SUMMARY"
+                  exit 1 ;;
+              esac
+            fi
+            sleep 30
+          done
+          msg="no result after 15 minutes: pi-deploy waits while a pipeline run is running or queued, or deploys are paused. Check later: gcloud compute instances get-guest-attributes $VM --zone $ZONE --query-path=precursor/"
+          echo "::warning::$msg"
+          echo "⏳ $msg" >> "$GITHUB_STEP_SUMMARY"
