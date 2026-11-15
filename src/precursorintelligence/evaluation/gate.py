@@ -48,12 +48,12 @@ from . import gates
 from .evaluate import CHAMPION, RULE, report_prefix
 from .gates import GateReport, GateResult, Interval
 from .model_card import render_model_card
-from .registry import RegisteredVersion, Registry
+from .registry import REGISTERING_ACTIONS, RegisteredVersion, Registry
 from .report import EvaluationReport
 
 log = logging.getLogger(__name__)
 
-GATE_ACTIONS = ("promote", "hold")
+GATE_ACTIONS = REGISTERING_ACTIONS
 
 
 def _read(store: ObjectStore, key: str, what: str) -> bytes:

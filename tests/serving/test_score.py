@@ -399,7 +399,7 @@ def test_a_package_without_recorded_hashes_is_refused(trained):
         train.model_copy(update={"refit_package_sha256": {}}).model_dump_json().encode(),
         overwrite=True,
     )
-    with pytest.raises(MlInputError, match="no package hashes"):
+    with pytest.raises(MlInputError, match="no refit package hashes"):
         score(trained, reg)
 
 

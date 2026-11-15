@@ -24,7 +24,12 @@ from precursorintelligence.gold.splits import shift
 from precursorintelligence.training import MlInputError
 from precursorintelligence.training.contracts import RunPaths, TrainResult
 from precursorintelligence.training.data import read_frame, read_windows
-from precursorintelligence.training.ensemble import read_package
+from precursorintelligence.training.ensemble import (
+    PACKAGE_META,
+    PrecursorModel,
+    read_package,
+    write_package,
+)
 
 
 def paths(run):
@@ -164,46 +169,148 @@ def test_the_refit_package_is_never_scored_on_test(trained):
         evaluate(trained)
 
 
-def champion_with(run, model):
-    reg = FakeRegistry({"models:/champ-eval": model})
-    reg.register("models:/champ-refit", {"eval_model_uri": "models:/champ-eval"})
+SOURCE = "champ-run"  # the run whose gate registered the champion (version 1)
+
+
+def champion_from(run, model, *, record=True):
+    """Version 1 is @champion, registered by SOURCE's gate (an ml_runs hold row) and, with ``record``, audited by
+    a manual_promote row. SOURCE's run folder holds ``model`` as its selected candidate's eval fit, with the sha256
+    its train.json recorded. The fake registry holds no model: MLflow's copy must never be loaded."""
+    store, train = run.store(), run.train.result
+    sp = RunPaths.of(run.cfg, SOURCE)
+    prefix = sp.package("eval", train.selected)
+    sha = write_package(store, prefix, model)
+    source_train = train.model_copy(
+        update={
+            "ml_run_id": SOURCE,
+            "eval_packages": {train.selected: prefix},
+            "eval_package_sha256": {train.selected: sha},
+        }
+    )
+    store.put_bytes(sp.train_result, source_train.model_dump_json().encode(), overwrite=True)
+    meta = run.meta()
+    meta.append("ml_runs", [{"ml_run_id": SOURCE, "action": "hold", "candidate_version": 1}])
+    if record:
+        meta.append(
+            "ml_runs",
+            [{"ml_run_id": SOURCE, "action": "manual_promote", "champion_version_after": 1}],
+        )
+    reg = FakeRegistry()
+    reg.register(
+        "models:/champ-refit", {"eval_model_uri": "models:/champ-eval", "candidate": train.selected}
+    )
     reg.set_alias("champion", 1)
-    return reg
+    return reg, meta, sp, prefix, source_train
+
+
+def selected_eval_fit(run):
+    return read_package(run.store(), run.train.result.eval_packages[run.train.result.selected])
+
+
+def rewrite_source_train(run, sp, **update):
+    store = run.store()
+    with store.open_read(sp.train_result) as f:
+        train = TrainResult.model_validate_json(f.read())
+    store.put_bytes(
+        sp.train_result, train.model_copy(update=update).model_dump_json().encode(), overwrite=True
+    )
+
+
+def test_train_records_the_sha256_of_every_eval_package_file(trained):
+    store, train = trained.store(), trained.train.result
+    assert set(train.eval_package_sha256) == set(train.eval_packages)
+    for c, files in train.eval_package_sha256.items():
+        assert PACKAGE_META in files
+        for name, digest in files.items():
+            with store.open_read(f"{train.eval_packages[c]}{name}") as f:
+                assert hashlib.sha256(f.read()).hexdigest() == digest
 
 
 def test_a_champion_trained_into_the_test_window_is_refused(trained):
-    # its eval_model_uri may point at the wrong package (a UI edit, a logging bug): it would win G5 unfairly
+    # a wrongly recorded eval fit would win G5 unfairly: leakage test 3 holds for the champion too
     store, p = trained.store(), paths(trained)
-    model = read_package(store, trained.train.result.eval_packages[trained.train.result.selected])
+    model = selected_eval_fit(trained)
     test_month = min(read_windows(store, p).test.months)
     leaky = copy.copy(model)
     leaky.meta = model.meta.model_copy(update={"training_months": {"eval": [test_month]}})
+    reg, meta, *_ = champion_from(trained, leaky)
     with pytest.raises(MlInputError, match="champion trained on"):
-        evaluate(trained, registry=champion_with(trained, leaky))
+        evaluate(trained, registry=reg, meta=meta)
 
 
 def test_a_champion_alias_moved_outside_the_gates_is_refused(trained):
     # §9.4: the alias must be what the latest promotion row in ml_runs recorded, before anything is loaded
-    store = trained.store()
-    model = read_package(store, trained.train.result.eval_packages[trained.train.result.selected])
-    meta = trained.meta()
+    reg, meta, *_ = champion_from(trained, selected_eval_fit(trained), record=False)
     with pytest.raises(MlInputError, match="moved outside gate/promote"):
-        evaluate(trained, registry=champion_with(trained, model), meta=meta)
+        evaluate(trained, registry=reg, meta=meta)
     meta.append(
-        "ml_runs", [{"ml_run_id": "m1", "action": "manual_promote", "champion_version_after": 1}]
+        "ml_runs", [{"ml_run_id": SOURCE, "action": "manual_promote", "champion_version_after": 1}]
     )
-    assert evaluate(trained, registry=champion_with(trained, model), meta=meta).report.champion
+    assert evaluate(trained, registry=reg, meta=meta).report.champion
+
+
+def test_a_tampered_champion_file_is_refused_before_loading(trained, monkeypatch):
+    reg, meta, _, prefix, _ = champion_from(trained, selected_eval_fit(trained))
+    store = trained.store()
+    with store.open_read(f"{prefix}{PACKAGE_META}") as f:
+        data = f.read()
+    store.put_bytes(f"{prefix}{PACKAGE_META}", data + b" ", overwrite=True)
+    real = PrecursorModel.from_files
+
+    def guarded(files):
+        if files.get(PACKAGE_META, b"").endswith(b" "):
+            raise AssertionError("the tampered package was unpickled before its sha256 was checked")
+        return real(files)
+
+    monkeypatch.setattr(PrecursorModel, "from_files", staticmethod(guarded))
+    with pytest.raises(MlInputError, match="does not match the sha256"):
+        evaluate(trained, registry=reg, meta=meta)
+
+
+def test_a_champion_without_recorded_hashes_is_refused(trained):
+    reg, meta, sp, _, _ = champion_from(trained, selected_eval_fit(trained))
+    rewrite_source_train(trained, sp, eval_package_sha256={})  # a train.json from before the hashes
+    with pytest.raises(MlInputError, match="records no eval package hashes"):
+        evaluate(trained, registry=reg, meta=meta)
+
+
+def test_a_champion_package_outside_its_run_folder_is_refused(trained):
+    reg, meta, sp, _, source_train = champion_from(trained, selected_eval_fit(trained))
+    chosen = source_train.selected
+    elsewhere = trained.train.result.eval_packages[chosen]  # another run's folder; its hashes match
+    rewrite_source_train(trained, sp, eval_packages={chosen: elsewhere})
+    with pytest.raises(MlInputError, match="outside its run folder"):
+        evaluate(trained, registry=reg, meta=meta)
+
+
+def test_a_missing_champion_file_is_refused(trained):
+    reg, meta, _, prefix, _ = champion_from(trained, selected_eval_fit(trained))
+    (trained.gold.root / f"{prefix}{PACKAGE_META}").unlink()
+    with pytest.raises(MlInputError, match="is missing"):
+        evaluate(trained, registry=reg, meta=meta)
+
+
+def test_a_champion_without_ml_runs_is_refused(trained):
+    reg, *_ = champion_from(trained, selected_eval_fit(trained))
+    with pytest.raises(MlInputError, match="without ml_runs"):
+        evaluate(trained, registry=reg)
+
+
+def test_a_champion_no_gate_registered_is_refused(trained):
+    reg, meta, *_ = champion_from(trained, selected_eval_fit(trained))
+    reg.register("models:/other", {"eval_model_uri": "models:/other-eval"})
+    reg.set_alias("champion", 2)
+    meta.append(
+        "ml_runs", [{"ml_run_id": "x", "action": "manual_promote", "champion_version_after": 2}]
+    )
+    with pytest.raises(MlInputError, match="no gate run that registered version 2"):
+        evaluate(trained, registry=reg, meta=meta)
 
 
 def test_the_champions_eval_fit_is_compared_on_the_same_rows(trained):
     chosen = trained.train.result.selected
-    same = read_package(trained.store(), trained.train.result.eval_packages[chosen])
-    reg = FakeRegistry({"models:/champ-eval": same})
-    reg.register(
-        "models:/champ-refit", {"eval_model_uri": "models:/champ-eval", "candidate": chosen}
-    )
-    reg.set_alias("champion", 1)
-    r = evaluate(trained, registry=reg).report
+    reg, meta, *_ = champion_from(trained, selected_eval_fit(trained))
+    r = evaluate(trained, registry=reg, meta=meta).report
     assert r.champion.version == 1 and r.champion_eval is not None
     for m in ("pr_auc", "brier"):
         iv = r.comparison(m, chosen, CHAMPION)
