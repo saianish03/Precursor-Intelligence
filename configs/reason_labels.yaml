@@ -1,138 +1,277 @@
 # Plain-language reasons for each model feature (docs/ML_PIPELINE_SPEC.md §8.1, ML-34). Scoring shows a facility's
 # top risk-raising and risk-lowering features with these labels, so an insurer reads "3 harm-level citations in
 # the last 24 months", not "n_cit_GI_24m". One entry per registry feature with model_use: model, in registry order
-# (tests/training checks the keys). Skeleton from W0: W3 writes the labels (null = not written yet).
+# (tests/training checks the keys and that every entry is written).
+#
+# Per feature:
+#   label        a noun phrase that reads after "raises risk:" / "lowers risk:", with its window and unit.
+#   value_format a Python format string for the feature value ("{:.0f}", "{:.1f}", "{:.0%}", "{}" for text), or
+#                the word yes_no for a flag. A value the format can't take is shown as text.
+#   null_text    what a missing value means for this feature (default "not reported"); a null can carry a
+#                contribution too, e.g. "no standard survey on record".
+# A feature missing here falls back to its name (serving/explain.py).
 _meta:
   version: 1
 labels:
-  days_since_last_std: null
-  days_to_std_due: null
-  std_overdue: null
-  n_std_36m: null
-  n_complaint_surveys_cited_12m: null
-  n_complaint_surveys_cited_24m: null
-  n_ic_surveys_12m: null
-  days_since_last_complaint_survey_cited: null
-  no_std_on_record: null
-  n_cit_12m: null
-  n_cit_24m: null
-  n_cit_AC_24m: null
-  n_cit_DF_24m: null
-  n_cit_GI_24m: null
-  n_cit_JL_24m: null
-  sev_points_12m: null
-  sev_points_24m: null
-  sev_points_per_bed_24m: null
-  max_sev_last_std: null
-  gplus_last_std: null
-  max_sev_prev_std: null
-  gplus_prev_std: null
-  n_gplus_surveys_36m: null
-  days_since_last_gplus: null
-  n_complaint_cit_12m: null
-  n_complaint_gplus_24m: null
-  n_ic_cit_24m: null
-  n_cat_abuse_24m: null
-  n_cat_qol_care_24m: null
-  n_cat_assessment_24m: null
-  n_cat_nursing_physician_24m: null
-  n_cat_resident_rights_24m: null
-  n_cat_administration_24m: null
-  n_repeat_tags_last_std: null
-  n_uncorrected: null
-  n_fines_24m: null
-  fine_dollars_24m: null
-  max_fine_24m: null
-  n_denials_24m: null
-  denial_days_24m: null
-  any_penalty_36m: null
-  days_since_last_penalty: null
-  certified_beds: null
-  occupancy: null
-  ownership_group: null
-  provider_type: null
-  state: null
-  resident_family_council: null
-  sprinkler_status: null
-  provider_in_hospital: null
-  ccrc: null
-  facility_age_years: null
-  sff_status: null
-  abuse_icon: null
-  changed_ownership_12m: null
-  most_recent_inspection_over_2y: null
-  hprd_aide: null
-  hprd_lpn: null
-  hprd_rn: null
-  hprd_total: null
-  hprd_weekend_total: null
-  hprd_weekend_rn: null
-  hprd_pt: null
-  adj_hprd_rn: null
-  adj_hprd_total: null
-  rn_share: null
-  weekend_gap: null
-  turnover_total: null
-  turnover_rn: null
-  admin_departures: null
-  turnover_total_fn: null
-  turnover_rn_fn: null
-  admin_departures_fn: null
-  reported_staffing_fn: null
-  pt_staffing_fn: null
-  staffing_rating_fn: null
-  qm_rating_fn: null
-  avg_residents_per_day_fn: null
-  staffing_rating: null
-  qm_rating: null
-  d6_hprd_total: null
-  d6_hprd_rn: null
-  d12_hprd_total: null
-  d12_turnover_total: null
-  qm_ls_adl_decline: null
-  qm_ls_adl_decline_fn: null
-  qm_ls_antianxiety: null
-  qm_ls_antianxiety_fn: null
-  qm_ls_antipsychotic: null
-  qm_ls_antipsychotic_fn: null
-  d6_qm_ls_antipsychotic: null
-  qm_ls_catheter: null
-  qm_ls_catheter_fn: null
-  qm_ls_depressive: null
-  qm_ls_depressive_fn: null
-  qm_ls_ed_per_1000: null
-  qm_ls_ed_per_1000_fn: null
-  qm_ls_falls_major_injury: null
-  qm_ls_falls_major_injury_fn: null
-  d6_qm_ls_falls_major_injury: null
-  qm_ls_hosp_per_1000: null
-  qm_ls_hosp_per_1000_fn: null
-  qm_ls_mobility_decline: null
-  qm_ls_mobility_decline_fn: null
-  qm_ls_pressure_ulcer: null
-  qm_ls_pressure_ulcer_fn: null
-  d6_qm_ls_pressure_ulcer: null
-  qm_ls_restraints: null
-  qm_ls_restraints_fn: null
-  qm_ls_uti: null
-  qm_ls_uti_fn: null
-  qm_ls_weight_loss: null
-  qm_ls_weight_loss_fn: null
-  qm_ss_ed_visit: null
-  qm_ss_ed_visit_fn: null
-  qm_ss_new_antipsychotic: null
-  qm_ss_new_antipsychotic_fn: null
-  qm_ss_rehosp: null
-  qm_ss_rehosp_fn: null
-  d6_qm_ss_rehosp: null
-  qm_missing_count: null
-  qm_age_months_mds: null
-  qm_age_months_claims: null
-  qm_def_post_2025_02: null
-  qm_def_post_2026_02: null
-  state_gplus_rate_12m: null
-  state_median_hprd_total: null
-  rel_hprd_total: null
-  rel_sev_points_24m: null
-  era: null
-  penalty_regime_2025_10: null
+  days_since_last_std:
+    {label: "days since the last standard health survey", value_format: "{:.0f}", null_text: "no standard survey on record"}
+  days_to_std_due:
+    {label: "days until the next standard survey is due (negative: overdue)", value_format: "{:.0f}", null_text: "no standard survey on record"}
+  std_overdue:
+    {label: "standard survey overdue (more than 15 months since the last)", value_format: yes_no}
+  n_std_36m:
+    {label: "standard health surveys in the last 36 months", value_format: "{:.0f}"}
+  n_complaint_surveys_cited_12m:
+    {label: "complaint surveys with citations in the last 12 months", value_format: "{:.0f}"}
+  n_complaint_surveys_cited_24m:
+    {label: "complaint surveys with citations in the last 24 months", value_format: "{:.0f}"}
+  n_ic_surveys_12m:
+    {label: "infection-control surveys in the last 12 months", value_format: "{:.0f}"}
+  days_since_last_complaint_survey_cited:
+    {label: "days since the last complaint survey with citations", value_format: "{:.0f}", null_text: "no cited complaint survey on record"}
+  no_std_on_record:
+    {label: "no standard health survey on record", value_format: yes_no}
+  n_cit_12m:
+    {label: "health citations in the last 12 months", value_format: "{:.0f}"}
+  n_cit_24m:
+    {label: "health citations in the last 24 months", value_format: "{:.0f}"}
+  n_cit_AC_24m:
+    {label: "minimal-harm (A–C) citations in the last 24 months", value_format: "{:.0f}"}
+  n_cit_DF_24m:
+    {label: "potential-for-harm (D–F) citations in the last 24 months", value_format: "{:.0f}"}
+  n_cit_GI_24m:
+    {label: "actual-harm (G–I) citations in the last 24 months", value_format: "{:.0f}"}
+  n_cit_JL_24m:
+    {label: "immediate-jeopardy (J–L) citations in the last 24 months", value_format: "{:.0f}"}
+  sev_points_12m:
+    {label: "citation severity points in the last 12 months", value_format: "{:.0f}"}
+  sev_points_24m:
+    {label: "citation severity points in the last 24 months", value_format: "{:.0f}"}
+  sev_points_per_bed_24m:
+    {label: "citation severity points per certified bed in the last 24 months", value_format: "{:.2f}", null_text: "no bed count on record"}
+  max_sev_last_std:
+    {label: "severity points of the worst citation at the last standard survey (0 up to 150)", value_format: "{:.0f}", null_text: "no standard survey on record"}
+  gplus_last_std:
+    {label: "a harm-level (G–L) citation at the last standard survey", value_format: yes_no}
+  max_sev_prev_std:
+    {label: "severity points of the worst citation at the survey before the last (0 up to 150)", value_format: "{:.0f}", null_text: "no earlier standard survey on record"}
+  gplus_prev_std:
+    {label: "a harm-level (G–L) citation at the survey before the last", value_format: yes_no}
+  n_gplus_surveys_36m:
+    {label: "surveys with harm-level (G–L) citations in the last 36 months", value_format: "{:.0f}"}
+  days_since_last_gplus:
+    {label: "days since the last harm-level (G–L) citation", value_format: "{:.0f}", null_text: "no harm-level citation on record"}
+  n_complaint_cit_12m:
+    {label: "complaint-driven citations in the last 12 months", value_format: "{:.0f}"}
+  n_complaint_gplus_24m:
+    {label: "complaint-driven harm-level (G–L) citations in the last 24 months", value_format: "{:.0f}"}
+  n_ic_cit_24m:
+    {label: "infection-control citations in the last 24 months", value_format: "{:.0f}"}
+  n_cat_abuse_24m:
+    {label: "abuse, neglect and exploitation citations in the last 24 months", value_format: "{:.0f}"}
+  n_cat_qol_care_24m:
+    {label: "quality-of-life and care citations in the last 24 months", value_format: "{:.0f}"}
+  n_cat_assessment_24m:
+    {label: "resident assessment and care-planning citations in the last 24 months", value_format: "{:.0f}"}
+  n_cat_nursing_physician_24m:
+    {label: "nursing and physician services citations in the last 24 months", value_format: "{:.0f}"}
+  n_cat_resident_rights_24m:
+    {label: "resident-rights citations in the last 24 months", value_format: "{:.0f}"}
+  n_cat_administration_24m:
+    {label: "administration citations in the last 24 months", value_format: "{:.0f}"}
+  n_repeat_tags_last_std:
+    {label: "deficiency tags repeated at both of the last two standard surveys", value_format: "{:.0f}", null_text: "fewer than two standard surveys on record"}
+  n_uncorrected:
+    {label: "citations still awaiting correction", value_format: "{:.0f}"}
+  n_fines_24m:
+    {label: "fines in the last 24 months", value_format: "{:.0f}"}
+  fine_dollars_24m:
+    {label: "fines in the last 24 months (log of dollars + 1)", value_format: "{:.1f}"}
+  max_fine_24m:
+    {label: "largest single fine in the last 24 months ($)", value_format: "${:,.0f}"}
+  n_denials_24m:
+    {label: "payment denials in the last 24 months", value_format: "{:.0f}"}
+  denial_days_24m:
+    {label: "days of payment denial in the last 24 months", value_format: "{:.0f}"}
+  any_penalty_36m:
+    {label: "any fine or payment denial in the last 36 months", value_format: yes_no}
+  days_since_last_penalty:
+    {label: "days since the last fine or payment denial", value_format: "{:.0f}", null_text: "no penalty on record"}
+  certified_beds:
+    {label: "certified beds", value_format: "{:.0f}"}
+  occupancy:
+    {label: "occupancy (residents per certified bed)", value_format: "{:.0%}"}
+  ownership_group:
+    {label: "ownership type", value_format: "{}"}
+  provider_type:
+    {label: "provider type", value_format: "{}"}
+  state:
+    {label: "state", value_format: "{}"}
+  resident_family_council:
+    {label: "resident and family council", value_format: "{}"}
+  sprinkler_status:
+    {label: "automatic sprinkler coverage", value_format: "{}"}
+  provider_in_hospital:
+    {label: "located inside a hospital", value_format: yes_no}
+  ccrc:
+    {label: "part of a continuing-care retirement community", value_format: yes_no}
+  facility_age_years:
+    {label: "years since the facility was first approved by Medicare/Medicaid", value_format: "{:.0f}"}
+  sff_status:
+    {label: "Special Focus Facility status", value_format: "{}"}
+  abuse_icon:
+    {label: "CMS abuse flag on the facility's profile", value_format: yes_no}
+  changed_ownership_12m:
+    {label: "ownership changed in the last 12 months", value_format: yes_no}
+  most_recent_inspection_over_2y:
+    {label: "most recent inspection more than 2 years ago", value_format: yes_no}
+  hprd_aide:
+    {label: "nurse-aide hours per resident per day", value_format: "{:.2f}"}
+  hprd_lpn:
+    {label: "licensed practical nurse hours per resident per day", value_format: "{:.2f}"}
+  hprd_rn:
+    {label: "registered nurse hours per resident per day", value_format: "{:.2f}"}
+  hprd_total:
+    {label: "total nurse staffing hours per resident per day", value_format: "{:.2f}"}
+  hprd_weekend_total:
+    {label: "weekend nurse staffing hours per resident per day", value_format: "{:.2f}"}
+  hprd_weekend_rn:
+    {label: "weekend registered nurse hours per resident per day", value_format: "{:.2f}"}
+  hprd_pt:
+    {label: "physical therapist hours per resident per day", value_format: "{:.2f}"}
+  adj_hprd_rn:
+    {label: "case-mix-adjusted registered nurse hours per resident per day", value_format: "{:.2f}"}
+  adj_hprd_total:
+    {label: "case-mix-adjusted total nurse hours per resident per day", value_format: "{:.2f}"}
+  rn_share:
+    {label: "registered nurses' share of nurse staffing hours", value_format: "{:.0%}"}
+  weekend_gap:
+    {label: "weekday-minus-weekend gap in nurse hours per resident per day", value_format: "{:.2f}"}
+  turnover_total:
+    {label: "annual nursing staff turnover (%)", value_format: "{:.0f}%"}
+  turnover_rn:
+    {label: "annual registered nurse turnover (%)", value_format: "{:.0f}%"}
+  admin_departures:
+    {label: "administrators who left in the last 12 months", value_format: "{:.0f}"}
+  turnover_total_fn:
+    {label: "reason nursing turnover is not reported", value_format: "{}", null_text: "reported"}
+  turnover_rn_fn:
+    {label: "reason registered nurse turnover is not reported", value_format: "{}", null_text: "reported"}
+  admin_departures_fn:
+    {label: "reason administrator departures are not reported", value_format: "{}", null_text: "reported"}
+  reported_staffing_fn:
+    {label: "reason reported staffing is not available", value_format: "{}", null_text: "available"}
+  pt_staffing_fn:
+    {label: "reason physical therapist staffing is not available", value_format: "{}", null_text: "available"}
+  staffing_rating_fn:
+    {label: "reason the staffing star rating is not shown", value_format: "{}", null_text: "rating shown"}
+  qm_rating_fn:
+    {label: "reason the quality-measure star rating is not shown", value_format: "{}", null_text: "rating shown"}
+  avg_residents_per_day_fn:
+    {label: "reason average daily residents is not reported", value_format: "{}", null_text: "reported"}
+  staffing_rating:
+    {label: "staffing star rating (1–5)", value_format: "{:.0f}", null_text: "no staffing rating"}
+  qm_rating:
+    {label: "quality-measure star rating (1–5)", value_format: "{:.0f}", null_text: "no quality-measure rating"}
+  d6_hprd_total:
+    {label: "change in total nurse hours per resident per day over 6 months", value_format: "{:+.2f}"}
+  d6_hprd_rn:
+    {label: "change in registered nurse hours per resident per day over 6 months", value_format: "{:+.2f}"}
+  d12_hprd_total:
+    {label: "change in total nurse hours per resident per day over 12 months", value_format: "{:+.2f}"}
+  d12_turnover_total:
+    {label: "change in nursing staff turnover over 12 months (points)", value_format: "{:+.0f}"}
+  qm_ls_adl_decline:
+    {label: "long-stay residents whose need for help with daily activities increased (%)", value_format: "{:.1f}%"}
+  qm_ls_adl_decline_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ls_antianxiety:
+    {label: "long-stay residents on anti-anxiety or hypnotic medication (%)", value_format: "{:.1f}%"}
+  qm_ls_antianxiety_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ls_antipsychotic:
+    {label: "long-stay residents on antipsychotic medication (%)", value_format: "{:.1f}%"}
+  qm_ls_antipsychotic_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  d6_qm_ls_antipsychotic:
+    {label: "6-month change in long-stay residents on antipsychotics (points)", value_format: "{:+.1f}"}
+  qm_ls_catheter:
+    {label: "long-stay residents with a catheter (%)", value_format: "{:.1f}%"}
+  qm_ls_catheter_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ls_depressive:
+    {label: "long-stay residents with depressive symptoms (%)", value_format: "{:.1f}%"}
+  qm_ls_depressive_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ls_ed_per_1000:
+    {label: "long-stay emergency-department visits per 1,000 resident days", value_format: "{:.2f}"}
+  qm_ls_ed_per_1000_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ls_falls_major_injury:
+    {label: "long-stay residents with falls causing major injury (%)", value_format: "{:.1f}%"}
+  qm_ls_falls_major_injury_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  d6_qm_ls_falls_major_injury:
+    {label: "6-month change in falls with major injury (points)", value_format: "{:+.1f}"}
+  qm_ls_hosp_per_1000:
+    {label: "long-stay hospitalizations per 1,000 resident days", value_format: "{:.2f}"}
+  qm_ls_hosp_per_1000_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ls_mobility_decline:
+    {label: "long-stay residents whose ability to move independently worsened (%)", value_format: "{:.1f}%"}
+  qm_ls_mobility_decline_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ls_pressure_ulcer:
+    {label: "long-stay high-risk residents with pressure ulcers (%)", value_format: "{:.1f}%"}
+  qm_ls_pressure_ulcer_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  d6_qm_ls_pressure_ulcer:
+    {label: "6-month change in pressure ulcers (points)", value_format: "{:+.1f}"}
+  qm_ls_restraints:
+    {label: "long-stay residents physically restrained (%)", value_format: "{:.1f}%"}
+  qm_ls_restraints_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ls_uti:
+    {label: "long-stay residents with a urinary tract infection (%)", value_format: "{:.1f}%"}
+  qm_ls_uti_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ls_weight_loss:
+    {label: "long-stay residents who lost too much weight (%)", value_format: "{:.1f}%"}
+  qm_ls_weight_loss_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ss_ed_visit:
+    {label: "short-stay residents with an emergency-department visit (%)", value_format: "{:.1f}%"}
+  qm_ss_ed_visit_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ss_new_antipsychotic:
+    {label: "short-stay residents newly started on antipsychotics (%)", value_format: "{:.1f}%"}
+  qm_ss_new_antipsychotic_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  qm_ss_rehosp:
+    {label: "short-stay residents re-hospitalized after admission (%)", value_format: "{:.1f}%"}
+  qm_ss_rehosp_fn:
+    {label: "reason that measure is not reported", value_format: "{}", null_text: "reported"}
+  d6_qm_ss_rehosp:
+    {label: "6-month change in short-stay re-hospitalizations (points)", value_format: "{:+.1f}"}
+  qm_missing_count:
+    {label: "quality measures with no reported value", value_format: "{:.0f}"}
+  qm_age_months_mds:
+    {label: "age of the newest resident-assessment quality data (months)", value_format: "{:.0f}", null_text: "no quality data"}
+  qm_age_months_claims:
+    {label: "age of the newest claims-based quality data (months)", value_format: "{:.0f}", null_text: "no quality data"}
+  qm_def_post_2025_02:
+    {label: "month is on or after the February 2025 quality-measure definition change", value_format: yes_no}
+  qm_def_post_2026_02:
+    {label: "month is on or after the February 2026 quality-measure definition change", value_format: yes_no}
+  state_gplus_rate_12m:
+    {label: "share of the state's facilities with harm-level citations in the last 12 months", value_format: "{:.0%}"}
+  state_median_hprd_total:
+    {label: "state median of total nurse hours per resident per day", value_format: "{:.2f}"}
+  rel_hprd_total:
+    {label: "total nurse hours relative to the state median", value_format: "{:.2f}×"}
+  rel_sev_points_24m:
+    {label: "citation severity points vs the state median over 24 months", value_format: "{:+.0f}"}
+  era:
+    {label: "CMS rating-method era", value_format: "{}"}
+  penalty_regime_2025_10:
+    {label: "month is on or after the October 2025 penalty-rule change", value_format: yes_no}
