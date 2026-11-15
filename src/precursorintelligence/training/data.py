@@ -74,8 +74,13 @@ def sha256_hex(data: bytes) -> str:
 def gold_config_sha(manifest: InputManifest) -> str:
     """§15.2: sha256 of the canonical JSON of gold's ``{"config_sha256", "git_commit"}``. Gold built with other
     configs or other code is another gold. ``gate`` writes it into ``ml_runs`` and ``decide`` matches on it, so
-    both call this one function."""
-    payload = {"config_sha256": manifest.gold_config_sha256, "git_commit": manifest.gold_git_commit}
+    both call ``config_sha``."""
+    return config_sha(manifest.gold_config_sha256, manifest.gold_git_commit)
+
+
+def config_sha(config_sha256: dict[str, str], git_commit: str | None) -> str:
+    """``gold_config_sha`` from gold's ``dataset_manifest.json`` fields (``decide`` has no input manifest yet)."""
+    payload = {"config_sha256": config_sha256, "git_commit": git_commit}
     return sha256_hex(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
 
@@ -518,7 +523,7 @@ class PinnedGold:
     files: dict[str, str]  # pinned file -> sha256
 
 
-def _read_json(store: ObjectStore, key: str) -> tuple[dict[str, Any], bytes]:
+def read_json_object(store: ObjectStore, key: str) -> tuple[dict[str, Any], bytes]:
     if not store.exists(key):
         raise GoldPinError(f"{key} is missing: no gold published under this prefix")
     with store.open_read(key) as f:
@@ -540,7 +545,7 @@ def pin_gold(store: ObjectStore, paths: RunPaths, gold_run_id: str | None) -> Pi
     and the pointer didn't change while it was read. Nothing is written unless every check passed.
     """
     current_key = f"{paths.gold_prefix}{CURRENT_NAME}"
-    current, current_bytes = _read_json(store, current_key)
+    current, current_bytes = read_json_object(store, current_key)
     if current.get("state") != "current":
         raise GoldPinError(f"{current_key} says state={current.get('state')!r}, not 'current'")
     run_id = current.get("run_id")
@@ -551,7 +556,7 @@ def pin_gold(store: ObjectStore, paths: RunPaths, gold_run_id: str | None) -> Pi
     merged_sha = current.get("sha256", {}).get(MERGED)
     if not merged_sha:
         raise GoldPinError(f"{current_key} lists no {MERGED}")
-    manifest, manifest_bytes = _read_json(store, f"{paths.gold_prefix}{MANIFEST_NAME}")
+    manifest, manifest_bytes = read_json_object(store, f"{paths.gold_prefix}{MANIFEST_NAME}")
     if manifest.get("merged_file", {}).get("sha256") != merged_sha:
         raise GoldPinError(
             f"{MANIFEST_NAME} and {CURRENT_NAME} disagree about {MERGED}: rerun gold"
@@ -560,7 +565,7 @@ def pin_gold(store: ObjectStore, paths: RunPaths, gold_run_id: str | None) -> Pi
         merged = f.read()
     if sha256_hex(merged) != merged_sha:
         raise GoldPinError(f"{paths.gold_prefix}{MERGED} does not match {CURRENT_NAME}")
-    again, _ = _read_json(store, current_key)
+    again, _ = read_json_object(store, current_key)
     if again != current:
         raise GoldPinError(
             f"{current_key} changed while gold was read (a gold run promoted): retry"
