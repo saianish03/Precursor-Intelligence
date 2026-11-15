@@ -1,6 +1,20 @@
 {
+  "evaluate": {
+    "champion_version": null,
+    "ml_run_id": "toy-ml",
+    "selected": "ensemble",
+    "slices_miscalibrated": 0
+  },
+  "gate": {
+    "action": "promote",
+    "alias": "champion",
+    "champion_version": 1,
+    "failed_gates": [],
+    "ml_run_id": "toy-ml",
+    "passed": true,
+    "version": 1
+  },
   "prepare": {
-    "dataset_version": "038dd3030e1d9f34",
     "eval": [
       "2023-01",
       "2023-04"
@@ -14,11 +28,11 @@
     ],
     "regime_flags": 0,
     "rows": {
-      "eval_train": 1173,
-      "prev_score": 300,
-      "refit_train": 1179,
-      "score": 300,
-      "test": 297
+      "eval_train": 7835,
+      "prev_score": 2000,
+      "refit_train": 7853,
+      "score": 2000,
+      "test": 1962
     },
     "test": [
       "2024-12",
@@ -27,5 +41,34 @@
     "v": "2026-10",
     "v_labels": "2026-10",
     "verified": false
+  },
+  "publish": {
+    "ml_run_id": "toy-ml",
+    "model_version": 1,
+    "reason": "published",
+    "rows": {
+      "chain_scores": 3,
+      "facility_reasons": 16000,
+      "facility_scores": 2000,
+      "shap_values": 2000
+    },
+    "skipped": false,
+    "v": "2026-10"
+  },
+  "score": {
+    "ml_run_id": "toy-ml",
+    "model_version": 1,
+    "n_facilities": 2000,
+    "reason": "scored",
+    "scores_dir": "scores/v=2026-10/",
+    "skipped": false,
+    "stale_refresh": false,
+    "v": "2026-10"
+  },
+  "train": {
+    "flags": [],
+    "ml_run_id": "toy-ml",
+    "refit_package": "ml/runs/toy-ml/models/refit/ensemble/",
+    "selected": "ensemble"
   }
 }
