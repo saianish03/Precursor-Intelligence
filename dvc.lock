@@ -51,8 +51,8 @@ stages:
       size: 1718
     - path: src/precursorintelligence/common
       hash: md5
-      md5: c6a9ac5fd695f4a1e498065a49fa8ea7.dir
-      size: 77591
+      md5: 94a44acea04ddd554e0fa09764abe54a.dir
+      size: 77601
       nfiles: 11
     - path: src/precursorintelligence/gold
       hash: md5
@@ -201,8 +201,8 @@ stages:
       size: 854
     - path: scripts/dvc_toy_ml.py
       hash: md5
-      md5: 0e33af91387ef5ef76c7b8dd43e86fbf
-      size: 3571
+      md5: af54ddbff9a0ce8d307e48490c156d0d
+      size: 3985
     - path: src/precursorintelligence/bias
       hash: md5
       md5: 4f39f56019ddc6d2d2c66c4ac3b2700e.dir
@@ -210,8 +210,8 @@ stages:
       nfiles: 13
     - path: src/precursorintelligence/common
       hash: md5
-      md5: c6a9ac5fd695f4a1e498065a49fa8ea7.dir
-      size: 77591
+      md5: 94a44acea04ddd554e0fa09764abe54a.dir
+      size: 77601
       nfiles: 11
     - path: src/precursorintelligence/evaluation
       hash: md5
@@ -233,6 +233,11 @@ stages:
       md5: c90c8bc2bf235c6188d860e523b1d244.dir
       size: 136096
       nfiles: 19
+    - path: src/precursorintelligence/monitoring
+      hash: md5
+      md5: 0cf8201826cfad7abb5c7fef74a6931f.dir
+      size: 18613
+      nfiles: 4
     - path: src/precursorintelligence/serving
       hash: md5
       md5: 3b604dcf0e04a62ebce10ceca1f0bd28.dir
@@ -240,8 +245,8 @@ stages:
       nfiles: 5
     - path: src/precursorintelligence/training
       hash: md5
-      md5: dde50c55bc12230007053628127399f8.dir
-      size: 144626
+      md5: 978e084fe599214155c02eecbeb9da16.dir
+      size: 146104
       nfiles: 11
     - path: tests/ml/make_ml_gold.py
       hash: md5
@@ -254,5 +259,5 @@ stages:
     outs:
     - path: metrics/toy_ml.json
       hash: md5
-      md5: ede3896977b45f59426f639073da8764
-      size: 1487
+      md5: 76bd7f5dfde4af2dcef03f5aa40688d5
+      size: 2265

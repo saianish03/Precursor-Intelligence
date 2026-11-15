@@ -76,6 +76,7 @@ stages:
       - src/precursorintelligence/gold
       - src/precursorintelligence/harmonize
       - src/precursorintelligence/ingestion
+      - src/precursorintelligence/monitoring
       - src/precursorintelligence/serving
       - src/precursorintelligence/training
       - configs/bias_slices.yaml

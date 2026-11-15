@@ -2,12 +2,13 @@
 
     uv run python scripts/dvc_toy_ml.py data/toy_ml metrics/toy_ml.json
 
-Rebuilds `<dir>` from the fixture, then runs prepare, train, evaluate, gate, score and publish from `<dir>` with a
+Rebuilds `<dir>` from the fixture, then runs decide, prepare, train, evaluate, gate, score, publish and monitor from
+`<dir>` with a
 SQLite MLflow store there (never a shared server, whatever the shell sets; a SQLite store puts its artifacts in
 ./mlruns). Python, not shell, so the stage runs the same under DVC on Windows (cmd.exe).
 
-It fails if a step fails, if the gate does not promote (a validation or bias hold) or if a step skips: the smoke run
-must reach publish. The metrics file keeps one entry per step with only the facts that are the same on every machine
+It fails if a step fails, if decide does not retrain (a fresh store must), if the gate does not promote (a validation
+or bias hold) or if a step skips: the smoke run must reach publish. The metrics file keeps one entry per step with only the facts that are the same on every machine
 (counts, choices, actions). The floats and hashes differ between a laptop and the CI runner, so they stay out of it:
 each step's full output (the gate's G lines, every float) goes to stdout after the toy gate limits, so CI's log shows
 how close each gate is.
@@ -22,11 +23,20 @@ from pathlib import Path
 
 import yaml
 
-STEPS = ("prepare", "train", "evaluate", "gate", "score", "publish")
+STEPS = ("decide", "prepare", "train", "evaluate", "gate", "score", "publish", "monitor")
 RUN_ID = "toy-ml"
 FACILITIES = 2000
 FIXTURE = Path(__file__).resolve().parents[1] / "tests" / "ml" / "make_ml_gold.py"
-UNSTABLE = {"mlflow_run_id", "seconds_total", "dataset_version", "recipe_hash"}  # plus every float
+# plus every float; psi and headline are floats one level down, scored_at is a clock time
+UNSTABLE = {
+    "mlflow_run_id",
+    "seconds_total",
+    "dataset_version",
+    "recipe_hash",
+    "scored_at",
+    "psi",
+    "headline",
+}
 
 
 def last_json_object(text: str) -> dict:
@@ -41,6 +51,10 @@ def last_json_object(text: str) -> dict:
 
 
 def check(step: str, summary: dict) -> None:
+    if step == "decide" and summary.get("decision") != "RETRAIN":
+        raise SystemExit(
+            f"decide said {summary.get('decision')} ({summary.get('reason')}), not RETRAIN"
+        )
     if summary.get("skipped"):
         raise SystemExit(
             f"{step} skipped ({summary.get('reason')}): the smoke run must score and publish"
