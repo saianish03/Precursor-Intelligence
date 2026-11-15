@@ -386,7 +386,7 @@ def run_train(
     for c, model in eval_models.items():
         write_package(store, eval_packages[c], model)
     refit_package = paths.package("refit", chosen)
-    write_package(store, refit_package, refit_model)
+    refit_sha256 = write_package(store, refit_package, refit_model)
     _put(store, paths.oof("eval"), _parquet(oof_frame(wf_eval, list(eval_fits.values()))))
     _put(store, paths.oof("refit"), _parquet(oof_frame(wf_refit, [refit_fit])))
     _put(store, paths.selection, selection.model_dump_json(indent=2).encode("utf-8"))
@@ -439,6 +439,7 @@ def run_train(
             eval_packages=eval_packages,
             eval_model_uris=eval_uris,
             refit_package=refit_package,
+            refit_package_sha256=refit_sha256,
             refit_model_uri=refit_uri,
             oof={"eval": paths.oof("eval"), "refit": paths.oof("refit")},
             calibration=calibration,

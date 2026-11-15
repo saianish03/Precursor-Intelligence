@@ -65,6 +65,8 @@ def verify_scores(store: ObjectStore, directory: str) -> ScoresManifest:
     if set(manifest.files) != set(SCORE_FILES):
         raise MlInputError(f"{key} lists {sorted(manifest.files)}, expected {sorted(SCORE_FILES)}")
     for name, file_key in manifest.files.items():
+        if file_key != f"{directory}{name}.parquet":  # never another month's file
+            raise MlInputError(f"{key} points {name} at {file_key}, outside {directory}")
         if not store.exists(file_key):
             raise MlInputError(f"{file_key} is missing")
         with store.open_read(file_key) as f:
@@ -107,6 +109,13 @@ def run_publish(
             f"the scores for {manifest.v} come from run {scores.ml_run_id} (version {scores.model_version}), "
             f"not this run's version {champion.version}"
         )
+    mixed = {
+        field: (getattr(scores, field), getattr(manifest, field))
+        for field in ("v", "gold_run_id", "dataset_version")
+        if getattr(scores, field) != getattr(manifest, field)
+    }
+    if mixed:  # e.g. the run was prepared again after score: one row must not mix two golds
+        raise MlInputError(f"the scores and this run's input manifest disagree: {mixed}")
 
     done = meta.read("ml_runs", {"ml_run_id": ml_run_id, "action": ["score"]})
     if any(r.get("scores_published") for r in done):

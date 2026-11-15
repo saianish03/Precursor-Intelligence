@@ -19,12 +19,17 @@ CHAIN_COLUMNS = (
     "max_p",
     "worst_ccn",
     "share_top_decile",
+    "model_version",
+    "gold_run_id",
+    "ml_run_id",
 )
+PROVENANCE = ("model_version", "gold_run_id", "ml_run_id")
 
 
 def chain_scores(scores: pl.DataFrame, p_col: str) -> pl.DataFrame:
-    """One row per chain from ``scores`` (``ccn, score_month, chain_id, certified_beds, risk_decile`` and the
-    calibrated probability ``p_col``).
+    """One row per chain from ``scores`` (``ccn, score_month, chain_id, certified_beds, risk_decile``, the
+    calibrated probability ``p_col`` and the provenance columns ``model_version, gold_run_id, ml_run_id``, which
+    are constant within a score write and are carried onto every chain row, §20).
 
     ``beds`` sums ``certified_beds`` (nulls count as 0); ``bed_weighted_mean_p`` weights by them over the
     facilities that have a bed count, null when none has. ``worst_ccn`` is the facility with ``max_p`` (the
@@ -50,6 +55,7 @@ def chain_scores(scores: pl.DataFrame, p_col: str) -> pl.DataFrame:
             p.first().alias("max_p"),
             pl.col("ccn").first().alias("worst_ccn"),
             (pl.col("risk_decile") == 1).mean().alias("share_top_decile"),
+            *(pl.col(c).first() for c in PROVENANCE),
         )
         .sort(["score_month", "chain_id"])
     )

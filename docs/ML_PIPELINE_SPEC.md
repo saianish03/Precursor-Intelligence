@@ -412,6 +412,7 @@ Every decision, promotion, hold, manual promotion and rollback is a row in `prec
 - **Automatic:** a model that performs worse never becomes champion (G3–G7): the course's "rollback mechanism in case the newly trained model performs worse".
 - **Manual:** trigger `cms_nh_ml` with `mode=promote`, `version=<N>` and a reason. It moves `champion` to version N (any earlier version, so this is also the rollback), writes the `ml_runs` row (`manual_promote` or `rollback`), rescores the current month, publishes and emails. Only versions that passed G1–G2 can be promoted by hand.
 - **Integrity check:** `score` refuses (exit 2, alert) unless `@champion` equals the version of the latest `promote`, `manual_promote` or `rollback` row in `ml_runs`. This catches an alias moved by hand in the MLflow UI, outside the gates.
+- **Package integrity:** the MLflow server has no login, so its copy of a package is never unpickled by `score`. `train` records the refit package's `{file: sha256}` in `train.json` (`refit_package_sha256`); `score` finds the run that registered the version from its `ml_runs` gate row (`candidate_version`), verifies every file of that run's refit package in GCS against those hashes and loads it from there (exit 2 on any mismatch, a missing hash list or a package that isn't a refit). MLflow gives only the alias.
 
 ---
 
@@ -424,19 +425,19 @@ Every decision, promotion, hold, manual promotion and rollback is a row in `prec
 - At a stale refresh (`V ≠ V_L`), event-based features are copied from `V_L`; scores are produced and stamped `stale_refresh = true` (also in `status/latest.json`).
 
 ### 10.2 Reasons and SHAP
-- **`facility_reasons.parquet`** (long): `ccn, t, model_version, direction (raises | lowers), rank, feature, feature_value (text), contribution_logodds, label`; up to 8 rows per facility (only a positive contribution raises and only a negative one lowers, so a facility can have fewer).
+- **`facility_reasons.parquet`** (long): `ccn, t, score_month (date), model_version, direction (raises | lowers), rank, feature, feature_value (text), contribution_logodds, label`; up to 8 rows per facility (only a positive contribution raises and only a negative one lowers, so a facility can have fewer).
 - **`shap_values.parquet`** (wide): `ccn, t, model_version, base_value`, one column per feature.
 
 ### 10.3 Chain roll-up (ML-11)
-Per `chain_id` (facilities without a chain get no chain row), in **`chain_scores.parquet`**: `n_facilities`, `beds` (Σ `certified_beds`), `expected_facilities_with_event` (Σ p), `bed_weighted_mean_p`, `max_p` and `worst_ccn`, `share_top_decile`. No model is trained at chain level. A score-band → action mapping, if any, is a fixed rule table outside ML.
+Per `chain_id` (facilities without a chain get no chain row), in **`chain_scores.parquet`**: `n_facilities`, `beds` (Σ `certified_beds`), `expected_facilities_with_event` (Σ p), `bed_weighted_mean_p`, `max_p` and `worst_ccn`, `share_top_decile`, and the write's `model_version`, `gold_run_id` and `ml_run_id` (§20). No model is trained at chain level. A score-band → action mapping, if any, is a fixed rule table outside ML.
 
 ### 10.4 Layout and idempotency
-All four files go to `<prefix>scores/v=YYYY-MM/` with `scores_manifest.json` (model version, gold run, rows, sha256 per file, `ml_run_id`). A rescoring of the same month overwrites the folder; bucket versioning keeps the previous files.
+All four files go to `<prefix>scores/v=YYYY-MM/` with `scores_manifest.json` (model version, gold run, rows, sha256 per file, `ml_run_id`). A rescoring of the same month overwrites the folder; bucket versioning keeps the previous files. The old manifest is moved to `<prefix>tmp/scores/v=YYYY-MM/` before the first file is rewritten and the new one is written last, so a rescore that dies midway leaves a month that reads as not scored. The version's `key_features` tag (§8.2) is set by its first score and kept for its life.
 
 ---
 
 ## 11. Step M11: publish (task `publish`)
-- **Phase 1:** verifies `scores_manifest.json` against the files (each file present, its sha256 and row count, one model version) and emits the Airflow asset **`cms_nh_scores`**. It then appends one `ml_runs` row, `action: score`, `scores_published: true`, with `v`, `dataset_version` and `champion_version_after` = the scoring version. That row is what `decide` reads as "published scores for (`V`, `dataset_version`, champion version)" and what `last_scored_v` reads; a retried publish writes no second row.
+- **Phase 1:** verifies `scores_manifest.json` against the files (each file present at `<month folder>/<name>.parquet`, its sha256 and row count, one model version; `v`, `gold_run_id` and `dataset_version` equal to the run's input manifest) and emits the Airflow asset **`cms_nh_scores`**. It then appends one `ml_runs` row, `action: score`, `scores_published: true`, with `v`, `dataset_version` and `champion_version_after` = the scoring version. That row is what `decide` reads as "published scores for (`V`, `dataset_version`, champion version)" and what `last_scored_v` reads; a retried publish writes no second row.
 - **Phase 2 (BigQuery, ML-4):** dataset `precursorintelligence_scores` (us-central1, Terraform), tables `facility_scores`, `facility_reasons`, `chain_scores`, monthly-partitioned on `score_month`, clustered by `state` where present. Loaded with a **load job** from the parquet files (never streaming inserts; data spec D6), `WRITE_TRUNCATE` on the month's partition (decorator `table$YYYYMM`), so a rerun replaces exactly that month. The SHAP matrix stays in GCS.
 
 ---

@@ -83,9 +83,9 @@ def fitted():
         "lr": lr.logit,
         "lgbm_own_levels": own_levels.logit,
         "model_p": lambda f: model.predict_frame(f)["p"].to_numpy(),
-        "model_contrib": lambda f: model.contributions(f)[1].to_numpy(),
+        "model_contrib": lambda f: model.explain(f)[1].to_numpy(),
         "reloaded_p": lambda f: reloaded.predict_frame(f)["p"].to_numpy(),
-        "reloaded_contrib": lambda f: reloaded.contributions(f)[1].to_numpy(),
+        "reloaded_contrib": lambda f: reloaded.explain(f)[1].to_numpy(),
     }
 
 

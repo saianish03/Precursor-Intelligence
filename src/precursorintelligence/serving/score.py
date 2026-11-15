@@ -4,12 +4,15 @@
    No champion (no file, or ``version: null``) -> skip, nothing written.
 2. Integrity check (§9.4): ``@champion`` must equal the version of the latest promote / manual_promote / rollback
    row in ``ml_runs`` (``evaluation/registry.check_champion_integrity``, exit 2 otherwise). The version loaded must
-   be that one too.
+   be that one too, and a refit package. It is read from the GCS run folder of the run that registered it and
+   checked against the sha256 in that run's ``train.json`` (``load_champion_package``); MLflow gives only the
+   alias.
 3. Score the pinned ``score`` frame (refused unless every row is ``t = V``); exact contributions (§8.1).
 4. Write ``<prefix>scores/v=YYYY-MM/``: ``facility_scores``, ``facility_reasons``, ``shap_values``,
    ``chain_scores`` and, last, ``scores_manifest.json`` (§10.4). A rescore overwrites the month.
-5. The champion's global importance on the score frame (§8.2) into the run folder's ``score/``; its top
-   ``explain.key_features`` become the version's ``key_features`` tag (drift monitoring, §12.1).
+5. The champion's global importance on the score frame (§8.2) into the run folder's ``score/``; the first score
+   of a version sets its top ``explain.key_features`` as the version's ``key_features`` tag (drift monitoring,
+   §12.1), kept for the version's life.
 
 Every score row carries the model version and the gold run that produced it (§20).
 """
@@ -19,6 +22,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any, Literal
@@ -27,13 +31,27 @@ import numpy as np
 import polars as pl
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from ..common.config import FeatureRegistry, MlConfig, load_feature_registry, project_root
+from ..common.config import (
+    ConfigError,
+    FeatureRegistry,
+    MlConfig,
+    load_feature_registry,
+    project_root,
+)
 from ..common.io.metadata_store import MetadataStore
 from ..common.io.object_store import ObjectStore
+from ..evaluation.gate import GATE_ACTIONS
 from ..evaluation.registry import Registry, check_champion_integrity
+from ..evaluation.sanity import SHAP_TOLERANCE
 from ..training import MlInputError
-from ..training.contracts import Champion, InputManifest, RunPaths
-from ..training.data import _forbidden, read_frame, read_input_manifest, read_windows
+from ..training.contracts import Champion, InputManifest, Mode, RunPaths, TrainResult
+from ..training.data import (
+    is_forbidden,
+    read_frame,
+    read_input_manifest,
+    read_windows,
+    sha256_hex,
+)
 from ..training.ensemble import PrecursorModel
 from . import explain
 from .rollup import chain_scores
@@ -88,6 +106,53 @@ def read_champion(store: ObjectStore, paths: RunPaths) -> Champion | None:
         raise MlInputError(
             f"{paths.champion} is not a valid champion file: {exc.error_count()} error(s)"
         ) from None
+
+
+def load_champion_package(
+    store: ObjectStore, meta: MetadataStore, cfg: MlConfig, version: int
+) -> PrecursorModel:
+    """The champion's refit package, from the GCS run folder of the run that registered it, verified file by file
+    against the sha256 that run's ``train.json`` recorded (§9.4). MLflow gives only the alias: its artifact store
+    has no login, so its copy of the package is never unpickled here.
+
+    The registering run comes from ``ml_runs`` (the gate row whose ``candidate_version`` is ``version``), not
+    from the version's tags, which live on the same server. Any mismatch refuses (exit 2).
+    """
+    rows = [
+        r
+        for r in meta.read("ml_runs", {"action": list(GATE_ACTIONS)})
+        if r.get("candidate_version") == version
+    ]
+    if not rows:
+        raise MlInputError(f"ml_runs records no gate run that registered version {version}")
+    source = min(rows, key=lambda r: r["id"])["ml_run_id"]
+    source_paths = RunPaths.of(cfg, source)
+    if not store.exists(source_paths.train_result):
+        raise MlInputError(
+            f"{source_paths.train_result} is missing: version {version} can't be verified"
+        )
+    with store.open_read(source_paths.train_result) as f:
+        train = TrainResult.model_validate_json(f.read())
+    prefix, expected = train.refit_package, train.refit_package_sha256
+    if not expected:
+        raise MlInputError(
+            f"train.json of {source} records no package hashes: version {version} can't be verified"
+        )
+    if not prefix.startswith(source_paths.run_dir):
+        raise MlInputError(f"train.json of {source} points outside its run folder: {prefix}")
+    files: dict[str, bytes] = {}
+    for name, digest in sorted(expected.items()):
+        key = f"{prefix}{name}"
+        if not store.exists(key):
+            raise MlInputError(f"{key} is missing")
+        with store.open_read(key) as f:
+            data = f.read()
+        if sha256_hex(data) != digest:
+            raise MlInputError(
+                f"{key} does not match the sha256 train.json recorded: refusing to load it"
+            )
+        files[name] = data
+    return PrecursorModel.from_files(files)
 
 
 # --------------------------------------------------------------------------- the score table
@@ -204,9 +269,11 @@ def run_score(
     cfg: MlConfig,
     registry: Registry | None,
     feature_registry: FeatureRegistry | None = None,
+    mode: Mode = "auto",
     now: datetime | None = None,
 ) -> ScoreOutput:
-    """The ``score`` task. Raises ``MlInputError`` (exit 2) on an integrity or data refusal."""
+    """The ``score`` task. Raises ``MlInputError`` (exit 2) on an integrity or data refusal, ``ConfigError``
+    (exit 3) when a champion is named but no registry is configured."""
     from ..training import mlflow_log
     from ..training.train import read_decision
 
@@ -220,8 +287,8 @@ def run_score(
         )
         log.info("score %s: skipped (%s)", ml_run_id, reason)
         return ScoreOutput(skipped=True, reason=reason)
-    if registry is None:
-        raise MlInputError(
+    if registry is None:  # wiring, not data: exit 3, as in promote (§15.5)
+        raise ConfigError(
             "champion.json names a version but no model registry is configured (MLFLOW_TRACKING_URI)"
         )
 
@@ -237,9 +304,13 @@ def run_score(
             f"{alias.version if alias else None}: the champion moved after this run recorded it"
         )
     version = champion.version
-    model: PrecursorModel = registry.load_model(f"models:/{champion.model_name}/{version}")
+    model = load_champion_package(store, meta, cfg, version)
     if model.meta is None:
         raise MlInputError(f"version {version} has no package meta")
+    if set(model.meta.training_months) != {"refit"}:
+        raise MlInputError(
+            f"version {version} is not a refit package (training_months {sorted(model.meta.training_months)})"
+        )
 
     manifest = read_input_manifest(store, paths)
     windows = read_windows(store, paths)
@@ -251,9 +322,20 @@ def run_score(
         raise MlInputError(
             f"the score frame holds months {sorted(months)}, not only V = {manifest.v}"
         )
-    forbidden = [f for f in model.feature_names if _forbidden(f)]
-    if forbidden:  # defence in depth: training refuses these too (§1.4, §20)
+    # Defence in depth: training refuses these too (§1.4, §20). By name, and by the registry's model_use.
+    forbidden = [f for f in model.feature_names if is_forbidden(f)]
+    if forbidden:
         raise MlInputError(f"version {version} uses forbidden model inputs: {forbidden}")
+    registry_features = {f.name: f for f in (feature_registry or load_feature_registry()).features}
+    not_model = [
+        f
+        for f in model.feature_names
+        if f not in registry_features or registry_features[f].model_use != "model"
+    ]
+    if not_model:
+        raise MlInputError(
+            f"version {version} uses inputs the feature registry doesn't mark model_use: model: {not_model}"
+        )
     missing = [f for f in model.feature_names if f not in frame.columns]
     if missing:
         raise MlInputError(f"the score frame lacks model features: {missing}")
@@ -262,7 +344,7 @@ def run_score(
     pred = model.predict_frame(frame)
     base, contrib = model.explain(frame)
     err = float(np.abs(base + contrib.to_numpy().sum(axis=1) - pred["logit"].to_numpy()).max())
-    if err > 1e-6:
+    if err > SHAP_TOLERANCE:
         raise MlInputError(
             f"contributions do not add up to the calibrated log-odds (max error {err:.2e})"
         )
@@ -280,6 +362,7 @@ def run_score(
     reasons = explain.reasons(
         contrib,
         frame,
+        score_month=_month_start(manifest.v),
         model_version=version,
         labels=explain.load_reason_labels(project_root() / cfg.explain.labels),
         top_raise=cfg.explain.top_raise,
@@ -299,7 +382,32 @@ def run_score(
         "chain_scores": chains,
     }
 
+    # Global importance of the champion on the score frame (§8.2) and its key features (§12.1). Built, plots
+    # included, before anything is written: a failure here leaves the month as it was.
+    mean_abs = explain.mean_abs_table(contrib)
+    families = explain.family_table(mean_abs, [registry_features[f] for f in model.feature_names])
+    top = explain.key_features(mean_abs, cfg.explain.key_features)
+    report_files = {
+        "shap_mean_abs.csv": _csv(mean_abs),
+        "shap_families.csv": _csv(families),
+        "key_features.json": json.dumps(top, indent=2).encode(),
+    }
+    try:
+        report_files["shap_bar.png"] = explain.bar_chart(mean_abs, title="Champion, score month")
+        report_files["shap_beeswarm.png"] = explain.beeswarm(contrib, model.model_frame(frame))
+    except ImportError as exc:  # matplotlib/shap missing: the plots are skipped, never the scores
+        log.warning("score %s: SHAP plots skipped (%s)", ml_run_id, exc)
+
+    # The old manifest goes first: a rescore that dies between the tables reads as "not scored", never as a
+    # valid month mixing two writes. It moves to the prefix's tmp/ (the store deletes only under scratch
+    # prefixes), so it stays recoverable. The new manifest is written last.
     out_dir = scores_dir(cfg, manifest.v)
+    if store.exists(f"{out_dir}{SCORES_MANIFEST}"):
+        store.move(
+            f"{out_dir}{SCORES_MANIFEST}",
+            f"{cfg.outputs.root_prefix}tmp/{cfg.outputs.scores_prefix}/v={manifest.v}/"
+            f"{SCORES_MANIFEST}.{uuid.uuid4().hex}",
+        )
     keys, sha, rows = {}, {}, {}
     for name, table in tables.items():
         key = f"{out_dir}{name}.parquet"
@@ -328,31 +436,12 @@ def run_score(
         scores_manifest.model_dump_json(indent=2).encode(),
         overwrite=True,
     )
-
-    # Global importance of the champion on the score frame (§8.2) and its key features (§12.1).
-    mean_abs = explain.mean_abs_table(contrib)
-    families = explain.family_table(
-        mean_abs,
-        [
-            f
-            for f in (feature_registry or load_feature_registry()).features
-            if f.name in set(model.feature_names)
-        ],
-    )
-    top = explain.key_features(mean_abs, cfg.explain.key_features)
-    report_files = {
-        "shap_mean_abs.csv": _csv(mean_abs),
-        "shap_families.csv": _csv(families),
-        "key_features.json": json.dumps(top, indent=2).encode(),
-    }
-    try:
-        report_files["shap_bar.png"] = explain.bar_chart(mean_abs, title="Champion, score month")
-        report_files["shap_beeswarm.png"] = explain.beeswarm(contrib, model.model_frame(frame))
-    except ImportError as exc:  # matplotlib/shap missing: the plots are skipped, never the scores
-        log.warning("score %s: SHAP plots skipped (%s)", ml_run_id, exc)
     for name, data in report_files.items():
         store.put_bytes(f"{score_report_dir(paths)}{name}", data, overwrite=True)
-    registry.set_tags(version, {"key_features": json.dumps(top)})
+    if (
+        "key_features" not in alias.tags
+    ):  # set once per version (§8.2): the drift monitor's fixed watch list
+        registry.set_tags(version, {"key_features": json.dumps(top)})
 
     mean_p = float(scores[f"p_{manifest.label}"].mean())  # type: ignore[arg-type]
     tags = mlflow_log.base_tags(
@@ -360,6 +449,7 @@ def run_score(
         ml_run_id=ml_run_id,
         recipe_hash=model.meta.recipe_hash,
         decision=read_decision(store, paths),
+        mode=mode,
     )
     with mlflow_log.task_run(cfg, "score", {**tags, "model_version": str(version)}) as run_id:
         if run_id is not None:

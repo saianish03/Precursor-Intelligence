@@ -317,6 +317,9 @@ class TrainResult(_Contract):
         str, str
     ]  # candidate -> MLflow model URI of the logged eval-fit package ("" if none)
     refit_package: str
+    refit_package_sha256: dict[
+        str, str
+    ] = {}  # file -> sha256; score verifies the package against it (§9.4)
     refit_model_uri: str
     oof: dict[str, str]  # fit -> OOF parquet key
     calibration: dict[str, PlattCalibration]  # "eval/<candidate>" and "refit/<candidate>"

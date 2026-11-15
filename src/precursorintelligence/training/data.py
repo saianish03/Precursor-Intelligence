@@ -79,7 +79,8 @@ def gold_config_sha(manifest: InputManifest) -> str:
     return sha256_hex(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
 
-def _forbidden(name: str) -> bool:
+def is_forbidden(name: str) -> bool:
+    """A label, key or ML-17 rating column: never a model input, whatever the registry says (§1.4)."""
     return (
         name in _FORBIDDEN_NAMES
         or name.startswith(_FORBIDDEN_PREFIXES)
@@ -106,7 +107,7 @@ def feature_list(registry: FeatureRegistry, cfg: MlConfig) -> list[FeatureSpec]:
     unknown = [n for n in cfg.features.regime_sensitive if n not in names]
     if unknown:
         raise ConfigError(f"ml.yaml features.regime_sensitive names no registry feature: {unknown}")
-    forbidden = [f.name for f in model if _forbidden(f.name)]
+    forbidden = [f.name for f in model if is_forbidden(f.name)]
     if forbidden:
         raise ConfigError(
             f"the feature registry marks forbidden columns as model features: {forbidden}"
@@ -125,7 +126,7 @@ def to_model_frame(df: pl.DataFrame, features: Sequence[FeatureSpec]) -> pd.Data
     strings with null as its own level (``MISSING_LEVEL``). Columns come out in ``features`` order, so a model never
     sees a schema that depends on the rows it got (e.g. an all-non-null sample read as integers).
     """
-    forbidden = [f.name for f in features if _forbidden(f.name)]
+    forbidden = [f.name for f in features if is_forbidden(f.name)]
     if forbidden:
         raise MlInputError(f"never a model input: {forbidden}")
     missing = [f.name for f in features if f.name not in df.columns]

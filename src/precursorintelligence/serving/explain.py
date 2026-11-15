@@ -15,6 +15,7 @@ from __future__ import annotations
 import io
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,16 +24,18 @@ import pandas as pd
 import polars as pl
 import yaml
 
-from ..common.config import FeatureSpec, project_root
+from ..common.config import ConfigError, FeatureSpec, project_root
 
 if TYPE_CHECKING:
     from ..training.ensemble import PrecursorModel
 
 DEFAULT_NULL_TEXT = "not reported"
 YES_NO = "yes_no"
+_LABEL_KEYS = ("label", "value_format", "null_text")
 REASON_COLUMNS = (
     "ccn",
     "t",
+    "score_month",
     "model_version",
     "direction",
     "rank",
@@ -82,12 +85,20 @@ class ReasonLabel:
 
 def load_reason_labels(path: str | Path | None = None) -> dict[str, ReasonLabel]:
     """``configs/reason_labels.yaml``: feature -> label, value format and null text. A feature without a written
-    label (``null`` or a missing key) is left out: ``label_for`` falls back to its name."""
+    label (``null`` or a missing key) is left out: ``label_for`` falls back to its name. An unknown key, at the top
+    or in an entry, is a config error (exit 3): a typo like ``null_txt`` must not silently fall back."""
     p = Path(path) if path else project_root() / "configs" / "reason_labels.yaml"
     raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    unknown = sorted(set(raw) - {"_meta", "labels"})
+    if unknown:
+        raise ConfigError(f"{p.name}: unknown top-level keys {unknown}")
     out: dict[str, ReasonLabel] = {}
     for feature, entry in (raw.get("labels") or {}).items():
-        if not entry or not entry.get("label"):
+        if not entry:
+            continue
+        if not isinstance(entry, dict) or set(entry) - set(_LABEL_KEYS):
+            raise ConfigError(f"{p.name}: {feature} must be a mapping of {list(_LABEL_KEYS)}")
+        if not entry.get("label"):
             continue
         out[feature] = ReasonLabel(
             label=str(entry["label"]),
@@ -124,6 +135,7 @@ def reasons(
     contrib: pd.DataFrame,
     frame: pl.DataFrame,
     *,
+    score_month: date,
     model_version: int,
     labels: Mapping[str, ReasonLabel],
     top_raise: int,
@@ -155,6 +167,7 @@ def reasons(
                     (
                         ccn[i],
                         t[i],
+                        score_month,
                         model_version,
                         direction,
                         rank,
@@ -167,6 +180,7 @@ def reasons(
     schema: dict[str, Any] = {
         "ccn": frame.schema["ccn"],
         "t": frame.schema["t"],
+        "score_month": pl.Date,
         "model_version": pl.Int64,
         "direction": pl.String,
         "rank": pl.Int64,

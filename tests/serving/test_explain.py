@@ -1,5 +1,7 @@
 """serving/explain.py: exact contributions, reason codes and labels (docs/ML_PIPELINE_SPEC.md §8, §17.1)."""
 
+from datetime import date
+
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -7,6 +9,7 @@ import pytest
 import yaml
 
 from precursorintelligence.common.config import (
+    ConfigError,
     FeatureSpec,
     LgbmParams,
     LrParams,
@@ -20,6 +23,7 @@ from precursorintelligence.training.ensemble import PrecursorModel, build_meta, 
 from precursorintelligence.training.members import LgbmMember, LrMember, categorical_levels
 
 TOL = 1e-6
+MONTH = date(2026, 10, 1)
 
 
 def _spec(name, dtype):
@@ -148,7 +152,9 @@ def _reason_inputs():
 
 def test_reasons_rank_raising_and_lowering_contributions_by_size():
     contrib, frame = _reason_inputs()
-    out = explain.reasons(contrib, frame, model_version=3, labels=LABELS, top_raise=2, top_lower=1)
+    out = explain.reasons(
+        contrib, frame, score_month=MONTH, model_version=3, labels=LABELS, top_raise=2, top_lower=1
+    )
     first = out.filter(pl.col("ccn") == "000001")
     assert first.select("direction", "rank", "feature").rows() == [
         ("raises", 1, "a"),
@@ -162,19 +168,23 @@ def test_reasons_rank_raising_and_lowering_contributions_by_size():
         ("lowers", 1, "c"),
     ]
     assert out.columns == list(explain.REASON_COLUMNS)
-    assert set(out["model_version"]) == {3}
+    assert set(out["model_version"]) == {3} and set(out["score_month"]) == {MONTH}
 
 
 def test_a_zero_contribution_is_never_a_reason():
     contrib = pd.DataFrame({"a": [0.5], "b": [0.0], "c": [0.0]})
     frame = pl.DataFrame({"ccn": ["000001"], "t": ["2026-10"], "a": [1.0], "b": [1.0], "c": [True]})
-    out = explain.reasons(contrib, frame, model_version=1, labels=LABELS, top_raise=5, top_lower=3)
+    out = explain.reasons(
+        contrib, frame, score_month=MONTH, model_version=1, labels=LABELS, top_raise=5, top_lower=3
+    )
     assert out.select("direction", "feature").rows() == [("raises", "a")]
 
 
 def test_reason_rows_carry_labels_formatted_values_and_null_text():
     contrib, frame = _reason_inputs()
-    out = explain.reasons(contrib, frame, model_version=1, labels=LABELS, top_raise=2, top_lower=1)
+    out = explain.reasons(
+        contrib, frame, score_month=MONTH, model_version=1, labels=LABELS, top_raise=2, top_lower=1
+    )
     row = {r["feature"]: r for r in out.filter(pl.col("ccn") == "000001").to_dicts()}
     assert row["a"]["label"] == "citations in 24 months" and row["a"]["feature_value"] == "4"
     assert row["b"]["feature_value"] == "no staffing data"  # a null with a contribution
@@ -188,8 +198,29 @@ def test_reasons_refuse_mismatched_rows():
     contrib, frame = _reason_inputs()
     with pytest.raises(ValueError, match="rows"):
         explain.reasons(
-            contrib, frame.head(1), model_version=1, labels=LABELS, top_raise=1, top_lower=1
+            contrib,
+            frame.head(1),
+            score_month=MONTH,
+            model_version=1,
+            labels=LABELS,
+            top_raise=1,
+            top_lower=1,
         )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "labels:\n  a: {label: x, null_txt: y}\n",  # a typo in an entry
+        "label:\n  a: {label: x}\n",  # a typo at the top
+        "labels:\n  a: just text\n",
+    ],
+)
+def test_a_mistyped_labels_file_is_a_config_error(tmp_path, text):
+    path = tmp_path / "reason_labels.yaml"
+    path.write_text(text)
+    with pytest.raises(ConfigError):
+        explain.load_reason_labels(path)
 
 
 def test_every_model_feature_has_a_written_label():

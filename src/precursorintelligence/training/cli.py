@@ -378,10 +378,12 @@ def score(
     env_file: Path | None = ENV_FILE_OPT,
     log_level: str | None = LOG_LEVEL_OPT,
     ml_config: Path | None = ML_CONFIG_OPT,
+    mode: ModeOpt = typer.Option(ModeOpt.auto, help="the DAG run's mode, recorded as a tag"),
 ) -> None:
     """Score V with the champion version in champion.json, with reasons, SHAP and the chain roll-up, into
-    scores/v=YYYY-MM/ (§10). Skips without a champion; exit 2 if @champion disagrees with ml_runs (§9.4). Last
-    stdout line: a JSON summary."""
+    scores/v=YYYY-MM/ (§10). Skips without a champion; exit 2 if @champion disagrees with ml_runs or the package
+    fails its sha256 check (§9.4), exit 3 if a champion is named but no registry is configured. Last stdout line:
+    a JSON summary."""
 
     def body(ctx: Any, rid: str) -> dict[str, Any]:
         from ..evaluation.registry import default_registry
@@ -389,7 +391,12 @@ def score(
 
         cfg = load_ml_config(ml_config)
         out = run_score(
-            ctx.object_store, ctx.metadata, ml_run_id=rid, cfg=cfg, registry=default_registry(cfg)
+            ctx.object_store,
+            ctx.metadata,
+            ml_run_id=rid,
+            cfg=cfg,
+            registry=default_registry(cfg),
+            mode=mode.value,
         )
         if out.skipped:
             typer.echo(f"run {rid}: score skipped ({out.reason})")
