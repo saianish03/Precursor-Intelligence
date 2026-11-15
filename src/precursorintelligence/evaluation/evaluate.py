@@ -38,7 +38,7 @@ from . import baselines, metrics, sanity, slices
 from .bootstrap import facility_bootstrap
 from .gates import Interval
 from .mitigation import tradeoff as mitigation_tradeoff
-from .registry import Registry, check_champion_integrity
+from .registry import Registry, check_champion_integrity, load_verified_package
 from .report import (
     ChampionRef,
     EvaluationReport,
@@ -115,7 +115,8 @@ def recipe_evaluated(meta: MetadataStore | None, recipe_hash: str) -> bool:
 
 
 def champion_ref(registry: Registry | None, cfg: MlConfig) -> ChampionRef | None:
-    """The champion version and its eval-fit model URI (the tag ``gate`` wrote), or None without one."""
+    """The champion version and its eval-fit model URI (the tag ``gate`` wrote, reported only: the package compared
+    is the one ``load_verified_package`` checks in GCS), or None without one."""
     if registry is None:
         return None
     v = registry.by_alias(cfg.registry.champion_alias)
@@ -250,11 +251,14 @@ def evaluate_run(
     base_scores = baselines.baseline_scores(test)
     champ = champion_ref(registry, cfg)
     if champ is not None and registry is not None:
-        if (
-            meta is not None
-        ):  # §9.4: an alias moved outside gate/promote is neither trusted nor loaded
-            check_champion_integrity(meta, champ.version)
-        champ_model = registry.load_model(champ.eval_model_uri)
+        # §9.4: MLflow gives only the alias. The alias must be what ml_runs recorded, and the eval fit is read from
+        # the registering run's GCS folder, checked against its train.json sha256; MLflow's copy is never unpickled.
+        if meta is None:
+            raise MlInputError(
+                f"champion version {champ.version} can't be verified without ml_runs: refusing to compare"
+            )
+        check_champion_integrity(meta, champ.version)
+        champ_model = load_verified_package(store, meta, cfg, champ.version, "eval")
         check_training_months(champ_model, "champion", windows, first_test)
         probs[CHAMPION] = champ_model.predict_frame(test)["p"].to_numpy()
 

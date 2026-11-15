@@ -313,6 +313,9 @@ class TrainResult(_Contract):
     mlflow_run_id: str | None
     selected: Candidate
     eval_packages: dict[str, str]  # candidate -> package prefix (RunPaths.package("eval", c))
+    eval_package_sha256: dict[
+        str, dict[str, str]
+    ] = {}  # candidate -> file -> sha256; evaluate verifies the champion's eval fit against it (§9.4)
     eval_model_uris: dict[
         str, str
     ]  # candidate -> MLflow model URI of the logged eval-fit package ("" if none)

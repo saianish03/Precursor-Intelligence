@@ -12,13 +12,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from ..common.config import MlConfig
 from ..common.io.metadata_store import MetadataStore
 
 if TYPE_CHECKING:
+    from ..common.io.object_store import ObjectStore
     from ..training.ensemble import PrecursorModel
+
+REGISTERING_ACTIONS = (
+    "promote",
+    "hold",
+)  # ml_runs actions written by gate, which registers a version
 
 
 @dataclass(frozen=True)
@@ -157,6 +163,68 @@ def check_champion_integrity(meta: MetadataStore, alias_version: int | None) -> 
             f"@champion is version {alias_version} but ml_runs last recorded {recorded}: the alias was moved "
             "outside gate/promote"
         )
+
+
+def load_verified_package(
+    store: ObjectStore,
+    meta: MetadataStore,
+    cfg: MlConfig,
+    version: int,
+    fit: Literal["eval", "refit"],
+) -> PrecursorModel:
+    """A registered version's package (``refit`` for ``score``, the selected candidate's ``eval`` fit for
+    ``evaluate``), from the GCS run folder of the run that registered it, verified file by file against the sha256
+    that run's ``train.json`` recorded (§9.4). MLflow gives only the alias: its artifact store has no login, so its
+    copy of a package is never unpickled.
+
+    The registering run comes from ``ml_runs`` (the earliest gate row whose ``candidate_version`` is ``version``),
+    not from the version's tags, which live on the same server. Missing hashes, a missing file, a prefix outside
+    that run's folder or a mismatch refuse (exit 2) before anything is unpickled.
+    """
+    from ..training import MlInputError
+    from ..training.contracts import RunPaths, TrainResult
+    from ..training.data import sha256_hex
+    from ..training.ensemble import PrecursorModel
+
+    rows = [
+        r
+        for r in meta.read("ml_runs", {"action": list(REGISTERING_ACTIONS)})
+        if r.get("candidate_version") == version
+    ]
+    if not rows:
+        raise MlInputError(f"ml_runs records no gate run that registered version {version}")
+    source = min(rows, key=lambda r: r["id"])["ml_run_id"]
+    source_paths = RunPaths.of(cfg, source)
+    if not store.exists(source_paths.train_result):
+        raise MlInputError(
+            f"{source_paths.train_result} is missing: version {version} can't be verified"
+        )
+    with store.open_read(source_paths.train_result) as f:
+        train = TrainResult.model_validate_json(f.read())
+    if fit == "refit":
+        prefix, expected = train.refit_package, train.refit_package_sha256
+    else:
+        prefix = train.eval_packages.get(train.selected, "")
+        expected = train.eval_package_sha256.get(train.selected, {})
+    if not expected:
+        raise MlInputError(
+            f"train.json of {source} records no {fit} package hashes: version {version} can't be verified"
+        )
+    if not prefix.startswith(source_paths.run_dir):
+        raise MlInputError(f"train.json of {source} points outside its run folder: {prefix}")
+    files: dict[str, bytes] = {}
+    for name, digest in sorted(expected.items()):
+        key = f"{prefix}{name}"
+        if not store.exists(key):
+            raise MlInputError(f"{key} is missing")
+        with store.open_read(key) as f:
+            data = f.read()
+        if sha256_hex(data) != digest:
+            raise MlInputError(
+                f"{key} does not match the sha256 train.json recorded: refusing to load it"
+            )
+        files[name] = data
+    return PrecursorModel.from_files(files)
 
 
 def default_registry(cfg: MlConfig) -> Registry | None:

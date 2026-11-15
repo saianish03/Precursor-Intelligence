@@ -40,17 +40,15 @@ from ..common.config import (
 )
 from ..common.io.metadata_store import MetadataStore
 from ..common.io.object_store import ObjectStore
-from ..evaluation.gate import GATE_ACTIONS
-from ..evaluation.registry import Registry, check_champion_integrity
+from ..evaluation.registry import Registry, check_champion_integrity, load_verified_package
 from ..evaluation.sanity import SHAP_TOLERANCE
 from ..training import MlInputError
-from ..training.contracts import Champion, InputManifest, Mode, RunPaths, TrainResult
+from ..training.contracts import Champion, InputManifest, Mode, RunPaths
 from ..training.data import (
     is_forbidden,
     read_frame,
     read_input_manifest,
     read_windows,
-    sha256_hex,
 )
 from ..training.ensemble import PrecursorModel
 from . import explain
@@ -111,48 +109,9 @@ def read_champion(store: ObjectStore, paths: RunPaths) -> Champion | None:
 def load_champion_package(
     store: ObjectStore, meta: MetadataStore, cfg: MlConfig, version: int
 ) -> PrecursorModel:
-    """The champion's refit package, from the GCS run folder of the run that registered it, verified file by file
-    against the sha256 that run's ``train.json`` recorded (§9.4). MLflow gives only the alias: its artifact store
-    has no login, so its copy of the package is never unpickled here.
-
-    The registering run comes from ``ml_runs`` (the gate row whose ``candidate_version`` is ``version``), not
-    from the version's tags, which live on the same server. Any mismatch refuses (exit 2).
-    """
-    rows = [
-        r
-        for r in meta.read("ml_runs", {"action": list(GATE_ACTIONS)})
-        if r.get("candidate_version") == version
-    ]
-    if not rows:
-        raise MlInputError(f"ml_runs records no gate run that registered version {version}")
-    source = min(rows, key=lambda r: r["id"])["ml_run_id"]
-    source_paths = RunPaths.of(cfg, source)
-    if not store.exists(source_paths.train_result):
-        raise MlInputError(
-            f"{source_paths.train_result} is missing: version {version} can't be verified"
-        )
-    with store.open_read(source_paths.train_result) as f:
-        train = TrainResult.model_validate_json(f.read())
-    prefix, expected = train.refit_package, train.refit_package_sha256
-    if not expected:
-        raise MlInputError(
-            f"train.json of {source} records no package hashes: version {version} can't be verified"
-        )
-    if not prefix.startswith(source_paths.run_dir):
-        raise MlInputError(f"train.json of {source} points outside its run folder: {prefix}")
-    files: dict[str, bytes] = {}
-    for name, digest in sorted(expected.items()):
-        key = f"{prefix}{name}"
-        if not store.exists(key):
-            raise MlInputError(f"{key} is missing")
-        with store.open_read(key) as f:
-            data = f.read()
-        if sha256_hex(data) != digest:
-            raise MlInputError(
-                f"{key} does not match the sha256 train.json recorded: refusing to load it"
-            )
-        files[name] = data
-    return PrecursorModel.from_files(files)
+    """The champion's refit package, verified against its registering run's ``train.json`` (§9.4); see
+    ``evaluation.registry.load_verified_package``. Any mismatch refuses (exit 2)."""
+    return load_verified_package(store, meta, cfg, version, "refit")
 
 
 # --------------------------------------------------------------------------- the score table

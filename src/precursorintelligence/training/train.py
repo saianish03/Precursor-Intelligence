@@ -383,8 +383,9 @@ def run_train(
 
     # ---- write the run folder
     eval_packages: dict[str, str] = {c: paths.package("eval", c) for c in candidates}
-    for c, model in eval_models.items():
-        write_package(store, eval_packages[c], model)
+    eval_sha256: dict[str, dict[str, str]] = {
+        c: write_package(store, eval_packages[c], model) for c, model in eval_models.items()
+    }
     refit_package = paths.package("refit", chosen)
     refit_sha256 = write_package(store, refit_package, refit_model)
     _put(store, paths.oof("eval"), _parquet(oof_frame(wf_eval, list(eval_fits.values()))))
@@ -437,6 +438,7 @@ def run_train(
             mlflow_run_id=run_id,
             selected=chosen,
             eval_packages=eval_packages,
+            eval_package_sha256=eval_sha256,
             eval_model_uris=eval_uris,
             refit_package=refit_package,
             refit_package_sha256=refit_sha256,
