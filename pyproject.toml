@@ -113,6 +113,8 @@ notebooks = [
 ]
 
 [tool.uv]
+# uv.lock uses lockfile revision 5 (README: uv 0.13 or newer); an older uv stops here with a clear message.
+required-version = ">=0.13"
 default-groups = ["dev"]
 # Lock only for platforms we run on (laptops, CI, Docker); skips WebAssembly-only packages.
 environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'", "sys_platform == 'win32'"]
