@@ -66,6 +66,16 @@ lossless Parquet · 3 tables are cleaned and aligned across years · 4 point-in-
 5 gold is published only if the gate passes · 6 every stage records its run in metadata. Dashed parts are planned;
 the moving dashes show the direction of the data flow.*
 
+![ML pipeline architecture](docs/img/ml_pipeline_architecture.svg)
+
+*The ML pipeline, DAG `cms_nh_ml`, built in work packages W0–W6. Numbered steps: 1 new gold arrives and `decide`
+picks retrain, score, re-tune or skip and pins that gold run · 2 leakage-safe windows, facility-grouped folds and
+frames are cut · 3 LightGBM, logistic regression and their ensemble are trained, Platt-calibrated and one is picked
+after a bias check · 4 held-out metrics, bias slices, SHAP and a model card are logged to MLflow · 5 deterministic
+gates decide `@champion` or `@challenger` · 6 the champion scores every facility with reasons and chain roll-ups ·
+7 scores are published and drift monitoring writes the status and emails a summary. The highlight moving across the
+stages follows one monthly run; dashed parts are Phase 2. Full write-up: [`docs/ML_PIPELINE_SPEC.md`](docs/ML_PIPELINE_SPEC.md).*
+
 - **Files stay files.** Every layer is Parquet on one object store: local disk in development, Google Cloud Storage
   in test and production. All I/O goes through the `ObjectStore` / `TableSink` ports, so the same code runs on
   both. No database for intermediate layers.
