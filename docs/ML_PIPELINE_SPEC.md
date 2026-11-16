@@ -133,7 +133,7 @@ There is no online model server: CMS publishes once a month and every score chan
 | M10 | Score, reasons, roll-up | `score` | `scores/v=YYYY-MM/…` |
 | M11 | Publish | `publish` | asset `cms_nh_scores`; BigQuery in Phase 2 |
 | M12 | Monitor and notify | `monitor`, `notify` | drift report, re-tune request, `status/latest.json`, email |
-| M13 | Tune (a proposal) | `tune` | tuned challenger + `tuning_proposal.yaml` |
+| M13 | Tune (a proposal) | `tune` | `tuning_proposal.yaml` + sensitivity plots (the tuned challenger is Phase 2) |
 
 ### 0.8 Deviations from the team skills, documents, data spec and course examples
 | Source says | This spec | Why |
@@ -476,7 +476,7 @@ A feature-drift, score-drift or performance flag sets `retune_requested = true` 
   | min_child_samples | 20–1000 | reg_lambda | 1e-3–30, log |
   | min_split_gain | 0–1 | cat_smooth | 1–100 |
   | LR `C` | {0.03, 0.1, 0.3, 1.0} | | |
-- **Output:** `tuning_proposal.yaml` (the best parameters, ready to paste into `ml.yaml: members`), the tuned challenger (gated like any candidate but never promoted automatically; its G5 comparison has no tolerance: it must not be worse than the champion), one MLflow run `tune` with the trials table and the plots of §8.3.
+- **Output:** `tuning_proposal.yaml` (the best parameters, ready to paste into `ml.yaml: members`) and one MLflow run `tune` with the trials table and the plots of §8.3. **Phase 2** adds the tuned challenger (gated like any candidate but never promoted automatically; its G5 comparison has no tolerance: it must not be worse than the champion).
 - Runs in the Airflow pool `heavy` (§15.6) with `retries=0` (Optuna has its own timeout).
 
 ---

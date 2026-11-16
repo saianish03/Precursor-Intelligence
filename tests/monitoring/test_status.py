@@ -1,4 +1,4 @@
-"""monitoring/status.run_monitor (§12): signals, status/latest.json, the monitor row and the re-tune loop."""
+"""monitoring/status.run_monitor (§12): signals, status/latest.json, the monitor row and the re-tune request."""
 
 import json
 
