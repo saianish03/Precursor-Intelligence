@@ -224,8 +224,8 @@ drops by more than 0.05; (b) no group's O−E CI lies entirely outside ±0.05. A
 outside ±0.05. Across all reported non-geographic values, gated or not, the largest gaps are SFF candidates (−0.050,
 433 homes, CI −0.094 to −0.006; SFF status is reported, not gated), homes under 50 beds (−0.045) and homes with 200+
 beds (+0.040). Most of each group's gap is one overall shift: on 2025-02 the model over-predicts by
-2.6 points (mean p 0.282 vs an observed 0.256; in-hospital = false, 14,182 of the 14,643 homes, is −0.027), as an
-evaluation fit whose data ends 22 months before the test month can. So −0.045 for small homes is mostly that shift,
+2.6 points (mean p 0.282 vs an observed 0.256; in-hospital = false, 14,182 of the 14,643 homes, is −0.026), as an
+evaluation fit whose data ends 15 months before the test month can. So −0.045 for small homes is mostly that shift,
 not a small-home problem.
 Ranking is weaker for small homes (PR-AUC 0.28) and 4- and 5-star homes (0.33, 0.23), where events are rarer. States vary most (as the
 data analysis found); they are reported, not gated, and per-state shrinkage is Phase 2.
