@@ -8,9 +8,12 @@ long-term-care liability insurers. An Airflow 3 pipeline turns the monthly CMS o
 point-in-time training table; LightGBM and four Pydantic AI agents turn that table into calibrated, explained
 scores.
 
-> **Status (branch `dev`, October 2026):** the **data pipeline is built and runs end to end**, locally and against
-> the GCS bucket: ingestion → bronze → silver → gold, with schema and drift validation, data bias slicing,
-> alerts, DVC and CI. The ML phase (training, scoring, serving, monitoring) is next.
+> **Status (branch `dev`, November 2026):** the **data pipeline runs end to end**, locally and against the GCS
+> bucket: ingestion → bronze → silver → gold, with schema and drift validation, data bias slicing, alerts, DVC and
+> CI. **The ML pipeline (Phase 1) is built** (work packages W0 to W6): one Airflow DAG, `cms_nh_ml`, trains, evaluates,
+> bias-checks, gates, registers, scores, explains and monitors, with MLflow tracking and a model registry; its
+> training, evaluation and tuning have run on the real gold on the laptop compose stack against GCS (section 8). Phase 2 moves the ML pipeline to the GCP VM and adds BigQuery, the
+> agents, the API and the dashboard.
 
 ---
 
@@ -23,15 +26,16 @@ scores.
 5. [The Airflow DAG](#5-the-airflow-dag)
 6. [Data validation](#6-data-validation)
 7. [Data bias detection and mitigation](#7-data-bias-detection-and-mitigation)
-8. [Storage, metadata and environments](#8-storage-metadata-and-environments)
-9. [Getting started](#9-getting-started)
-10. [Tests and CI](#10-tests-and-ci)
-11. [Data versioning with DVC](#11-data-versioning-with-dvc)
-12. [Repository layout](#12-repository-layout)
-13. [Documentation map](#13-documentation-map)
-14. [Known limitations and next steps](#14-known-limitations-and-next-steps)
-15. [Branching](#15-branching)
-16. [Rules before making a PR to `dev`](#16-rules-before-making-a-pr-to-dev)
+8. [ML model development and results](#8-ml-model-development-and-results)
+9. [Storage, metadata and environments](#9-storage-metadata-and-environments)
+10. [Getting started](#10-getting-started)
+11. [Tests and CI](#11-tests-and-ci)
+12. [Data versioning with DVC](#12-data-versioning-with-dvc)
+13. [Repository layout](#13-repository-layout)
+14. [Documentation map](#14-documentation-map)
+15. [Known limitations and next steps](#15-known-limitations-and-next-steps)
+16. [Branching](#16-branching)
+17. [Rules before making a PR to `dev`](#17-rules-before-making-a-pr-to-dev)
 
 ---
 
@@ -42,18 +46,27 @@ scores.
 | Ingestion | Discovers and downloads the CMS archive and current release, extracts the 7 in-scope tables, inventories every file and picks one per table and month | Built |
 | Bronze | Every selected file as lossless, all-text Parquet per table and month, with lineage and content hashes | Built |
 | Silver | Harmonised column names and types across six years of CMS renames; event ledgers; facility universe; calibration of label buffers | Built |
-| Gold | Point-in-time spine, 5 feature families, labels, splits and the training table; a quality gate before promotion | Built |
+| Gold | Point-in-time spine, 6 feature families (incl. CMS quality measures), labels, splits and the training table; a quality gate before promotion | Built |
 | Validation | Pandera schema contracts and month-over-month drift checks on silver and gold, inside the DAG | Built |
 | Bias slicing | Representation, label-rate disparity, home-level significance tests, inspector (state) effects, missingness, censoring and drift per slice; train-only sample weights | Built (CLI) |
 | Orchestration | One Airflow 3 DAG, one Docker container per task, run lock with teardown, exit-code retries, email alerts | Built |
 | Cloud | Runs against `gs://precursor-intel-mlops-data`, one folder per layer; Terraform for GCP | Built |
 | Reproducibility | DVC test pipeline, deterministic outputs, manifests with sha256s, CI on Python 3.11 and 3.12 | Built |
 | Release gate | `check_release`: run only when CMS publishes something new | Done: DAG `cms_nh_release_check`, hourly, paused until production |
-| ML phase | Training, calibration, batch scoring, monitoring, agents, API and dashboard | Next |
+| ML training and selection | LightGBM, logistic regression and their ensemble, Platt-calibrated out of fold; chosen on training data after a bias check | Built (W1) |
+| ML evaluation, bias and gates | Held-out metrics with bootstrap CIs, baselines, Fairlearn slices, the reweighting trade-off, 7 deterministic gates, a model card | Built (W2) |
+| Explanations and scoring | Exact SHAP: global importance and the top reasons of every home; scores and chain roll-up published to GCS | Built (W3) |
+| ML platform | MLflow tracking and model registry (compose service, artifacts in GCS), images, the whole ML chain in CI | Built (W4) |
+| ML orchestration | DAG `cms_nh_ml`: decide (retrain, score, skip), promote and rollback, PSI drift monitoring, a run-summary email | Built (W6) |
+| Phase 2 | The ML pipeline on the GCP VM, BigQuery, the four agents, the API and the dashboard | Next |
 
 **Latest real run (gold V = 2026-08):** 578,975 home-months × 107 columns, 15,274 homes, 39 monthly partitions
 (t = 2023-01 → 2026-08). A full backfill through Airflow into the GCS bucket ran 37/37 tasks green in 26.5 min and
 gave gold byte-identical to the local-disk run of the same zips (PR #30).
+
+**ML gold and model (`ml-dev/`, V = 2026-10, rows from 2022-01):** 775,400 home-months × 148 columns, 52 months. On
+the held-out month 2025-02 the model reaches PR-AUC 0.481 (95 % CI 0.465 to 0.498), 1.9 times the base rate,
+reproducing the team's best exploration model (PR #49); section 8.
 
 ---
 
@@ -74,7 +87,8 @@ frames are cut · 3 LightGBM, logistic regression and their ensemble are trained
 after a bias check · 4 held-out metrics, bias slices, SHAP and a model card are logged to MLflow · 5 deterministic
 gates decide `@champion` or `@challenger` · 6 the champion scores every facility with reasons and chain roll-ups ·
 7 scores are published and drift monitoring writes the status and emails a summary. The highlight moving across the
-stages follows one monthly run; dashed parts are Phase 2. Full write-up: [`docs/ML_PIPELINE_SPEC.md`](docs/ML_PIPELINE_SPEC.md).*
+stages follows one monthly run; dashed parts are Phase 2. What is built and the results: [`docs/ML_PIPELINE.md`](docs/ML_PIPELINE.md);
+the design: [`docs/ML_PIPELINE_SPEC.md`](docs/ML_PIPELINE_SPEC.md).*
 
 **How the ML pipeline works.** The data pipeline ends at gold, a point-in-time training table. The ML pipeline
 starts there and turns gold into a calibrated, explained risk score for every nursing home, every month. It is
@@ -316,7 +330,63 @@ Write-up: [`docs/bias/findings.md`](docs/bias/findings.md); method and outputs: 
 
 ---
 
-## 8. Storage, metadata and environments
+## 8. ML model development and results
+
+The course's model-development deliverable in short. The full write-up, with the method, every chart and the runs
+behind the numbers: [`docs/ML_PIPELINE.md`](docs/ML_PIPELINE.md). Stage numbers refer to the ML diagram in section 2.
+
+| Guideline | How it is met | Stage |
+|---|---|---|
+| Load versioned pipeline data | `ml prepare` pins gold's `_current.json`, checks the merged file's sha256 and records `dataset_version` | 1, 2 |
+| Train and select | LightGBM, logistic regression and their log-odds ensemble, each Platt-calibrated out of fold; the highest out-of-fold PR-AUC among the candidates that pass a bias check | 3 |
+| Validate on held-out data | the test month no step trains, tunes or selects on: PR-AUC, ROC-AUC, accuracy, precision, recall, F1, precision@k, Brier, ECE, with facility-bootstrap CIs and three baselines | 4 |
+| Bias detection and mitigation | Fairlearn per slice value (ownership, size, chain, hospital-based, state, ...): calibration gap O−E, PR-AUC, false-negative rate; gate G7; the reweighting trade-off on every run, applied with `bias.mitigation: reweight` | 4, 5 |
+| Hyperparameter tuning | Optuna TPE on 3 facility-grouped folds, search space in `configs/ml.yaml` (`ml tune`, `mode=retune`) | side task |
+| Tracking and registry | one MLflow run per task (params, metrics, models, plots); registry `precursor_y_g12` with `@champion` and `@challenger` | 3 to 6 |
+| Sensitivity | exact SHAP: global importance and every home's top 5 risk-raising and top 3 risk-lowering features; Optuna hyperparameter importances | 4, 6 |
+| CI/CD, alerts, rollback | the whole chain on a synthetic gold on every pull request (a held gate fails CI); an email for every run; rollback = promote an earlier version | 5, 7 |
+| Docker | every step is `precursor-pipeline ml <command>` in the `precursor-pipeline` image | all |
+
+**Results on the real gold** (held-out month 2025-02: 14,643 homes, 25.6 % with a G to L citation within 12 months;
+PR #49's training window):
+
+| Model | PR-AUC (95 % CI) | ROC-AUC | Brier | ECE | Precision@5 % |
+|---|---|---|---|---|---|
+| PR #49's ensemble (133 features) | 0.481 (0.465-0.499) | 0.709 | 0.169 | 0.027 | 0.682 |
+| **Ensemble** (120 features) | **0.481 (0.465-0.498)** | 0.710 | 0.169 | 0.026 | 0.676 |
+| LightGBM (selected on out-of-fold PR-AUC 0.523) | 0.478 (0.461-0.494) | 0.709 | 0.170 | 0.034 | 0.660 |
+| Best baseline: 24-month citation severity | 0.395 (0.380-0.410) | | | | |
+
+- **The baseline model is reproduced** within its CI, with fewer features; every candidate beats every baseline.
+- **Bias:** no gated group is clearly miscalibrated (no O−E 95 % CI wholly outside ±0.05). Reweighting by ownership would cost 0.006 out-of-fold
+  PR-AUC to shrink the largest gap from 0.018 to 0.013, so it stays off; the trade-off is in every model card.
+- **Tuning:** 30 trials all score between 0.509 and 0.511; LR's `C` and the tree depth matter most, so the base
+  parameters stay (a proposal is applied only through a reviewed PR).
+- **What drives the score:** the home's state and the state's recent G+ rate, its size, and its own complaint and
+  citation history; staffing and quality measures add the rest.
+- **Caveat:** labels mature 20 months after `t`, so 2025-02 is the newest test month, and PR #49 chose its settings on
+  it. It is reported, not used for decisions; the production window (a 20-month gap) scored 0.470 (0.454-0.486) in
+  W2's first full run (PR #62).
+
+<table>
+<tr>
+<td><img src="docs/img/ml/candidates.png" alt="Test PR-AUC of the candidates and baselines with CIs" width="420"></td>
+<td><img src="docs/img/ml/shap_top20.png" alt="Top 20 features by mean absolute SHAP" width="420"></td>
+</tr>
+<tr>
+<td><img src="docs/img/ml/bias_slices.png" alt="Calibration gap, PR-AUC and false-negative rate by slice" width="420"></td>
+<td><img src="docs/img/ml/param_importances.png" alt="Optuna hyperparameter importances" width="420"></td>
+</tr>
+</table>
+
+*Candidates and baselines on the test month; the top 20 features by mean |SHAP|; bias by slice (calibration gap
+with its CI against ±0.05, PR-AUC, false-negative rate at the top 10 %); hyperparameter importances from tuning.*
+
+To run it: section 10.4.
+
+---
+
+## 9. Storage, metadata and environments
 
 **Object store layout** (`./data` locally, `gs://precursor-intel-mlops-data` in GCP; one folder per layer):
 
@@ -343,7 +413,7 @@ zips), never the Airflow API or the Docker API.
 
 ---
 
-## 9. Getting started
+## 10. Getting started
 
 **Requirements:** Python 3.11 or 3.12, [`uv`](https://docs.astral.sh/uv/) 0.13 or newer (never pip; `uv.lock` uses the newer lockfile format, so an older uv fails `uv sync --frozen`: `uv self update`), Docker for Airflow, and about 2 GB of
 free disk for the sample runs below (25 GB for a full-archive run). People who need pip can use `requirements.txt`, the same
@@ -358,7 +428,7 @@ uv run python --version                # must be 3.11.x or 3.12.x
 > release, about 2.5 GB downloaded and 18 GB extracted, 20+ minutes. Select zips with `--zip-dates` or `--entry-ids`
 > (`uv run precursor-ingest step1 --help`); in Airflow, always pass `entry_ids`.
 
-### 9.1 Run the pipeline from the CLI
+### 10.1 Run the pipeline from the CLI
 
 Local disk under `./data` (git-ignored), process logs under `./logs/`; each step is one DAG task:
 
@@ -375,7 +445,7 @@ uv run precursor-pipeline bias-report                               # → report
 Gold needs enough history for a training month, so with only two zips it stops at its gate (exit 2, nothing published, by
 design). The Airflow sample below (14, then 19 zips) reaches a published gold.
 
-### 9.2 Run it in Airflow (laptop, real CMS downloads, about 1 GB)
+### 10.2 Run it in Airflow (laptop, real CMS downloads, about 1 GB)
 
 Build the three images from the repo root (the pipeline and MLflow images need the commit they were built from), then create
 `docker/airflow-local/.env` with fresh secrets and start the stack:
@@ -427,13 +497,13 @@ months and every task is green, including `validate_gold`. Stop the stack with `
 More runs, checks and the GCP setup: [`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md); the GCP VM:
 [`docs/runbooks/gcp-bootstrap.md`](docs/runbooks/gcp-bootstrap.md).
 
-### 9.3 Reproducing it on another machine
+### 10.3 Reproducing it on another machine
 
 1. `git clone` the repo, then `uv sync --all-extras` (or `pip install -r requirements.txt` in a fresh virtual environment).
 2. `uv run pytest`: the offline tests pass, with no network or credentials.
 3. `uv run dvc repro`: the test pipeline rebuilds with the hashes recorded in `dvc.lock` (byte-identical on macOS and Linux).
 4. Optional, with a Google account that can read the DVC bucket: `gcloud auth application-default login`, then `uv run dvc pull`.
-5. Airflow: section 9.2.
+5. Airflow: section 10.2.
 
 Real runs download from the public CMS archive and need no credentials; cloud credentials are needed only for the two GCS
 buckets. The tests and the test pipeline need nothing but the install.
@@ -445,13 +515,23 @@ buckets. The tests and the test pipeline need nothing but the install.
 (the default temp path exceeds the 260-character limit), and run the CLI without `--run-id` (`:` is illegal in
 Windows file names).
 
+### 10.4 Run the ML pipeline
+
+```bash
+uv run dvc repro --force --single-item toy_ml    # the whole ML chain offline on a synthetic gold: no credentials
+```
+
+On the real gold step by step (`precursor-pipeline ml prepare | train | evaluate | gate ...`), and in Airflow
+(DAG `cms_nh_ml`: `retrain`, `promote` after Checkpoint ML-A, rollback, `retune`):
+[`docs/ML_PIPELINE.md`](docs/ML_PIPELINE.md) section 13 and [`docs/runbooks/airflow-local.md`](docs/runbooks/airflow-local.md).
+
 ---
 
-## 10. Tests and CI
+## 11. Tests and CI
 
 ```bash
 uv run ruff check src tests && uv run mypy src
-uv run pytest                          # 900+ offline tests; live CMS tests are skipped
+uv run pytest                          # 1,500+ offline tests; live CMS tests are skipped
 uv run pytest tests/leakage            # the leakage suite
 ```
 
@@ -467,7 +547,7 @@ uv run pytest tests/leakage            # the leakage suite
 
 ---
 
-## 11. Data versioning with DVC
+## 12. Data versioning with DVC
 
 [DVC](https://dvc.org) versions data the way Git versions code: Git tracks small pointer files (`dvc.yaml`, `dvc.lock`, `metrics/`), and the data itself lives in a DVC cache plus a remote, `gs://precursor-intel-mlops-dvc`, a bucket of its own so nobody needs write access to the production data bucket to share DVC data (created in `infra/terraform/envs/prod`).
 
@@ -493,9 +573,9 @@ uv run dvc metrics diff <rev>                           # compare the counts wit
 
 The outputs are byte-stable, so a rebuild on any machine gives the same hashes in `dvc.lock`; CI rebuilds the test pipeline on every PR and warns if `dvc.lock` or `metrics/` changed. If you change anything listed under `deps:` in `dvc.yaml`, run `uv run dvc repro` and commit the new `dvc.lock`, `metrics/toy_gold.json` and `metrics/toy_ml.json` in the same PR, then run `uv run dvc push` (it needs write access to the DVC bucket) so teammates' `dvc pull` finds the new data. CI only runs `dvc repro`, so a missing push is not caught there. `dvc.lock` is deterministic, so if it conflicts on a merge, take either side, run `uv run dvc repro`, and commit the result. On Windows, run `dvc repro` in a checkout with LF line endings (`git -c core.autocrlf=false worktree add …`): DVC hashes raw bytes, and CRLF files give hashes CI does not reproduce.
 
-DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). The `dvc.yaml` stages are the test pipeline only and declare nothing outside `data/`; the published real gold is versioned separately, as one DVC snapshot per release (section 11.1).
+DVC sits next to, not in place of, the production data versioning: real data is immutable in the bucket (object versioning, never-overwrite landing) and gold is promoted behind `gold/_current.json`, which records each file's sha256 (`docs/GOLD_HANDOFF.md`). The `dvc.yaml` stages are the test pipeline only and declare nothing outside `data/`; the published real gold is versioned separately, as one DVC snapshot per release (section 12.1).
 
-### 11.1 Keeping versions of gold
+### 12.1 Keeping versions of gold
 
 Because gold is rebuilt in full each run, every release produces a complete new table, and the history has to be kept on
 purpose. One DVC snapshot per release does it:
@@ -520,7 +600,7 @@ purpose. One DVC snapshot per release does it:
 
 ---
 
-## 12. Repository layout
+## 13. Repository layout
 
 ```
 Precursor-Intelligence/
@@ -578,7 +658,7 @@ The course's example structure maps onto this repository as follows:
 
 ---
 
-## 13. Documentation map
+## 14. Documentation map
 
 | Document | What it covers |
 |---|---|
@@ -590,30 +670,33 @@ The course's example structure maps onto this repository as follows:
 | [`docs/VALIDATION.md`](docs/VALIDATION.md) | Schema and drift validation |
 | [`docs/bias/README.md`](docs/bias/README.md), [`docs/bias/findings.md`](docs/bias/findings.md) | Bias slicing: method, outputs, real-run findings |
 | [`docs/ALERTS_HANDOFF.md`](docs/ALERTS_HANDOFF.md) | Failure and anomaly alerts |
-| [`docs/runbooks/`](docs/runbooks/) | Local Airflow, end-to-end simulation, GCP bootstrap |
+| [`docs/ML_PIPELINE.md`](docs/ML_PIPELINE.md) | The ML pipeline as built: course requirements, results, evidence and how to run it |
+| [`docs/ML_PIPELINE_SPEC.md`](docs/ML_PIPELINE_SPEC.md) | The ML pipeline specification: every step, gate, decision and work package |
+| [`docs/runbooks/`](docs/runbooks/) | Local Airflow (both DAGs), end-to-end simulation, GCP bootstrap |
 
 ---
 
-## 14. Known limitations and next steps
+## 15. Known limitations and next steps
 
 - **Release gate:** `cms_nh_release_check` (hourly) runs `check_release` and starts `cms_nh_pipeline` when CMS publishes something new. It stays paused until production starts.
 - **Gold is validated after promotion:** `validate_gold` holds back the `cms_nh_gold` asset, but a bad gold is
   already in `gold/`; validating `gold/_staging/` first is the top follow-up (`docs/VALIDATION.md`).
-- **Quality-measure features:** MDS and Claims are in silver; the family joins gold after the measure selection is
-  approved.
-- **Training window:** with the measured buffers, `y_g12` has 6 training months at V = 2026-08; starting training
-  rows in 2022-01 is the recommendation under review (`docs/DATA_PIPELINE_SPEC.md` §9.5, §14).
+- **Training window:** training rows start in 2022-01 (PR #53), so the ML evaluation window has its 11 months with
+  the 20-month production lag. Labels mature 20 months after `t`: the newest test month is 2025-02, a development
+  month (PR #49 chose its settings on it); Checkpoint ML-A reads 2025-03 or later from the late-November release.
 - **Gold memory:** a full-archive build is estimated at about 5.8 GB with the merged gold file. The VM is an e2-standard-4
   (16 GB, 10 GB task limit), so it fits; the streaming fix in `docs/AIRFLOW_PIPELINE.md` §9.1 is needed only on an 8 GB VM.
 - **Team decisions in #27:** which slices are fairness groups, whether state effects are risk or bias, whether
   sample weights are used by default.
-- **Snapshots of real gold:** `snapshot-gold` and the pointer exist (section 11.1). The first snapshot is of the sample archive (test data), and every snapshot is of an unverified gold until the spec §11 verification gate is built.
-- **Next:** the ML DAGs (`train_evaluate`, `batch_score`, `monitor`) on the `cms_nh_gold` asset, LightGBM with
-  calibration and per-slice evaluation, the agents, the API and the dashboard.
+- **Snapshots of real gold:** `snapshot-gold` and the pointer exist (section 12.1). The first snapshot is of the sample archive (test data), and every snapshot is of an unverified gold until the spec §11 verification gate is built.
+- **Unverified gold in ML:** `allow_unverified: true` (tagged on every run) until the spec §11 verification gate exists.
+- **Next (Phase 2):** the ML DAG and MLflow on the GCP VM, BigQuery publish, the tuned challenger and an automatic
+  re-tune, per-state calibration shrinkage, MLflow authentication, the agents, the API and the dashboard
+  (`docs/ML_PIPELINE.md` section 15).
 
 ---
 
-## 15. Branching
+## 16. Branching
 
 | Branch | Purpose | Who pushes |
 |---|---|---|
@@ -630,7 +713,7 @@ The course's example structure maps onto this repository as follows:
 
 ---
 
-## 16. Rules before making a PR to `dev`
+## 17. Rules before making a PR to `dev`
 
 ### 1. Branch
 - **Branch from the latest `dev`:** `git checkout dev && git pull && git checkout -b <type>/<short-name>`.
