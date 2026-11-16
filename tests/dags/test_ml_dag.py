@@ -109,8 +109,9 @@ def test_outputs_are_kept_for_the_branches_and_notify(dag):
         assert t.do_xcom_push and t.xcom_all
 
 
-def test_promote_gets_version_and_reason_from_the_params_through_the_environment(dag):
-    t = dag.get_task("promote")
+@pytest.mark.parametrize("task_id", ["decide", "promote"])  # decide checks the request first
+def test_promote_gets_version_and_reason_from_the_params_through_the_environment(dag, task_id):
+    t = dag.get_task(task_id)
     assert "environment" in t.template_fields
     assert "params.version" in t.environment["PI_ML_VERSION"]
     assert t.environment["PI_ML_REASON"] == "{{ params.reason }}"

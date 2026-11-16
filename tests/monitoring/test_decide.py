@@ -171,3 +171,19 @@ def test_ml_decide_prints_the_decision_and_exits_2_on_refuse(gold, meta, monkeyp
     )
     assert cli(monkeypatch, "--env-file", str(gold.env_file), "--run-id", "manual__c2") == 2
     assert "older than the last scored" in capsys.readouterr().err
+
+
+def test_ml_decide_refuses_promote_without_a_version_and_reason(gold, monkeypatch, capsys):
+    """Exit 3 before prepare builds every frame, not at promote; nothing is decided."""
+    args = ["--env-file", str(gold.env_file), "--run-id", "manual__p", "--mode", "promote"]
+    monkeypatch.delenv("PI_ML_VERSION", raising=False)
+    monkeypatch.delenv("PI_ML_REASON", raising=False)
+    assert cli(monkeypatch, *args) == 3
+    assert "PI_ML_VERSION" in capsys.readouterr().err
+    assert not (gold.root / RunPaths.of(ml_config(), "manual__p").decision).exists()
+
+    monkeypatch.setenv("PI_ML_VERSION", "1")
+    monkeypatch.setenv("PI_ML_REASON", "Checkpoint ML-A approved")
+    assert cli(monkeypatch, *args) == 0
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["decision"] == "PROMOTE"
+    assert (gold.root / RunPaths.of(ml_config(), "manual__p").decision).exists()

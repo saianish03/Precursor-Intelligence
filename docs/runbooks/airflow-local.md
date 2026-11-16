@@ -124,7 +124,7 @@ docker compose exec airflow-scheduler airflow dags trigger cms_nh_ml \
 | Param | Default | Meaning |
 |---|---|---|
 | `mode` | `auto` | `auto` (decide picks: RETRAIN, SCORE or SKIP), `retrain`, `retune` (tune alone: the proposal and plots), `score_only`, `promote` |
-| `version`, `reason` | — | `promote` only: the version `champion` moves to (an earlier one is a rollback) and why |
+| `version`, `reason` | — | `promote` only: the version `champion` moves to (an earlier one is a rollback) and why; both required (`decide` fails at once, exit 3, without them) |
 | `allow_unverified` | `null` | `null` = `configs/ml.yaml`; `true`/`false` overrides it for this run |
 
 Every finished run emails its summary (`notify`: decision, gate outcome, champion, test PR-AUC and Brier with CIs, drift flags); a failed run emails the failure. `status/latest.json` under the ML prefix is the latest run's status.

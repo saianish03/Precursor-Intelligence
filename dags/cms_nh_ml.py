@@ -28,7 +28,8 @@ paused DAG).
 Params:
   mode              auto | retrain | retune | score_only | promote (§15.4)
   version, reason   promote only: the version to move `champion` to (any earlier one = rollback) and why; passed
-                    to the container's environment, never its command line
+                    to the container's environment, never its command line; `decide` refuses (exit 3) when
+                    either is missing, before `prepare` builds the frames
   allow_unverified  null = ml.yaml's value; true/false overrides it for this run (logged in decision.json)
 """
 
@@ -67,6 +68,11 @@ PATHS = {
     "SCORE": ["score"],
 }
 AFTER_ANY = "none_failed_min_one_success"
+# promote's request, from the params through the environment, never the command line; decide checks it first
+PROMOTE_ENV = {
+    "PI_ML_VERSION": "{{ params.version if params.version is not none else '' }}",
+    "PI_ML_REASON": "{{ params.reason }}",
+}
 
 
 def run(task_id: str, command: str, **kwargs) -> PipelineDockerOperator:
@@ -104,7 +110,8 @@ def with_output() -> dict:
     doc_md=__doc__,
 )
 def cms_nh_ml():
-    decide = run("decide", f"decide {MODE} {ALLOW}", **with_output())
+    with_request = {"environment": {**docker_kwargs()["environment"], **PROMOTE_ENV}}
+    decide = run("decide", f"decide {MODE} {ALLOW}", **with_request, **with_output())
     prepare = run("prepare", f"prepare {ALLOW}")  # pins the gold run named in decision.json
 
     @task.branch(retries=0)
@@ -125,15 +132,7 @@ def cms_nh_ml():
     )
     evaluate = run("evaluate", f"evaluate {MODE}")
     gate = run("gate", f"gate {MODE}")
-    promote = run(
-        "promote",
-        "promote",
-        environment={
-            **docker_kwargs()["environment"],
-            "PI_ML_VERSION": "{{ params.version if params.version is not none else '' }}",
-            "PI_ML_REASON": "{{ params.reason }}",
-        },
-    )
+    promote = run("promote", "promote", **with_request)
     score = run("score", f"score {MODE}", trigger_rule=AFTER_ANY, **with_output())
 
     # retries=0: reading the summary again cannot change it

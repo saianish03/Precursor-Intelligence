@@ -448,12 +448,18 @@ def decide(
     ),
 ) -> None:
     """Decide what this run does: SKIP, RETRAIN, RETUNE, SCORE, PROMOTE or REFUSE (§15.2), into decision.json.
-    Exit 1 while gold is not current, 2 on REFUSE. Last stdout line: the decision as JSON (the DAG branches on
+    Exit 1 while gold is not current, 2 on REFUSE, 3 for mode=promote without PI_ML_VERSION and PI_ML_REASON. Last stdout line: the decision as JSON (the DAG branches on
     it)."""
 
     def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from ..evaluation.promote import PromoteUsageError, request_from_env
         from ..monitoring.decide import run_decide
 
+        if mode is ModeOpt.promote:  # fail before prepare builds every frame, not at promote
+            try:
+                request_from_env()
+            except PromoteUsageError as exc:
+                raise ConfigError(str(exc)) from None
         out = run_decide(
             ctx.object_store,
             ctx.metadata,
