@@ -159,15 +159,6 @@ def test_a_bad_ml_config_exits_3(gold, tmp_path, monkeypatch, capsys):
     assert "config error" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize(
-    "command",
-    ["decide", "monitor"],
-)
-def test_the_later_commands_exist_and_exit_3(gold, monkeypatch, capsys, command):
-    assert run(monkeypatch, "ml", command, "--env-file", str(gold.env_file), "--run-id", "r1") == 3
-    assert "not built yet" in capsys.readouterr().err
-
-
 def test_a_failed_prepare_writes_no_manifest(gold, store, meta, prepare):
     broken = pl.read_parquet(gold.root / "gold" / "facility_month_dataset.parquet").drop(
         "n_cit_12m"

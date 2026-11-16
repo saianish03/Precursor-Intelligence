@@ -3,7 +3,7 @@
 - **What this covers:** how the CMS data pipeline runs as one Airflow DAG, what each task does, how the run lock and the exit codes work, what the metadata database holds (its schema), and where logs and run artifacts go.
 - **How to run it** on a laptop or on GCP: [`runbooks/airflow-local.md`](runbooks/airflow-local.md).
 - **Rules behind it:** `DATA_PIPELINE_SPEC.md` §15 (one DAG, five nodes) and §0.6–0.7 (storage and metadata).
-- **Status (2026-10-27):** ingestion → bronze → silver → gold implemented and run end to end on real CMS data, from download to a published gold dataset (runbook §8.2). `check_release` runs in its own hourly DAG, `cms_nh_release_check` (created paused; 2026-11-07). `mirror_metadata` is a TODO slot in the DAG.
+- **Status (2026-10-27):** ingestion → bronze → silver → gold implemented and run end to end on real CMS data, from download to a published gold dataset (runbook §8.2). `check_release` runs in its own hourly DAG, `cms_nh_release_check` (created paused; 2026-11-07). The ML pipeline is its own DAG, `cms_nh_ml`, started by `cms_nh_gold` (created paused; 2026-11-15; ML spec §15, runbook §3). `mirror_metadata` is a TODO slot in the DAG.
 
 ---
 
@@ -196,7 +196,7 @@ standalone:  anomalies (run_id, entry_id)    run_log (run_id, task)
 | `run_log` | `id` (append-only) | every node (`task_scope`) | one row per step of a run: start, end, duration, status, details (JSON) | run_id, task, entry_id, status, started_at, finished_at, duration_s, detail |
 | `run_lock` | `lock_name` | lock commands | the `data_pipeline` lock (0 or 1 row) | run_id, holder, acquired_at |
 | `vintage_registry` | `id` (append-only) | `check-release --run-id` (the DAG task; a check by hand, without `--run-id`, records nothing) | one row per release check: the decision, why, and what it saw (spec §2.0) | run_id, checked_at, decision, target, proceed, alerted, git_sha, latest_ingested, latest_published, reason, modified_json, backlog_json |
-| `ml_runs` | `id` (append-only) | the ML pipeline's `cms_nh_ml` tasks (docs/ML_PIPELINE_SPEC.md §15.2) | one row per ML run and per promotion action; `ml prepare` reads the last scored `v` | ml_run_id, at, mode, decision, action, reason, actor, gold_run_id, v, v_labels, dataset_version, gold_config_sha, gold_verified, recipe_hash, champion_version_before, champion_version_after, candidate_version, gate_outcome, gate_results_json, scores_published, flags_json, retune_requested |
+| `ml_runs` | `id` (append-only) | the ML pipeline's `cms_nh_ml` tasks (docs/ML_PIPELINE_SPEC.md §15.2) | one row per ML run and per promotion action, plus `monitor`'s row (its flags and `retune_requested`); `decide` and `ml prepare` read it | ml_run_id, at, mode, decision, action, reason, actor, gold_run_id, v, v_labels, dataset_version, gold_config_sha, gold_verified, recipe_hash, champion_version_before, champion_version_after, candidate_version, gate_outcome, gate_results_json, scores_published, flags_json, retune_requested |
 
 **Useful queries:**
 ```sql
@@ -288,6 +288,7 @@ It would work on a demo day. The table lists what this implementation does inste
 | File | Purpose |
 |---|---|
 | `dags/cms_nh_pipeline.py` | the DAG |
+| `dags/cms_nh_ml.py` | the ML DAG (`precursor-pipeline ml decide` … `monitor`, then the `notify` email; ML spec §15) |
 | `dags/utils/pipeline_operator.py` | `PipelineDockerOperator`, `docker_kwargs()`, the JSON result parser |
 | `docker/pipeline.Dockerfile`, `docker/airflow.Dockerfile`, `.dockerignore` | the two images |
 | `docker/airflow-local/docker-compose.yaml`, `init-db.sh`, `.env.example` | the stack (the first two are also baked into the Airflow image for the VM) |

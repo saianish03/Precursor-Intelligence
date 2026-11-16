@@ -95,7 +95,12 @@ def g2_sanity(
     return _result(
         "G2",
         fails,
-        "no leakage flag; sanity checks in range",
+        "no leakage flag; sanity checks in range"
+        + (
+            f" (shuffled-label ROC-AUC {shuffled_label_roc:.4f} in [{lo}, {hi}])"
+            if shuffled_label_roc is not None
+            else ""
+        ),
         {
             "uncleared_leakage_flags": len(uncleared_leakage_flags),
             "shap_additive": shap_additive,

@@ -12,7 +12,8 @@
    ``chain_scores`` and, last, ``scores_manifest.json`` (§10.4). A rescore overwrites the month.
 5. The champion's global importance on the score frame (§8.2) into the run folder's ``score/``; the first score
    of a version sets its top ``explain.key_features`` as the version's ``key_features`` tag (drift monitoring,
-   §12.1), kept for the version's life.
+   §12.1), kept for the version's life. ``score/key_features.json`` is that fixed list, so ``monitor`` keeps
+   watching a feature that drifts out of the month's top features.
 
 Every score row carries the model version and the gold run that produced it (§20).
 """
@@ -346,10 +347,13 @@ def run_score(
     mean_abs = explain.mean_abs_table(contrib)
     families = explain.family_table(mean_abs, [registry_features[f] for f in model.feature_names])
     top = explain.key_features(mean_abs, cfg.explain.key_features)
+    # the drift watch list is the version's, fixed at its first score: a feature that drifts can leave this
+    # month's top list, and monitor must still watch it
+    watch = json.loads(alias.tags["key_features"]) if "key_features" in alias.tags else top
     report_files = {
         "shap_mean_abs.csv": _csv(mean_abs),
         "shap_families.csv": _csv(families),
-        "key_features.json": json.dumps(top, indent=2).encode(),
+        "key_features.json": json.dumps(watch, indent=2).encode(),
     }
     try:
         report_files["shap_bar.png"] = explain.bar_chart(mean_abs, title="Champion, score month")
