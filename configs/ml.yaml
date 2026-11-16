@@ -18,9 +18,12 @@ features:
   #   pressure ulcers 453 -> 479 in 2025-02 (7.9 -> 5.6), antipsychotics 419 -> 481 in 2026-02 (14.6 -> 16.7),
   #   ADL decline 401 and mobility decline 451 in 2025-02 (14.1 -> 17.7, 15.3 -> 22.6). Their _fn and d6_qm_*
   #   stay in. Take them back once the refit window holds about 6 months of the new definition.
+  # ML-21: staffing_rating_fn (the staffing rating's footnote code) has PSI 0.405 > 0.25 between the refit window
+  # and the score month (ml-dev gold, V 2026-10; train measures it every run, and still does once excluded).
+  # Take it back once that PSI stays under 0.25.
   exclude: [era, penalty_regime_2025_10, qm_def_post_2025_02, qm_def_post_2026_02, qm_age_months_mds,
             qm_age_months_claims, qm_ls_pressure_ulcer, qm_ls_antipsychotic, qm_ls_adl_decline,
-            qm_ls_mobility_decline, d12_turnover_total]
+            qm_ls_mobility_decline, d12_turnover_total, staffing_rating_fn]
   # Checked by prepare's regime-coverage flags (§1.4); the quality family's qm_def_post_* flags join when they land.
   regime_sensitive: [staffing_rating, qm_rating, staffing_rating_fn, qm_rating_fn]
 
