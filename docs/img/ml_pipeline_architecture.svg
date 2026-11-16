@@ -77,7 +77,7 @@
   <rect width="1800" height="1060" fill="#ffffff"/>
 
   <!-- header -->
-  <text x="40" y="40" class="ttl">Precursor Intelligence — ML Pipeline Architecture</text>
+  <text x="40" y="40" class="ttl">Precursor Intelligence: ML Pipeline Architecture</text>
   <circle cx="1436" cy="35" r="5" fill="#188038" class="live"/>
   <text x="1760" y="40" class="sub" text-anchor="end">DAG cms_nh_ml · model precursor_y_g12 · W0 → W6</text>
   <line x1="40" y1="58" x2="1760" y2="58" stroke="#dadce0"/>

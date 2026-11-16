@@ -68,7 +68,7 @@ the moving dashes show the direction of the data flow.*
 
 ![ML pipeline architecture](docs/img/ml_pipeline_architecture.svg)
 
-*The ML pipeline, DAG `cms_nh_ml`, built in work packages W0–W6. Numbered steps: 1 new gold arrives and `decide`
+*The ML pipeline, DAG `cms_nh_ml`, built in work packages W0 to W6. Numbered steps: 1 new gold arrives and `decide`
 picks retrain, score, re-tune or skip and pins that gold run · 2 leakage-safe windows, facility-grouped folds and
 frames are cut · 3 LightGBM, logistic regression and their ensemble are trained, Platt-calibrated and one is picked
 after a bias check · 4 held-out metrics, bias slices, SHAP and a model card are logged to MLflow · 5 deterministic
