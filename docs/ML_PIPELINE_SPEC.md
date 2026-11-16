@@ -543,9 +543,9 @@ Branches use `@task.branch`; `score` and `monitor` use `trigger_rule="none_faile
 |---|---|---|
 | `decide` | `precursor-pipeline ml decide` | last stdout line: JSON (`decision`, `proceed`, `gold_run_id`, `champion_version`); `do_xcom_push`, `xcom_all` |
 | `prepare` | `ml prepare --gold-run-id <from decide>` | §1.2, §1.5, §3 |
-| `tune` | `ml tune` | RETUNE; pool `heavy`; `retries=0` |
-| `train` | `ml train` | pool `heavy`; `retries=1` |
-| `evaluate` | `ml evaluate` | §6–§8 |
+| `tune` | `ml tune` | RETUNE; pool `heavy`; `retries=0`; timeout 90 min |
+| `train` | `ml train` | pool `heavy`; `retries=0`; timeout 45 min (~10 min measured) |
+| `evaluate` | `ml evaluate` | §6–§8; pool `heavy` (5 reweighting fits, the shuffled-label fit); `retries=0`; timeout 60 min |
 | `gate` | `ml gate` | registers (idempotent), aliases, `ml_runs`; writes `champion.json` |
 | `promote` | `ml promote` | the version comes from the param through the environment (`PI_ML_VERSION`, `PI_ML_REASON`), never the command line |
 | `score` | `ml score` | §10; skips without a champion |
@@ -575,7 +575,7 @@ The data pipeline's contract (`ingestion/pipeline.py`): 0 ok; 1 transient error,
 
 ### 15.6 Running next to `cms_nh_pipeline`
 - No shared lock (gold is pinned, §1.2).
-- **Airflow pool `heavy`, 1 slot**, taken by `gold.build_gold` (data DAG), `ml train` and `ml tune`, so the two memory-heavy jobs never run together on a 16 GB machine. The pool is created by `airflow-init` (`airflow pools set heavy 1 …`) in the **same PR** that adds `pool="heavy"` to `build_gold` (a task in a missing pool never runs, and it would hold the data lock). A DAG test asserts both DAGs use the same pool constant.
+- **Airflow pool `heavy`, 1 slot**, taken by `gold.build_gold` (data DAG), `ml train`, `ml tune` and `ml evaluate`, so the two memory-heavy jobs never run together on a 16 GB machine. The pool is created by `airflow-init` (`airflow pools set heavy 1 …`) in the **same PR** that adds `pool="heavy"` to `build_gold` (a task in a missing pool never runs, and it would hold the data lock). A DAG test asserts both DAGs use the same pool constant.
 - On the VM, everything that waits for "no pipeline run" (idle shutdown T21, `pi-down`, the deploy) must also count `cms_nh_ml` runs, running or queued, and a queued `cms_nh_gold` event (Phase 2).
 
 ---

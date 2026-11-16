@@ -18,7 +18,8 @@ prints it; the branches only read it.
   asset `cms_nh_scores` is emitted only when scores were published. `monitor` and `notify` still run.
 - RETUNE (`mode=retune` only, Phase 1) runs `tune` alone: its proposal and plots. `train` doesn't apply a proposal,
   so a re-tune trains, gates and scores nothing (§12.2); a drift flag only asks a human for one.
-- `train` and `tune` take the `heavy` pool's one slot (shared with gold's `build_gold`, §15.6).
+- `train`, `tune` and `evaluate` take the `heavy` pool's one slot (shared with gold's `build_gold`, §15.6), each
+  with a timeout a few times its measured time and no retry, so a hung fit alerts instead of holding the slot.
 - Alerts: a failed run emails through on_dag_failure; every finished run emails its summary (`notify`), which
   says when the gate held, a signal flagged or a re-tune was requested (course §7.5).
 
@@ -53,7 +54,11 @@ GOLD, SCORES = Asset("cms_nh_gold"), Asset("cms_nh_scores")
 ML = "precursor-pipeline ml"
 DECISION_KEYS = ("decision", "proceed")  # tell the decision from a JSON log line
 SUMMARY_KEYS = ("decision", "flags", "retune_requested")  # monitor's summary
-TRAIN_TIMEOUT = timedelta(hours=3)  # a hung fit must not hold the heavy pool
+# a hung fit must not hold the heavy pool (and, on the VM, the idle shutdown): a few times the measured times
+# on the ml-dev gold, ~10 min train, ~31 min tune (Optuna stops itself at 60), and evaluate's 5 reweighting fits
+TRAIN_TIMEOUT = timedelta(minutes=45)
+TUNE_TIMEOUT = timedelta(minutes=90)
+EVALUATE_TIMEOUT = timedelta(minutes=60)
 MODE = "--mode {{ params.mode }}"
 ALLOW = (
     "{{ '' if params.allow_unverified is none else "
@@ -122,15 +127,21 @@ def cms_nh_ml():
     def path(output: str | list[str] | None) -> list[str]:
         return PATHS[last_json_object(output, DECISION_KEYS)["decision"]]
 
-    tune = run("tune", "tune", pool=HEAVY_POOL, retries=0, execution_timeout=TRAIN_TIMEOUT)
+    tune = run("tune", "tune", pool=HEAVY_POOL, retries=0, execution_timeout=TUNE_TIMEOUT)
     train = run(
         "train",
         f"train {MODE}",
         pool=HEAVY_POOL,
-        retries=1,
+        retries=0,
         execution_timeout=TRAIN_TIMEOUT,
     )
-    evaluate = run("evaluate", f"evaluate {MODE}")
+    evaluate = run(
+        "evaluate",
+        f"evaluate {MODE}",
+        pool=HEAVY_POOL,
+        retries=0,
+        execution_timeout=EVALUATE_TIMEOUT,
+    )
     gate = run("gate", f"gate {MODE}")
     promote = run("promote", "promote", **with_request)
     score = run("score", f"score {MODE}", trigger_rule=AFTER_ANY, **with_output())

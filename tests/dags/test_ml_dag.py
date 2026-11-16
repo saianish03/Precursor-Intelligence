@@ -97,10 +97,12 @@ def test_wiring_and_trigger_rules(dag):
     assert [a.name for a in dag.get_task("publish").outlets] == ["cms_nh_scores"]
 
 
-def test_the_heavy_tasks_share_gold_s_pool(dag, bag):
-    assert dag.get_task("train").pool == dag.get_task("tune").pool == HEAVY_POOL
-    assert bag.dags["cms_nh_pipeline"].get_task("gold.build_gold").pool == HEAVY_POOL
-    assert dag.get_task("tune").retries == 0 and dag.get_task("train").retries == 1
+@pytest.mark.parametrize(("task_id", "minutes"), [("train", 45), ("tune", 90), ("evaluate", 60)])
+def test_the_heavy_tasks_share_gold_s_pool_with_a_timeout_and_no_retry(dag, bag, task_id, minutes):
+    t = dag.get_task(task_id)
+    assert t.pool == HEAVY_POOL == bag.dags["cms_nh_pipeline"].get_task("gold.build_gold").pool
+    assert t.retries == 0  # a hung fit alerts instead of holding the slot twice
+    assert t.execution_timeout.total_seconds() == minutes * 60
 
 
 def test_outputs_are_kept_for_the_branches_and_notify(dag):
