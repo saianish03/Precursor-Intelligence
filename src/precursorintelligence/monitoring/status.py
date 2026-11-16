@@ -8,7 +8,7 @@ Signals (§12.1), on the run's pinned frames:
 
 Key features are the champion version's fixed list that ``score`` recorded (``score/key_features.json``, from the
 version's ``key_features`` tag, §8.2), so a feature that drifts out of a month's top list stays watched; without scores this
-run (no champion yet) there is no drift signal. Score drift, the performance trend and realized performance
+run (no champion yet) there is no drift signal. Score drift, the performance trend (an agreed exception) and realized performance
 are Phase 2 (§18.1 cut line).
 
 A drift flag sets ``retune_requested`` on this run's ``ml_runs`` row (action ``monitor``) and in the email: a
