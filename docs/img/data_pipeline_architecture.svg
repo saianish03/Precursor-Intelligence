@@ -53,7 +53,7 @@
   <rect width="1800" height="1020" fill="#ffffff"/>
 
   <!-- header -->
-  <text x="40" y="40" class="ttl">Precursor Intelligence — Data Pipeline Architecture</text>
+  <text x="40" y="40" class="ttl">Precursor Intelligence: Data Pipeline Architecture</text>
   <text x="1760" y="40" class="sub" text-anchor="end">Version 2 · gold V = 2026-08</text>
   <line x1="40" y1="58" x2="1760" y2="58" stroke="#dadce0"/>
 

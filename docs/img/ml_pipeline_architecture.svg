@@ -1,0 +1,341 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1060" viewBox="0 0 1800 1060" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .ttl { font-size: 20px; font-weight: 600; fill: #202124; }
+      .sub { font-size: 13px; fill: #5f6368; }
+      .lbl { font-size: 14px; font-weight: 600; fill: #202124; }
+      .cap { font-size: 12px; fill: #5f6368; }
+      .grp { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; fill: #5f6368; }
+      .frame { fill: none; stroke: #9aa0a6; stroke-width: 1; }
+      .frame-solid { fill: #fafbfc; stroke: #c4c9cf; stroke-width: 1; }
+      .frame-dash { fill: none; stroke: #9aa0a6; stroke-width: 1; stroke-dasharray: 5 4; }
+      .tile { fill: #ffffff; stroke: #c4c9cf; stroke-width: 1; }
+      .ic { fill: none; stroke: #3c4043; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .wire { fill: none; stroke: #5f6368; stroke-width: 1.5; marker-end: url(#ah); }
+      .wire-acc { fill: none; stroke: #1a73e8; stroke-width: 1.8; marker-end: url(#aha); }
+      .wire-dash { fill: none; stroke: #9aa0a6; stroke-width: 1.2; stroke-dasharray: 4 4; }
+      .wire-planned { fill: none; stroke: #5f6368; stroke-width: 1.5; stroke-dasharray: 5 4; marker-end: url(#ah); }
+      .wire-loop { fill: none; stroke: #12a4b8; stroke-width: 1.6; marker-end: url(#ahl); }
+      .badge { fill: #202124; }
+      .badge-t { font-size: 11px; font-weight: 700; fill: #ffffff; }
+      .chip-t { font-size: 10px; font-weight: 700; fill: #ffffff; letter-spacing: 0.4px; }
+      .key-t { font-size: 12.5px; fill: #3c4043; }
+      .knock { paint-order: stroke; stroke: #fafbfc; stroke-width: 7px; stroke-linejoin: round; }
+      .knock-w { paint-order: stroke; stroke: #ffffff; stroke-width: 7px; stroke-linejoin: round; }
+
+      /* motion: moving dashes show direction; one stage lights up at a time as a run passes through */
+      .flowing { stroke-dasharray: 9 6; animation: pi-flow 0.9s linear infinite; }
+      .looping { stroke-dasharray: 6 5; animation: pi-flow 1.4s linear infinite; }
+      @keyframes pi-flow { to { stroke-dashoffset: -15; } }
+      .stage-tile { animation: pi-lit 7s ease-in-out infinite; }
+      @keyframes pi-lit {
+        0%   { stroke: #c4c9cf; stroke-width: 1; }
+        4%   { stroke: #1a73e8; stroke-width: 2.5; }
+        16%  { stroke: #c4c9cf; stroke-width: 1; }
+        100% { stroke: #c4c9cf; stroke-width: 1; }
+      }
+      .halo { fill: #1a73e8; opacity: 0; animation: pi-halo 7s ease-in-out infinite; }
+      @keyframes pi-halo { 0% { opacity: 0; } 4% { opacity: 0.13; } 16% { opacity: 0; } 100% { opacity: 0; } }
+      .live { animation: pi-live 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      @keyframes pi-live { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(1.6); } }
+      .d1 { animation-delay: 1s; } .d2 { animation-delay: 2s; } .d3 { animation-delay: 3s; }
+      .d4 { animation-delay: 4s; } .d5 { animation-delay: 5s; } .d6 { animation-delay: 6s; }
+      @media (prefers-reduced-motion: reduce) {
+        .flowing, .looping { animation: none; stroke-dasharray: none; }
+        .stage-tile, .halo, .live { animation: none; }
+        .token { display: none; }
+      }
+    </style>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1,1 L9,5 L1,9" fill="none" stroke="#5f6368" stroke-width="1.6"/></marker>
+    <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1,1 L9,5 L1,9" fill="none" stroke="#1a73e8" stroke-width="1.8"/></marker>
+    <marker id="ahl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1,1 L9,5 L1,9" fill="none" stroke="#12a4b8" stroke-width="1.8"/></marker>
+
+    <!-- icons, drawn in a 48 x 48 box -->
+    <symbol id="i-clock" viewBox="0 0 48 48"><circle class="ic" cx="24" cy="24" r="16"/><path class="ic" d="M24 14 V24 L31 29"/></symbol>
+    <symbol id="i-dag" viewBox="0 0 48 48"><circle class="ic" cx="10" cy="24" r="4"/><circle class="ic" cx="26" cy="12" r="4"/><circle class="ic" cx="26" cy="36" r="4"/><circle class="ic" cx="40" cy="24" r="4"/><path class="ic" d="M13.5 22 L22.5 14 M13.5 26 L22.5 34 M29.5 14 L36.5 22 M29.5 34 L36.5 26"/></symbol>
+    <symbol id="i-container" viewBox="0 0 48 48"><path class="ic" d="M24 6 L40 15 V33 L24 42 L8 33 V15 Z M8 15 L24 24 L40 15 M24 24 V42"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 48 48"><path class="ic" d="M14 32 V22 C14 15 18 11 24 11 C30 11 34 15 34 22 V32 L37 35 H11 Z M21 39 C22 41 26 41 27 39 M24 7 V11"/></symbol>
+    <symbol id="i-db" viewBox="0 0 48 48"><ellipse class="ic" cx="24" cy="11" rx="14" ry="5"/><path class="ic" d="M10 11 V37 C10 40 16 42 24 42 C32 42 38 40 38 37 V11 M10 24 C10 27 16 29 24 29 C32 29 38 27 38 24"/></symbol>
+    <symbol id="i-bucket" viewBox="0 0 48 48"><path class="ic" d="M8 12 H40 L36 40 H12 Z M8 12 C8 9 40 9 40 12"/></symbol>
+    <symbol id="i-table" viewBox="0 0 48 48"><path class="ic" d="M7 9 H41 V39 H7 Z M7 18 H41 M7 27 H41 M19 18 V39 M30 18 V39"/></symbol>
+    <symbol id="i-model" viewBox="0 0 48 48"><circle class="ic" cx="10" cy="14" r="3.5"/><circle class="ic" cx="10" cy="34" r="3.5"/><circle class="ic" cx="24" cy="10" r="3.5"/><circle class="ic" cx="24" cy="24" r="3.5"/><circle class="ic" cx="24" cy="38" r="3.5"/><circle class="ic" cx="38" cy="24" r="3.5"/><path class="ic" d="M13 15 L21 11 M13 16 L21 23 M13 32 L21 25 M13 33 L21 37 M27 11 L35 22 M27 24 H34.5 M27 37 L35 26"/></symbol>
+    <symbol id="i-warehouse" viewBox="0 0 48 48"><path class="ic" d="M6 20 L24 8 L42 20 V40 H6 Z M14 40 V28 H34 V40 M14 34 H34"/></symbol>
+    <symbol id="i-ci" viewBox="0 0 48 48"><circle class="ic" cx="24" cy="24" r="16"/><path class="ic" d="M20 16 L32 24 L20 32 Z"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 48 48"><circle class="ic" cx="14" cy="10" r="4"/><circle class="ic" cx="14" cy="38" r="4"/><circle class="ic" cx="34" cy="18" r="4"/><path class="ic" d="M14 14 V34 M34 22 C34 30 22 28 15 34"/></symbol>
+    <symbol id="i-iac" viewBox="0 0 48 48"><path class="ic" d="M8 8 H22 V22 H8 Z M26 14 H40 V28 H26 Z M8 26 H22 V40 H8 Z M26 32 H40 V40"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 48 48"><path class="ic" d="M24 6 L39 12 V23 C39 33 32 39 24 42 C16 39 9 33 9 23 V12 Z M17 24 L22 29 L31 19"/></symbol>
+    <symbol id="i-scale" viewBox="0 0 48 48"><path class="ic" d="M24 8 V40 M14 40 H34 M10 14 H38 M10 14 L4 28 H16 Z M38 14 L32 28 H44 Z"/></symbol>
+    <symbol id="i-split" viewBox="0 0 48 48"><path class="ic" d="M7 9 H41 V39 H7 Z M16 9 V39 M25 9 V39 M34 9 V39 M7 31 H41"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 48 48"><path class="ic" d="M6 40 H42 M10 40 V28 H16 V40 M21 40 V17 H27 V40 M32 40 V23 H38 V40 M9 20 L22 10 L30 15 L40 7"/></symbol>
+    <symbol id="i-target" viewBox="0 0 48 48"><circle class="ic" cx="22" cy="26" r="16"/><circle class="ic" cx="22" cy="26" r="9"/><circle class="ic" cx="22" cy="26" r="2.5"/><path class="ic" d="M22 26 L40 8 M34 8 H40 V14"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 48 48"><path class="ic" d="M6 9 H42 V39 H6 Z M9 26 H16 L20 17 L26 33 L30 22 L33 26 H39"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 48 48"><path class="ic" d="M8 8 H24 L42 26 L26 42 L8 24 Z"/><circle class="ic" cx="17" cy="17" r="3"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 48 48"><path class="ic" d="M12 6 H30 L38 14 V42 H12 Z M30 6 V14 H38 M18 24 H32 M18 31 H32"/></symbol>
+    <symbol id="i-screen" viewBox="0 0 48 48"><path class="ic" d="M6 10 H42 V34 H6 Z M18 42 H30 M24 34 V42 M12 28 L20 20 L26 25 L36 15"/></symbol>
+  </defs>
+
+  <rect width="1800" height="1060" fill="#ffffff"/>
+
+  <!-- header -->
+  <text x="40" y="40" class="ttl">Precursor Intelligence: ML Pipeline Architecture</text>
+  <circle cx="1436" cy="35" r="5" fill="#188038" class="live"/>
+  <text x="1760" y="40" class="sub" text-anchor="end">DAG cms_nh_ml · model precursor_y_g12 · W0 → W6</text>
+  <line x1="40" y1="58" x2="1760" y2="58" stroke="#dadce0"/>
+
+  <!-- upstream: the data pipeline -->
+  <rect x="40" y="96" width="180" height="324" class="frame"/>
+  <text x="52" y="114" class="grp">UPSTREAM</text>
+  <rect x="88" y="150" width="84" height="84" rx="4" class="tile"/>
+  <use href="#i-table" x="106" y="168" width="48" height="48"/>
+  <text x="130" y="262" class="lbl" text-anchor="middle">Data pipeline</text>
+  <text x="130" y="280" class="cap" text-anchor="middle">cms_nh_pipeline</text>
+  <text x="130" y="298" class="cap" text-anchor="middle">gold/ · V = 2026-10</text>
+  <rect x="55" y="320" width="150" height="20" rx="10" fill="#b8902c"/>
+  <text x="130" y="334" class="chip-t" text-anchor="middle">W5 · QUALITY FEATURES</text>
+  <text x="130" y="362" class="cap" text-anchor="middle">131 registry features</text>
+  <text x="130" y="380" class="cap" text-anchor="middle">feed the model by config</text>
+
+  <!-- runtime environment -->
+  <rect x="260" y="80" width="1270" height="720" class="frame"/>
+  <rect x="260" y="80" width="372" height="22" fill="#f1f3f4" stroke="#9aa0a6"/>
+  <text x="272" y="96" class="grp">RUNTIME · LAPTOP (DOCKER COMPOSE) / GCP VM</text>
+
+  <!-- orchestration -->
+  <rect x="290" y="122" width="1210" height="104" class="frame-solid"/>
+  <text x="302" y="140" class="grp">ORCHESTRATION · APACHE AIRFLOW 3</text>
+  <g>
+    <rect x="320" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-clock" x="330" y="162" width="36" height="36"/>
+    <text x="390" y="176" class="lbl">Asset trigger</text><text x="390" y="194" class="cap">on cms_nh_gold · or by hand</text>
+    <rect x="600" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-dag" x="610" y="162" width="36" height="36"/>
+    <text x="670" y="176" class="lbl">cms_nh_ml</text><text x="670" y="194" class="cap">decide → branch · one run at a time</text>
+    <rect x="770" y="164" width="30" height="16" rx="8" fill="#d01884"/><text x="785" y="176" class="chip-t" text-anchor="middle">W6</text>
+    <rect x="920" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-container" x="930" y="162" width="36" height="36"/>
+    <text x="990" y="176" class="lbl">Task containers</text><text x="990" y="194" class="cap">precursor-pipeline ml · pool heavy</text>
+    <rect x="1112" y="164" width="30" height="16" rx="8" fill="#e8710a"/><text x="1127" y="176" class="chip-t" text-anchor="middle">W4</text>
+    <rect x="1220" y="152" width="56" height="56" rx="4" class="tile"/><use href="#i-bell" x="1230" y="162" width="36" height="36"/>
+    <text x="1290" y="176" class="lbl">Notify</text><text x="1290" y="194" class="cap">run summary · alerts email</text>
+    <rect x="1340" y="164" width="30" height="16" rx="8" fill="#d01884"/><text x="1355" y="176" class="chip-t" text-anchor="middle">W6</text>
+  </g>
+
+  <!-- upstream -> runtime -->
+  <path d="M172,172 H318" class="wire-dash"/>
+  <text x="246" y="166" class="cap" text-anchor="middle">asset</text>
+  <path d="M172,212 H240 V332 H298" class="wire flowing"/>
+
+  <!-- the DAG starts decide; monitor reports to notify -->
+  <path d="M628,210 V246 H365 V270" class="wire-dash"/>
+  <path d="M1420,282 V180 H1278" class="wire-dash"/>
+
+  <!-- re-tune request: monitor emails it via notify; a person runs mode=retune (ml tune alone) -->
+  <path d="M1360,282 V262 H1248 V210" class="wire-loop looping"/>
+  <text x="1240" y="256" class="cap knock-w" text-anchor="end" style="fill:#0f7f8f">drift → re-tune request (email) · a person runs mode=retune: ml tune alone</text>
+
+  <!-- a run travelling through the stages (hidden behind tiles, visible on the wires) -->
+  <circle r="5.5" fill="#1a73e8" class="token">
+    <animateMotion dur="7s" repeatCount="indefinite" path="M365,332 H1385" keyPoints="0;1;1" keyTimes="0;0.857;1" calcMode="linear"/>
+  </circle>
+
+  <!-- stage hand-offs -->
+  <path d="M430,332 H468" class="wire-acc flowing"/>
+  <path d="M600,332 H638" class="wire-acc flowing"/>
+  <path d="M770,332 H808" class="wire-acc flowing"/>
+  <path d="M940,332 H978" class="wire-acc flowing"/>
+  <path d="M1110,332 H1148" class="wire-acc flowing"/>
+  <path d="M1280,332 H1318" class="wire-acc flowing"/>
+
+  <!-- ML stages -->
+  <g>
+    <g>
+      <rect x="294" y="278" width="142" height="108" rx="8" class="halo"/>
+      <rect x="300" y="284" width="130" height="96" rx="4" class="tile stage-tile"/>
+      <rect x="300" y="284" width="130" height="5" fill="#d01884"/>
+      <use href="#i-branch" x="341" y="306" width="48" height="48"/>
+      <rect x="378" y="295" width="46" height="16" rx="8" fill="#d01884"/><text x="401" y="307" class="chip-t" text-anchor="middle">W6·W0</text>
+      <text x="365" y="402" class="lbl" text-anchor="middle">Decide · pin</text>
+      <text x="365" y="420" class="cap" text-anchor="middle">retrain · score · skip</text>
+      <text x="365" y="438" class="cap" text-anchor="middle">by hand: promote · re-tune</text>
+    </g>
+    <g>
+      <rect x="464" y="278" width="142" height="108" rx="8" class="halo d1"/>
+      <rect x="470" y="284" width="130" height="96" rx="4" class="tile stage-tile d1"/>
+      <rect x="470" y="284" width="130" height="5" fill="#5f6368"/>
+      <use href="#i-split" x="511" y="306" width="48" height="48"/>
+      <rect x="564" y="295" width="30" height="16" rx="8" fill="#5f6368"/><text x="579" y="307" class="chip-t" text-anchor="middle">W0</text>
+      <text x="535" y="402" class="lbl" text-anchor="middle">Prepare</text>
+      <text x="535" y="420" class="cap" text-anchor="middle">windows · folds · frames</text>
+    </g>
+    <g>
+      <rect x="634" y="278" width="142" height="108" rx="8" class="halo d2"/>
+      <rect x="640" y="284" width="130" height="96" rx="4" class="tile stage-tile d2"/>
+      <rect x="640" y="284" width="130" height="5" fill="#1a73e8"/>
+      <use href="#i-model" x="681" y="306" width="48" height="48"/>
+      <rect x="734" y="295" width="30" height="16" rx="8" fill="#1a73e8"/><text x="749" y="307" class="chip-t" text-anchor="middle">W1</text>
+      <text x="705" y="402" class="lbl" text-anchor="middle">Train · select</text>
+      <text x="705" y="420" class="cap" text-anchor="middle">LGBM + LR · Platt (OOF)</text>
+    </g>
+    <g>
+      <rect x="804" y="278" width="142" height="108" rx="8" class="halo d3"/>
+      <rect x="810" y="284" width="130" height="96" rx="4" class="tile stage-tile d3"/>
+      <rect x="810" y="284" width="130" height="5" fill="#9334e6"/>
+      <use href="#i-scale" x="851" y="306" width="48" height="48"/>
+      <rect x="904" y="295" width="30" height="16" rx="8" fill="#9334e6"/><text x="919" y="307" class="chip-t" text-anchor="middle">W2</text>
+      <text x="875" y="402" class="lbl" text-anchor="middle">Evaluate</text>
+      <text x="875" y="420" class="cap" text-anchor="middle">metrics · bias · SHAP</text>
+    </g>
+    <g>
+      <rect x="974" y="278" width="142" height="108" rx="8" class="halo d4"/>
+      <rect x="980" y="284" width="130" height="96" rx="4" class="tile stage-tile d4"/>
+      <rect x="980" y="284" width="130" height="5" fill="#9334e6"/>
+      <use href="#i-shield" x="1021" y="306" width="48" height="48"/>
+      <rect x="1074" y="295" width="30" height="16" rx="8" fill="#9334e6"/><text x="1089" y="307" class="chip-t" text-anchor="middle">W2</text>
+      <text x="1045" y="402" class="lbl" text-anchor="middle">Gate · promote</text>
+      <text x="1045" y="420" class="cap" text-anchor="middle">deterministic gates</text>
+    </g>
+    <g>
+      <rect x="1144" y="278" width="142" height="108" rx="8" class="halo d5"/>
+      <rect x="1150" y="284" width="130" height="96" rx="4" class="tile stage-tile d5"/>
+      <rect x="1150" y="284" width="130" height="5" fill="#188038"/>
+      <use href="#i-target" x="1191" y="306" width="48" height="48"/>
+      <rect x="1244" y="295" width="30" height="16" rx="8" fill="#188038"/><text x="1259" y="307" class="chip-t" text-anchor="middle">W3</text>
+      <text x="1215" y="402" class="lbl" text-anchor="middle">Score · explain</text>
+      <text x="1215" y="420" class="cap" text-anchor="middle">reasons · chain roll-up</text>
+    </g>
+    <g>
+      <rect x="1314" y="278" width="142" height="108" rx="8" class="halo d6"/>
+      <rect x="1320" y="284" width="130" height="96" rx="4" class="tile stage-tile d6"/>
+      <rect x="1320" y="284" width="130" height="5" fill="#188038"/>
+      <use href="#i-pulse" x="1361" y="306" width="48" height="48"/>
+      <rect x="1398" y="295" width="46" height="16" rx="8" fill="#188038"/><text x="1421" y="307" class="chip-t" text-anchor="middle">W3·W6</text>
+      <text x="1385" y="402" class="lbl" text-anchor="middle">Publish · monitor</text>
+      <text x="1385" y="420" class="cap" text-anchor="middle">PSI drift · status</text>
+    </g>
+  </g>
+
+  <!-- step badges -->
+  <g>
+    <circle cx="300" cy="284" r="11" class="badge"/><text x="300" y="288" class="badge-t" text-anchor="middle">1</text>
+    <circle cx="470" cy="284" r="11" class="badge"/><text x="470" y="288" class="badge-t" text-anchor="middle">2</text>
+    <circle cx="640" cy="284" r="11" class="badge"/><text x="640" y="288" class="badge-t" text-anchor="middle">3</text>
+    <circle cx="810" cy="284" r="11" class="badge"/><text x="810" y="288" class="badge-t" text-anchor="middle">4</text>
+    <circle cx="980" cy="284" r="11" class="badge"/><text x="980" y="288" class="badge-t" text-anchor="middle">5</text>
+    <circle cx="1150" cy="284" r="11" class="badge"/><text x="1150" y="288" class="badge-t" text-anchor="middle">6</text>
+    <circle cx="1320" cy="284" r="11" class="badge"/><text x="1320" y="288" class="badge-t" text-anchor="middle">7</text>
+  </g>
+
+  <!-- MLflow -->
+  <rect x="290" y="470" width="1210" height="142" class="frame-solid"/>
+  <g>
+    <use href="#i-db" x="426" y="500" width="48" height="48"/>
+    <text x="450" y="570" class="lbl" text-anchor="middle">Backend store</text><text x="450" y="588" class="cap" text-anchor="middle">Postgres · db mlflow</text>
+    <use href="#i-chart" x="681" y="500" width="48" height="48"/>
+    <text x="705" y="570" class="lbl" text-anchor="middle">Tracking server</text><text x="705" y="588" class="cap" text-anchor="middle">runs · params · metrics</text>
+    <use href="#i-bucket" x="851" y="500" width="48" height="48"/>
+    <text x="875" y="570" class="lbl" text-anchor="middle">Artifact store</text><text x="875" y="588" class="cap" text-anchor="middle">plots · model card · SHAP</text>
+    <use href="#i-tag" x="1106" y="500" width="48" height="48"/>
+    <text x="1130" y="570" class="lbl" text-anchor="middle">Model registry</text>
+    <text x="1130" y="588" class="cap" text-anchor="middle">@champion · @challenger</text>
+    <circle cx="1052" cy="584" r="4" fill="#188038" class="live"/>
+  </g>
+  <path d="M480,524 H675" class="wire-dash"/>
+  <path d="M735,524 H845" class="wire-dash"/>
+  <!-- stages -> MLflow -->
+  <path d="M705,428 V496" class="wire flowing"/>
+  <path d="M875,428 V496" class="wire flowing"/>
+  <path d="M1045,428 V460 H1112 V496" class="wire flowing"/>
+  <path d="M1150,498 V460 H1195 V430" class="wire-acc flowing"/>
+  <text x="1173" y="452" class="cap knock-w" text-anchor="middle">loads @champion</text>
+
+  <!-- storage -->
+  <rect x="290" y="640" width="1210" height="134" class="frame-solid"/>
+  <g>
+    <use href="#i-db" x="341" y="666" width="48" height="48"/>
+    <text x="365" y="736" class="lbl" text-anchor="middle">ml_runs</text><text x="365" y="754" class="cap" text-anchor="middle">audit · every decision</text>
+    <use href="#i-bucket" x="511" y="666" width="48" height="48"/>
+    <text x="535" y="736" class="lbl" text-anchor="middle">ml/runs/&lt;run_id&gt;/</text><text x="535" y="754" class="cap" text-anchor="middle">pinned input · frames</text>
+    <use href="#i-bucket" x="1211" y="666" width="48" height="48"/>
+    <text x="1235" y="736" class="lbl" text-anchor="middle">scores/v=YYYY-MM/</text><text x="1235" y="754" class="cap" text-anchor="middle">scores · reasons · chains</text>
+    <use href="#i-doc" x="1381" y="666" width="48" height="48"/>
+    <text x="1405" y="736" class="lbl" text-anchor="middle">status/latest.json</text><text x="1405" y="754" class="cap" text-anchor="middle">read by API / UI</text>
+  </g>
+  <path d="M365,446 V662" class="wire flowing"/>
+  <path d="M535,428 V662" class="wire flowing"/>
+  <path d="M1235,428 V662" class="wire flowing"/>
+  <path d="M1405,428 V662" class="wire flowing"/>
+  <text x="302" y="488" class="grp knock">MLFLOW 3 · TRACKING + MODEL REGISTRY (COMPOSE SERVICE) · W4</text>
+  <text x="302" y="658" class="grp knock">STORAGE · GCS BUCKET (ml-dev/ PREFIX) + POSTGRES precursor_meta</text>
+
+  <!-- downstream (phase 2) -->
+  <rect x="1570" y="96" width="190" height="336" class="frame-dash"/>
+  <text x="1582" y="114" class="grp">DOWNSTREAM · PHASE 2</text>
+  <rect x="1623" y="140" width="84" height="84" rx="4" class="tile" stroke-dasharray="4 3"/>
+  <use href="#i-warehouse" x="1641" y="158" width="48" height="48"/>
+  <text x="1665" y="246" class="lbl" text-anchor="middle">BigQuery</text>
+  <text x="1665" y="264" class="cap" text-anchor="middle">scores dataset</text>
+  <path d="M1665,272 V292" class="wire-planned"/>
+  <rect x="1623" y="296" width="84" height="84" rx="4" class="tile" stroke-dasharray="4 3"/>
+  <use href="#i-screen" x="1641" y="314" width="48" height="48"/>
+  <text x="1665" y="402" class="lbl" text-anchor="middle">API · agents</text>
+  <text x="1665" y="420" class="cap" text-anchor="middle">dashboard</text>
+  <path d="M1450,332 H1540 V182 H1621" class="wire-planned"/>
+  <text x="1495" y="324" class="cap" text-anchor="middle">cms_nh_scores</text>
+
+  <!-- below the frame: platform, work packages, flow -->
+  <rect x="40" y="830" width="530" height="170" class="frame"/>
+  <text x="52" y="848" class="grp">PLATFORM · W4</text>
+  <rect x="79" y="864" width="52" height="52" rx="4" class="tile"/><use href="#i-ci" x="89" y="874" width="32" height="32"/>
+  <text x="105" y="938" class="lbl" text-anchor="middle">CI · toy_ml</text><text x="105" y="955" class="cap" text-anchor="middle">full ML chain per PR</text>
+  <rect x="279" y="864" width="52" height="52" rx="4" class="tile"/><use href="#i-container" x="289" y="874" width="32" height="32"/>
+  <text x="305" y="938" class="lbl" text-anchor="middle">Images</text><text x="305" y="955" class="cap" text-anchor="middle">pipeline ml extras · mlflow</text>
+  <rect x="479" y="864" width="52" height="52" rx="4" class="tile"/><use href="#i-iac" x="489" y="874" width="32" height="32"/>
+  <text x="505" y="938" class="lbl" text-anchor="middle">Terraform</text><text x="505" y="955" class="cap" text-anchor="middle">MLflow bucket · secret</text>
+  <text x="52" y="986" class="cap">Tasks reach MLflow over HTTP; the same image runs in tests, CI and Airflow.</text>
+
+  <rect x="600" y="830" width="430" height="170" class="frame"/>
+  <text x="612" y="848" class="grp">WORK PACKAGES</text>
+  <g>
+    <rect x="616" y="860" width="30" height="16" rx="8" fill="#5f6368"/><text x="631" y="872" class="chip-t" text-anchor="middle">W0</text>
+    <text x="656" y="872" class="key-t">Foundation · ml.yaml, contracts, windows, folds</text>
+    <rect x="616" y="880" width="30" height="16" rx="8" fill="#1a73e8"/><text x="631" y="892" class="chip-t" text-anchor="middle">W1</text>
+    <text x="656" y="892" class="key-t">Training · members, OOF + Platt, selection, tune</text>
+    <rect x="616" y="900" width="30" height="16" rx="8" fill="#9334e6"/><text x="631" y="912" class="chip-t" text-anchor="middle">W2</text>
+    <text x="656" y="912" class="key-t">Evaluation · bias slices, gates, promote</text>
+    <rect x="616" y="920" width="30" height="16" rx="8" fill="#188038"/><text x="631" y="932" class="chip-t" text-anchor="middle">W3</text>
+    <text x="656" y="932" class="key-t">Explain · SHAP reasons, score, roll-up, publish</text>
+    <rect x="616" y="940" width="30" height="16" rx="8" fill="#e8710a"/><text x="631" y="952" class="chip-t" text-anchor="middle">W4</text>
+    <text x="656" y="952" class="key-t">Platform · MLflow server, images, CI smoke</text>
+    <rect x="616" y="960" width="30" height="16" rx="8" fill="#b8902c"/><text x="631" y="972" class="chip-t" text-anchor="middle">W5</text>
+    <text x="656" y="972" class="key-t">Quality feature family in gold</text>
+    <rect x="616" y="980" width="30" height="16" rx="8" fill="#d01884"/><text x="631" y="992" class="chip-t" text-anchor="middle">W6</text>
+    <text x="656" y="992" class="key-t">DAG cms_nh_ml · decide, monitor, notify</text>
+  </g>
+
+  <rect x="1060" y="830" width="700" height="170" class="frame"/>
+  <text x="1072" y="848" class="grp">FLOW</text>
+  <g>
+    <circle cx="1084" cy="868" r="8.5" class="badge"/><text x="1084" y="872" class="badge-t" text-anchor="middle">1</text>
+    <text x="1102" y="872" class="key-t">New gold arrives; decide picks retrain, score or skip (by hand: promote or re-tune), pins the gold run</text>
+    <circle cx="1084" cy="888" r="8.5" class="badge"/><text x="1084" y="892" class="badge-t" text-anchor="middle">2</text>
+    <text x="1102" y="892" class="key-t">Leakage-safe windows, facility-grouped folds and frames are cut</text>
+    <circle cx="1084" cy="908" r="8.5" class="badge"/><text x="1084" y="912" class="badge-t" text-anchor="middle">3</text>
+    <text x="1102" y="912" class="key-t">LightGBM, LR and their ensemble are trained, Platt-calibrated, one picked after a bias check</text>
+    <circle cx="1084" cy="928" r="8.5" class="badge"/><text x="1084" y="932" class="badge-t" text-anchor="middle">4</text>
+    <text x="1102" y="932" class="key-t">Held-out metrics with CIs, bias slices, SHAP and a model card are logged to MLflow</text>
+    <circle cx="1084" cy="948" r="8.5" class="badge"/><text x="1084" y="952" class="badge-t" text-anchor="middle">5</text>
+    <text x="1102" y="952" class="key-t">Gates pass + a champion exists → @champion, else @challenger; first version, rollback: mode=promote</text>
+    <circle cx="1084" cy="968" r="8.5" class="badge"/><text x="1084" y="972" class="badge-t" text-anchor="middle">6</text>
+    <text x="1102" y="972" class="key-t">The champion scores every facility with its top reasons and chain roll-ups</text>
+    <circle cx="1084" cy="988" r="8.5" class="badge"/><text x="1084" y="992" class="badge-t" text-anchor="middle">7</text>
+    <text x="1102" y="992" class="key-t">Scores publish (asset cms_nh_scores); PSI drift checks write status and email a summary</text>
+  </g>
+
+  <!-- legend line -->
+  <g transform="translate(40,1036)">
+    <path d="M0,0 H34" class="wire-acc"/><text x="44" y="4" class="cap">model hand-off</text>
+    <path d="M160,0 H194" class="wire"/><text x="204" y="4" class="cap">read / write</text>
+    <path d="M310,0 H344" class="wire-dash"/><text x="354" y="4" class="cap">control · metadata</text>
+    <path d="M490,0 H524" class="wire-loop"/><text x="534" y="4" class="cap">re-tune (manual)</text>
+    <path d="M640,0 H674" class="wire-planned"/><text x="684" y="4" class="cap">planned (phase 2)</text>
+    <circle cx="806" cy="0" r="4" fill="#188038"/><text x="818" y="4" class="cap">live: the champion alias serves every score</text>
+    <circle cx="1100" cy="0" r="5" fill="#1a73e8"/><text x="1112" y="4" class="cap">one monthly run moving through the stages</text>
+  </g>
+</svg>
