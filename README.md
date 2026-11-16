@@ -93,9 +93,10 @@ one Airflow DAG, `cms_nh_ml`, triggered when the data pipeline publishes gold (a
 - **Batch, not online.** CMS publishes once a month, so scores are computed once a month and stored. There is no
   model server; "deploying" a model means moving the `@champion` alias.
 - **Same image, thin DAG.** Every task runs `precursor-pipeline ml <command>` in the same `precursor-pipeline`
-  image as the data pipeline, on the `heavy` pool (W4).
+  image as the data pipeline; the memory-heavy steps (`train`, `tune`, `evaluate`) share the `heavy` pool's one
+  slot with gold's build (W4, W6).
 - **Behaviour lives in config.** Windows, thresholds and feature excludes are in `configs/ml.yaml`; the feature
-  list comes from `configs/feature_registry.yaml`, so new features (such as W5's 131 quality features) change the
+  list comes from `configs/feature_registry.yaml`, so new features (such as W5's quality family: 41 features, 33 of them used) change the
   model by config, not code.
 - **Idempotent and auditable.** Runs are keyed on gold's `dataset_version` and a `recipe_hash` and are seeded, so a
   rerun gives the same models. Every promotion, hold and rollback is a row in `ml_runs` and a tag in MLflow.

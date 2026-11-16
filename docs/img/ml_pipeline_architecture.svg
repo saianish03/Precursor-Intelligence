@@ -257,7 +257,7 @@
     <use href="#i-doc" x="1381" y="666" width="48" height="48"/>
     <text x="1405" y="736" class="lbl" text-anchor="middle">status/latest.json</text><text x="1405" y="754" class="cap" text-anchor="middle">read by API / UI</text>
   </g>
-  <path d="M365,428 V662" class="wire flowing"/>
+  <path d="M365,446 V662" class="wire flowing"/>
   <path d="M535,428 V662" class="wire flowing"/>
   <path d="M1235,428 V662" class="wire flowing"/>
   <path d="M1405,428 V662" class="wire flowing"/>
@@ -333,7 +333,7 @@
     <path d="M0,0 H34" class="wire-acc"/><text x="44" y="4" class="cap">model hand-off</text>
     <path d="M160,0 H194" class="wire"/><text x="204" y="4" class="cap">read / write</text>
     <path d="M310,0 H344" class="wire-dash"/><text x="354" y="4" class="cap">control · metadata</text>
-    <path d="M490,0 H524" class="wire-loop"/><text x="534" y="4" class="cap">re-tune request (manual)</text>
+    <path d="M490,0 H524" class="wire-loop"/><text x="534" y="4" class="cap">re-tune (manual)</text>
     <path d="M640,0 H674" class="wire-planned"/><text x="684" y="4" class="cap">planned (phase 2)</text>
     <circle cx="806" cy="0" r="4" fill="#188038"/><text x="818" y="4" class="cap">live: the champion alias serves every score</text>
     <circle cx="1100" cy="0" r="5" fill="#1a73e8"/><text x="1112" y="4" class="cap">one monthly run moving through the stages</text>
