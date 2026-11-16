@@ -89,6 +89,12 @@ jobs:
         if: steps.scope.outputs.scope != 'none'
         env:
           SCOPE: ${{ steps.scope.outputs.scope }}
+          # one thread per worker: polars, BLAS (numpy/scipy) and OpenMP (LightGBM without num_threads) would each start
+          # one per vCPU in every worker, oversubscribing the runner
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          POLARS_MAX_THREADS: "1"
         run: |
           set +e
           paths=()
