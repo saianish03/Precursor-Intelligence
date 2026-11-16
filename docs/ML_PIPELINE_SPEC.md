@@ -19,7 +19,7 @@
 > - Every value that can change lives in `configs/ml.yaml` (W0, #54; Appendix B) or an existing config. Never hard-code a feature list, a threshold or a window.
 > - Tuning, selection and every "keep or drop" choice use training-window data only. **The test window is looked at once per model, to report and gate, never to choose** (§3, §20).
 >
-> **Status:** v1.0, 2026-11-10. W0 (#54: `configs/ml.yaml`, `training/{cli,contracts,data}.py`, `precursor-pipeline ml prepare`) and W5's quality family (#55) are merged; W1–W4 and W6 are not built yet (§18.3). Reviewed by an outside ML-systems reviewer, the leakage reviewer and the infra reviewer; their findings are applied. **Phase 1, everything the course asks for, running on a laptop stack against GCS, is due Sun 2026-11-15; Phase 2 (VM, BigQuery, hardening) follows** (§18).
+> **Status:** v1.0, 2026-11-10. W0–W5 are merged (#54, #55, #58, #60–#64); W6 (the `cms_nh_ml` DAG, `ml decide`, `ml monitor`, `notify`) is built 2026-11-15 (§18.3). Reviewed by an outside ML-systems reviewer, the leakage reviewer and the infra reviewer; their findings are applied. **Phase 1, everything the course asks for, running on a laptop stack against GCS, is due Sun 2026-11-15; Phase 2 (VM, BigQuery, hardening) follows** (§18).
 
 ---
 
@@ -133,7 +133,7 @@ There is no online model server: CMS publishes once a month and every score chan
 | M10 | Score, reasons, roll-up | `score` | `scores/v=YYYY-MM/…` |
 | M11 | Publish | `publish` | asset `cms_nh_scores`; BigQuery in Phase 2 |
 | M12 | Monitor and notify | `monitor`, `notify` | drift report, re-tune request, `status/latest.json`, email |
-| M13 | Tune (a proposal) | `tune` | tuned challenger + `tuning_proposal.yaml` |
+| M13 | Tune (a proposal) | `tune` | `tuning_proposal.yaml` + sensitivity plots (the tuned challenger is Phase 2) |
 
 ### 0.8 Deviations from the team skills, documents, data spec and course examples
 | Source says | This spec | Why |
@@ -454,10 +454,10 @@ All four files go to `<prefix>scores/v=YYYY-MM/` with `scores_manifest.json` (mo
 | Stale champion | the champion's `v_labels` vs the current `V_L` | more than 3 months behind (repeated holds) |
 | Realized performance (Phase 2) | when published scores mature (20 months later): PR-AUC, Brier, ECE of those exact scores; an early read of decile lift after 3–6 months | reported |
 
-PSI is computed in code (`monitoring/drift.py`, tested). Month over month is the trigger, not a fixed old reference: PR #38 found 22–35 features with PSI > 0.25 against 2022–2023, which would fire every month. An Evidently `DataDriftPreset` HTML report is an optional artifact (Phase 2).
+**Built in Phase 1:** feature drift (on the champion version's fixed key features: `score` writes the version's `key_features` tag, §8.2, to `score/key_features.json`, so a feature that drifts out of a month's top list stays watched), training-vs-scoring skew (key, enforcement and regime-sensitive features, with `prepare`'s regime-coverage flags) and the stale champion (`monitoring/status.py`). Score drift moves to Phase 2 with realized performance (§18.1 cut line), and so does the performance trend: an **agreed exception** (team, 2026-11-15), since §18.1's list didn't include it. Feature drift is therefore Phase 1's only re-tune signal. PSI is computed in code (`monitoring/drift.py`, tested). Month over month is the trigger, not a fixed old reference: PR #38 found 22–35 features with PSI > 0.25 against 2022–2023, which would fire every month. An Evidently `DataDriftPreset` HTML report is an optional artifact (Phase 2).
 
 ### 12.2 Re-tune requests (ML-2, ML-19)
-A feature-drift, score-drift or performance flag sets `retune_requested = true` in this run's `ml_runs` row and emails. The next `decide` with `mode=auto` returns RETUNE: Optuna runs (§13), the tuned model is evaluated through the gates and registered as a **challenger only**, with a report. The tuned parameters become the recipe only through a human PR to `configs/ml.yaml` (CD → new image → new `recipe_hash` → RETRAIN → gates). Drift alone never promotes or demotes a model; the monthly refits already adapt to new data. Training-vs-scoring skew and stale-champion flags alert a human (they are not fixed by re-tuning).
+A feature-drift, score-drift or performance flag sets `retune_requested = true` in this run's `ml_runs` row and emails. **Phase 1:** the request is for a human, who triggers `mode=retune`; that run's RETUNE runs `tune` alone (§13: the proposal, the trials and the sensitivity plots) and trains, gates and scores nothing, because `train` doesn't apply a proposal yet. `mode=auto` never re-tunes on its own, so a request can't loop (the same gold keeps the same PSI). **Phase 2:** the next `mode=auto` run re-tunes beside its normal path, `train` fits the proposal, and the tuned model is evaluated through the gates and registered as a **challenger only**, with a report. The tuned parameters become the recipe only through a human PR to `configs/ml.yaml` (CD → new image → new `recipe_hash` → RETRAIN → gates). Drift alone never promotes or demotes a model; the monthly refits already adapt to new data. Training-vs-scoring skew and stale-champion flags alert a human (they are not fixed by re-tuning).
 
 ### 12.3 Status file and notifications
 - **`<prefix>status/latest.json`** (written last by `monitor`): `{v, v_labels, scored_at, model_name, model_version, candidate, gold_run_id, gold_verified, stale_refresh, decision, gate_outcome, failed_gates, n_facilities, flags, retune_requested, ml_run_id}`. The API and UI read it (data spec §0.6).
@@ -466,7 +466,7 @@ A feature-drift, score-drift or performance flag sets `retune_requested = true` 
 ---
 
 ## 13. Step M13: tuning (task `tune`; decision RETUNE; ML-19)
-- **When:** `mode=retune`, a re-tune request (§12.2), and once in Phase 1 to document the search space and sensitivity (course §3, §5).
+- **When:** `mode=retune` (a human answering a re-tune request, §12.2), and once in Phase 1 to document the search space and sensitivity (course §3, §5). In Phase 1 the run is `tune` alone: no tuned challenger is fitted.
 - **Search:** Optuna TPE, seed 42, `n_trials` 30, timeout 60 minutes, `n_jobs` 1; objective = mean PR-AUC over 3 facility-grouped folds of `eval_train`, with early stopping (100 rounds) on each validation fold; the final `n_estimators` = the median best iteration. Never the test frame. Space (from PR #49 `boost_models.py`):
   | Param | Range | Param | Range |
   |---|---|---|---|
@@ -476,7 +476,7 @@ A feature-drift, score-drift or performance flag sets `retune_requested = true` 
   | min_child_samples | 20–1000 | reg_lambda | 1e-3–30, log |
   | min_split_gain | 0–1 | cat_smooth | 1–100 |
   | LR `C` | {0.03, 0.1, 0.3, 1.0} | | |
-- **Output:** `tuning_proposal.yaml` (the best parameters, ready to paste into `ml.yaml: members`), the tuned challenger (gated like any candidate but never promoted automatically; its G5 comparison has no tolerance: it must not be worse than the champion), one MLflow run `tune` with the trials table and the plots of §8.3.
+- **Output:** `tuning_proposal.yaml` (the best parameters, ready to paste into `ml.yaml: members`) and one MLflow run `tune` with the trials table and the plots of §8.3. **Phase 2** adds the tuned challenger (gated like any candidate but never promoted automatically; its G5 comparison has no tolerance: it must not be worse than the champion).
 - Runs in the Airflow pool `heavy` (§15.6) with `retries=0` (Optuna has its own timeout).
 
 ---
@@ -509,40 +509,43 @@ sha256 over: the relative paths and bytes of the `*.py` files of `precursorintel
 
 ```
 decide ─► branch ─┬─ SKIP ───────────────────────────────────────────────────────────────► notify
-                  └─► prepare ─► branch ─┬─ RETUNE ─► tune ─┐
-                                         ├─ RETRAIN ────────┴─► train ─► evaluate ─► gate ─┐
-                                         ├─ PROMOTE ─► promote ────────────────────────────┤
-                                         └─ SCORE ─────────────────────────────────────────┤
-                                                                                           ▼
+                  └─► prepare ─► branch ─┬─ RETUNE ─► tune ─────────────────────────────────────► notify
+                                         ├─ RETRAIN ─► train ─► evaluate ─► gate ─┐
+                                         ├─ PROMOTE ─► promote ───────────────────┤
+                                         └─ SCORE ────────────────────────────────┤
+                                                                                  ▼
                                                      score ─► publish ─► monitor ─► notify
 ```
-Branches use `@task.branch`; `train` and `score` use `trigger_rule="none_failed_min_one_success"`. `score` skips itself (and so `publish`) when there is no champion; `monitor` and `notify` still run.
+Branches use `@task.branch`; `score` and `monitor` use `trigger_rule="none_failed_min_one_success"`. RETUNE is `tune` alone in Phase 1 (§12.2). `score` skips itself (and so `publish`) when there is no champion; `monitor` and `notify` still run.
 
 ### 15.2 The decide step
 | Condition (first match wins) | Decision |
 |---|---|
+| gold not `current` | exit 1 (retried), in every mode: `promote`'s `prepare` needs current gold too |
 | `mode=promote` | PROMOTE: prepare → promote → score → publish → monitor |
-| gold not `current` | exit 1 (retried) |
 | `V` earlier than the last scored `V`; or unverified with `allow_unverified: false` | REFUSE (exit 2, alert) |
-| `mode=retune`, or `mode=auto` and the last run requested a re-tune | RETUNE (then the rules below for scoring) |
+| `mode=retune` | RETUNE: prepare → tune (Phase 1: nothing trained, gated or scored) |
 | `mode=retrain`, or no completed RETRAIN in `ml_runs` for (`v_labels`, `recipe_hash`, `gold_config_sha`) | RETRAIN |
 | `mode=score_only`, or a champion exists and no published scores for (`V`, `dataset_version`, champion version) | SCORE |
 | otherwise | SKIP |
 
+- An explicit mode wins over the automatic rows: the "no completed RETRAIN" row applies to `mode=auto` only, so `score_only` never retrains because the recipe changed (`monitoring/decide.py: decision_for`, tested row by row).
 - A RETRAIN that holds still counts as completed, so a no-op gold publish doesn't retrain again (no loop).
-- After RETRAIN, RETUNE or PROMOTE, the run scores if a champion exists and scores for (`V`, `dataset_version`, champion version) are missing.
+- A drift flag's re-tune request never starts a run on its own in Phase 1 (§12.2), so the same gold, with the same PSI, can't re-tune again and again.
+- SKIP, REFUSE and RETUNE runs get their `ml_runs` row from `decide`; the others from `gate`, `promote` and `publish`.
+- After RETRAIN or PROMOTE, the run scores whenever a champion exists, even if scores for (`V`, `dataset_version`, champion version) are already published: `score` and `publish` rewrite the month (the same rows when the champion is unchanged, e.g. after a hold), which is idempotent. Only SKIP and SCORE use the "published" check.
 - With no champion yet, nothing is scored; `status/latest.json` says "awaiting Checkpoint ML-A".
-- **`ml_runs`** (one row per run and per promotion action): `ml_run_id, at, mode, decision, action (retrain | retune | score | skip | refuse | promote | hold | manual_promote | rollback), reason, actor, gold_run_id, v, v_labels, dataset_version, gold_config_sha, gold_verified, recipe_hash, champion_version_before, champion_version_after, candidate_version, gate_outcome, gate_results_json, scores_published (bool), flags_json, retune_requested`.
+- **`ml_runs`** (one row per run and per promotion action): `ml_run_id, at, mode, decision, action (retrain | retune | score | skip | refuse | promote | hold | manual_promote | rollback | monitor), reason, actor, gold_run_id, v, v_labels, dataset_version, gold_config_sha, gold_verified, recipe_hash, champion_version_before, champion_version_after, candidate_version, gate_outcome, gate_results_json, scores_published (bool), flags_json, retune_requested`.
 - **`gold_config_sha`** = sha256 (hex) of the canonical JSON (sorted keys, no spaces) of `{"config_sha256": …, "git_commit": …}`, both taken from gold's `dataset_manifest.json`: gold built with other configs or other code is another gold. One function computes it, `training/data.py: gold_config_sha(manifest)` (W2 adds it for `gate`'s rows; W6's `decide` calls the same one), so the writer and the reader always agree.
 
 ### 15.3 Tasks
 | Task | Command | Notes |
 |---|---|---|
 | `decide` | `precursor-pipeline ml decide` | last stdout line: JSON (`decision`, `proceed`, `gold_run_id`, `champion_version`); `do_xcom_push`, `xcom_all` |
-| `prepare` | `ml prepare --gold-run-id <from decide>` | §1.2, §1.5, §3 |
-| `tune` | `ml tune` | RETUNE; pool `heavy`; `retries=0` |
-| `train` | `ml train` | pool `heavy`; `retries=1` |
-| `evaluate` | `ml evaluate` | §6–§8 |
+| `prepare` | `ml prepare` | pins the gold run named in `decision.json`; §1.2, §1.5, §3 |
+| `tune` | `ml tune` | RETUNE; pool `heavy`; `retries=0`; timeout 90 min |
+| `train` | `ml train` | pool `heavy`; `retries=0`; timeout 45 min (~10 min measured) |
+| `evaluate` | `ml evaluate` | §6–§8; pool `heavy` (5 reweighting fits, the shuffled-label fit); `retries=0`; timeout 60 min |
 | `gate` | `ml gate` | registers (idempotent), aliases, `ml_runs`; writes `champion.json` |
 | `promote` | `ml promote` | the version comes from the param through the environment (`PI_ML_VERSION`, `PI_ML_REASON`), never the command line |
 | `score` | `ml score` | §10; skips without a champion |
@@ -564,7 +567,7 @@ Branches use `@task.branch`; `train` and `score` use `trigger_rule="none_failed_
 | Stale refresh (new features, no new labels) | SCORE | score with the champion, stamped `stale_refresh` |
 | Pipeline rerun, nothing new | SKIP | one `ml_runs` row, a short email |
 | New ML code or config deployed | RETRAIN (next gold, or `mode=auto` by hand) | paired comparison with the champion's eval fit |
-| Drift or performance flag | RETUNE (next run) | tuned challenger + proposal for a PR |
+| Drift or performance flag | an email; a human triggers `mode=retune` (Phase 1) | proposal + sensitivity plots for a PR (Phase 2: a tuned challenger, next run) |
 | A bad model was promoted | PROMOTE (manual) | alias back to an earlier version, rescore |
 
 ### 15.5 Exit codes, retries, alerts
@@ -572,7 +575,7 @@ The data pipeline's contract (`ingestion/pipeline.py`): 0 ok; 1 transient error,
 
 ### 15.6 Running next to `cms_nh_pipeline`
 - No shared lock (gold is pinned, §1.2).
-- **Airflow pool `heavy`, 1 slot**, taken by `gold.build_gold` (data DAG), `ml train` and `ml tune`, so the two memory-heavy jobs never run together on a 16 GB machine. The pool is created by `airflow-init` (`airflow pools set heavy 1 …`) in the **same PR** that adds `pool="heavy"` to `build_gold` (a task in a missing pool never runs, and it would hold the data lock). A DAG test asserts both DAGs use the same pool constant.
+- **Airflow pool `heavy`, 1 slot**, taken by `gold.build_gold` (data DAG), `ml train`, `ml tune` and `ml evaluate`, so the two memory-heavy jobs never run together on a 16 GB machine. The pool is created by `airflow-init` (`airflow pools set heavy 1 …`) in the **same PR** that adds `pool="heavy"` to `build_gold` (a task in a missing pool never runs, and it would hold the data lock). A DAG test asserts both DAGs use the same pool constant.
 - On the VM, everything that waits for "no pipeline run" (idle shutdown T21, `pi-down`, the deploy) must also count `cms_nh_ml` runs, running or queued, and a queued `cms_nh_gold` event (Phase 2).
 
 ---
@@ -643,7 +646,7 @@ Phase 1 (laptop integration stack, gold under `ml-dev/`); repeated in Phase 2 on
 - [ ] Checkpoint ML-A done, `mode=promote` run: scores, reasons, SHAP and chain files in `scores/v=2026-10/`; `status/latest.json`; the summary email.
 - [ ] `mode=auto` on the same gold gives SKIP; `mode=score_only` rewrites the same partition with identical scores.
 - [ ] A forced bad candidate (a broken feature) is held and the champion keeps scoring; `mode=promote` with an earlier version rolls back.
-- [ ] One `mode=retune` run: tuned challenger, `tuning_proposal.yaml`, sensitivity plots.
+- [ ] One `mode=retune` run: `tuning_proposal.yaml`, trials and sensitivity plots (the tuned challenger is Phase 2).
 
 ### 17.3 🛑 Checkpoint ML-A: the first champion
 Before the first promotion (and after any change to the gates or mitigation), a human reads `model_card.md` and the bias report and checks: metrics vs PR #49 and the baselines, on non-development months where available; calibration; the slice table and state list; the top-20 features are plausible (nothing leakage-like); 20 random facilities' reasons read sensibly; the regime and skew flags (§1.4). Then promotes with `mode=promote`, recording the approval in `reason`.
@@ -699,7 +702,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | **1. Course-complete system** | Tue Nov 10 → **Sun Nov 15** | everything in the course brief (Appendix D) working end to end: the `cms_nh_ml` DAG on a laptop compose stack against GCS (`ml-dev/` prefix), MLflow (tracking + registry, artifacts in the MLflow bucket), training with selection, calibration, validation, bias detection and gate, SHAP (global + per facility), tuning with documented sensitivity, scoring with reasons and chain roll-up, monitoring (PSI + status file), email notifications, rollback, CI smoke run |
 | **2. Production** | Nov 16 → Dec 1 and later | VM deployment (MLflow on the VM, secret, backups, T19–T26 counting `cms_nh_ml`), BigQuery publish, CD for the mlflow image, the §11 verified gate (W5 part 2), realized and early-read performance, Evidently, rolling-origin folds, Checkpoint ML-A repeated on 2025-03 (the late-November release) |
 
-**Cut line for Phase 1.** If a package runs late, these stay, because the course brief needs them (Appendix D): training with selection, hold-out validation, bias slices and the G7 gate, bias mitigation (reweighting and its OOF trade-off table, §7), SHAP (global and per facility), tuning with its sensitivity, MLflow tracking and registry, the CI smoke run, alerts and rollback. These may move to Phase 2: the chain roll-up, per-state empirical-Bayes shrinkage, the Benjamini–Hochberg correction, and score-drift and regime-coverage monitoring. The slowest package never holds up Friday's integration.
+**Cut line for Phase 1.** If a package runs late, these stay, because the course brief needs them (Appendix D): training with selection, hold-out validation, bias slices and the G7 gate, bias mitigation (reweighting and its OOF trade-off table, §7), SHAP (global and per facility), tuning with its sensitivity, MLflow tracking and registry, the CI smoke run, alerts and rollback. These may move to Phase 2: the chain roll-up, per-state empirical-Bayes shrinkage, the Benjamini–Hochberg correction, and score-drift and regime-coverage monitoring (the performance-trend signal also moved, as an agreed exception, §12.1). The slowest package never holds up Friday's integration.
 
 ### 18.2 Phase 1 order
 ```
@@ -732,7 +735,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | **W2 Evaluation, bias, gates** | 1 | metrics, paired bootstrap, baselines, sanity checks, Fairlearn slices + per-state EB, reweighting (with the `fit_rows` parameter), plots, `model_card.md`, `gates.py`, `ml evaluate`, `ml gate` (registration, aliases, `ml_runs`), `ml promote` | `evaluation/{metrics,bootstrap,baselines,sanity,slices,gates,report}.py`, `bias/mitigation.py` | W0, W1's fit interface | gate tests pass; a real model card exists |
 | **W3 Explain and score** (PR open 2026-11-14) | 1 | `serving/explain.py` (§8.1), reason codes and all model-feature labels, global SHAP helpers for W2, `ml score`, roll-up, the scores layout and manifest, `ml publish` (Phase 1: verify + asset) | `serving/{explain,score,rollup,publish}.py`, `configs/reason_labels.yaml` | W0, W1's pyfunc | additivity tests pass; real scores and reasons written |
 | **W4 Platform** | 1 | §16.1 service + Dockerfile + `postgres-setup` + `pg_hba` line; MLflow bucket (Terraform PR); extras split + image; `docker_kwargs` (`MLFLOW_TRACKING_URI`, `PI_PIPELINE_IMAGE`); pool `heavy` in `airflow-init` + `build_gold`; CI smoke stage `toy_ml` and image jobs; runbook | `docker/`, `infra/terraform/`, `.github/workflows/ci.yml`, `dags/utils/pipeline_operator.py`, `dvc.yaml`, docs | W0 (names) | a task container on the laptop stack logs a run (`curl` from the tasks network to `mlflow:5000` returns 200); CI green |
-| **W6 DAG + monitor** | 1 | `dags/cms_nh_ml.py`, `ml decide`, branches, params, `notify`; `ml monitor` (PSI signals, re-tune request, status file) | `dags/`, `training/cli.py`, `monitoring/{drift,status}.py` | W1–W4; PR #48 | DAG tests pass; the acceptance list (§17.2) is ticked on the laptop stack |
+| **W6 DAG + monitor** (built 2026-11-15; score drift moved to Phase 2, and the performance trend as an agreed exception) | 1 | `dags/cms_nh_ml.py`, `ml decide`, branches, params, `notify`; `ml monitor` (PSI signals, re-tune request, status file) | `dags/`, `training/cli.py`, `monitoring/{drift,status}.py` | W1–W4; PR #48 | DAG tests pass; the acceptance list (§17.2) is ticked on the laptop stack |
 | W5 Quality family (quality ✅ #55, gold rebuilt 2026-11-12) | 2 | port `quality.py` with `configs/qm_measures.yaml` into gold (data spec Checkpoint 4), registry entries, labels, tests; then the §11 verified gate | `gold/features/quality.py`, `configs/` | — | gold carries the quality features; later `verified: true` |
 | W7 Production | 2 | VM (§16.5), BigQuery (§11, §16.3), CD + AR rule, realized and early-read performance, Evidently | | Phase 1, VM plan | acceptance repeated on the VM |
 
@@ -745,7 +748,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | # | Topic | Decision | Rule in this spec |
 |---|---|---|---|
 | ML-1 | Labels | `y_g12` only in v1; label-generic code | §0.2 |
-| ML-2 | Retraining | every new matured month: retrain with the current parameters, then the gates; re-tune on demand or on a drift/performance flag | §12.2, §13, §15.2 |
+| ML-2 | Retraining | every new matured month: retrain with the current parameters, then the gates; re-tune on demand (Phase 1: a drift flag asks a human; automatic in Phase 2) | §12.2, §13, §15.2 |
 | ML-3 | MLflow | a server in the compose stack; Postgres db `mlflow`; UI through the tunnel on the VM | §14.1, §16.1 |
 | ML-4 | Scores | GCS parquet (source of truth) + BigQuery (Phase 2) | §10, §11 |
 | ML-5 | CI | a smoke run of the whole chain on synthetic gold; real training in the DAG | §16.2 |
@@ -762,7 +765,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | ML-16 | Ensemble | average the members in log-odds (measured: same scores, exact SHAP) | §4.2, Appendix A |
 | ML-17 | Star sub-ratings | follow the registry (`staffing_rating`, `qm_rating` allowed; overall and health-inspection ratings never) | §1.4 |
 | ML-18 | Quality family | in gold since #55; 33 of its 41 columns are model input, the rest excluded in `ml.yaml` (the two month keys, the two definition flags and the four measures whose scale changed) | §1.4, W5 |
-| ML-19 | Re-tuning | a re-tune produces a challenger and a parameter proposal; parameters change only through a human PR to `ml.yaml` | §12.2, §13 |
+| ML-19 | Re-tuning | a re-tune produces a parameter proposal (and, in Phase 2, a challenger); parameters change only through a human PR to `ml.yaml` | §12.2, §13 |
 | ML-20 | Evaluation gap | the production lag (H + B = 20 months); gold starts in 2022-01 (`spine_start`, data open #10) | §3 |
 | ML-21 | 2025-07 / 2025-10 regimes | `era` and `penalty_regime_2025_10` excluded until training covers both values; the two sub-ratings measured and excluded if their training-vs-scoring PSI > 0.25 | §1.4, §12.1 |
 | ML-22 | Phases and goal | Phase 1 (course-complete, laptop stack + GCS) by Nov 15; production after; a working system with decent performance, no model optimization push | §18 |

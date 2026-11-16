@@ -17,6 +17,7 @@ import os
 import smtplib
 import ssl
 from email.message import EmailMessage
+from typing import Any
 
 TO_ENV = "PI_ALERT_EMAIL_TO"
 # A pipeline container's exit codes (ingestion/pipeline.py, plus 137 from Docker), as alerts name them.
@@ -134,3 +135,43 @@ def new_headers_alert(
     if len(lines) > limit:
         body.append(f"... and {len(lines) - limit} more (02_unmapped_headers.csv)")
     return f"[{dag_id}] {what}", "\n".join(body)
+
+
+def ml_run_alert(dag_id: str, run_id: str, summary: dict[str, Any]) -> tuple[str, str]:
+    """(subject, body) for every cms_nh_ml run (ML spec §12.3): `monitor`'s summary JSON, or `decide`'s on SKIP.
+    A hold, a flag or a re-tune request says so in the subject."""
+    decision = summary.get("decision", "?")
+    v = summary.get("v") or "?"
+    state = []
+    if summary.get("gate_outcome") == "hold":
+        state.append(f"held ({', '.join(summary.get('failed_gates') or []) or 'see gates'})")
+    if summary.get("flags"):
+        state.append(f"{len(summary['flags'])} flag(s)")
+    if summary.get("retune_requested"):
+        state.append("re-tune requested")
+    subject = f"[{dag_id}] {decision} {v}" + (f": {'; '.join(state)}" if state else "")
+    lines = [
+        f"DAG {dag_id}: run {run_id}.",
+        f"Decision: {decision}" + (f" ({summary['reason']})" if summary.get("reason") else ""),
+        f"Gold: {summary.get('gold_run_id')} (V {v}, V_L {summary.get('v_labels')}, "
+        f"verified {summary.get('gold_verified')})",
+    ]
+    if "model_version" in summary or "champion_version" in summary:
+        version = summary.get("model_version", summary.get("champion_version"))
+        lines.append(f"Champion: {summary.get('model_name') or ''} version {version}")
+    if summary.get("gate_outcome"):
+        lines.append(
+            f"Gate: {summary['gate_outcome']}, failed {summary.get('failed_gates') or 'none'}"
+        )
+    if "n_facilities" in summary:
+        lines.append(f"Scored facilities: {summary['n_facilities']}")
+    for metric, iv in (summary.get("headline") or {}).items():
+        lines.append(
+            f"Test {metric}: {iv.get('estimate'):.4f} (95% CI {iv.get('ci_low'):.4f} to {iv.get('ci_high'):.4f})"
+            if all(iv.get(k) is not None for k in ("estimate", "ci_low", "ci_high"))
+            else f"Test {metric}: {iv}"
+        )
+    lines.append(f"Flags: {', '.join(summary.get('flags') or []) or 'none'}")
+    if summary.get("note"):
+        lines.append(summary["note"])
+    return subject, "\n".join(lines)

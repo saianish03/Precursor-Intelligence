@@ -270,7 +270,7 @@ ml_runs = Table(
     Column("decision", String(16)),  # SKIP | RETRAIN | RETUNE | SCORE | PROMOTE | REFUSE
     Column(
         "action", String(16)
-    ),  # retrain | retune | score | skip | refuse | promote | hold | manual_promote | rollback
+    ),  # retrain | retune | score | skip | refuse | promote | hold | manual_promote | rollback | monitor
     Column("reason", Text),
     Column("actor", String(64)),
     Column("gold_run_id", String(64)),

@@ -55,6 +55,8 @@ def test_g2_sanity(flags, shap, roc, status):
         roc_range=(0.48, 0.52),
     )
     assert r.status == status
+    if roc is not None and (status == "pass" or not 0.48 <= roc <= 0.52):
+        assert f"{roc:.4f}" in r.reason  # the gate line shows it, so a near miss is visible in CI's log
 
 
 @pytest.mark.parametrize(

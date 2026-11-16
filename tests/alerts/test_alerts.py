@@ -114,3 +114,33 @@ def test_new_headers_alert_only_when_silver_dropped_columns():
         "cms_nh_pipeline", RUN, [f"provider_info 2026-{i:02d}: X" for i in range(1, 26)]
     )
     assert "25 silver partitions" in subject and "... and 5 more" in body
+
+
+def test_the_ml_run_email_shows_the_decision_gate_metrics_and_flags():
+    summary = {
+        "decision": "RETRAIN",
+        "v": "2026-10",
+        "v_labels": "2026-10",
+        "gold_run_id": "g1",
+        "gold_verified": False,
+        "model_name": "precursor_y_g12",
+        "model_version": 3,
+        "gate_outcome": "hold",
+        "failed_gates": ["G7"],
+        "n_facilities": 0,
+        "headline": {"pr_auc": {"estimate": 0.48, "ci_low": 0.46, "ci_high": 0.5}},
+        "flags": ["drift:hprd_total"],
+        "retune_requested": True,
+    }
+    subject, body = alerts.ml_run_alert("cms_nh_ml", RUN, summary)
+    assert subject == "[cms_nh_ml] RETRAIN 2026-10: held (G7); 1 flag(s); re-tune requested"
+    assert "Test pr_auc: 0.4800 (95% CI 0.4600 to 0.5000)" in body
+    assert "Champion: precursor_y_g12 version 3" in body
+    assert "Flags: drift:hprd_total" in body
+
+
+def test_a_skip_email_is_short():
+    summary = {"decision": "SKIP", "reason": "nothing new", "v": "2026-10", "champion_version": 1}
+    subject, body = alerts.ml_run_alert("cms_nh_ml", RUN, summary)
+    assert subject == "[cms_nh_ml] SKIP 2026-10"
+    assert "Decision: SKIP (nothing new)" in body and "Flags: none" in body

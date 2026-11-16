@@ -1,9 +1,7 @@
 """``precursor-pipeline ml <command>``: one command per cms_nh_ml task (docs/ML_PIPELINE_SPEC.md §15.3).
 
-All share the DAG run's ``--run-id`` (the run folder ``ml/runs/<run id>/``) and ``--env``. ``prepare`` is built (W0);
-every other command is a stub that exits 3 until its work package lands, so the DAG and the packages can be wired
-against the final names now. Exit codes follow the pipeline contract: 0 ok, 1 error (retried), 2 data refusal,
-3 config or usage error. No log shipping: the Airflow task log holds the output, and a store rooted at the bucket
+All share the DAG run's ``--run-id`` (the run folder ``ml/runs/<run id>/``) and ``--env``. Exit codes follow the
+pipeline contract: 0 ok, 1 error (retried), 2 data refusal, 3 config or usage error. No log shipping: the Airflow task log holds the output, and a store rooted at the bucket
 must not get files outside ``outputs.root_prefix``.
 """
 
@@ -131,7 +129,7 @@ def _run_task(
     except MlInputError as exc:
         typer.echo(f"refused: {exc}", err=True)
         raise typer.Exit(EXIT_VALIDATION) from None
-    except (ObjectStoreError, OSError) as exc:
+    except (GoldPinError, ObjectStoreError, OSError) as exc:
         typer.echo(f"error: {exc.__class__.__name__}: {exc}", err=True)
         raise typer.Exit(EXIT_ERROR) from None
     typer.echo(json.dumps(summary, sort_keys=True))
@@ -435,32 +433,77 @@ def publish(
     _run_task("ml_publish", env, env_file, log_level, run_id, body)
 
 
-# Commands of the later work packages (§18.3). Same options as prepare's core, so the DAG can call them today.
-_STUBS = {
-    "decide": (
-        "W6",
-        "Decide what this run does: SKIP, RETRAIN, RETUNE, SCORE, PROMOTE or REFUSE (§15.2).",
+@ml_app.command()
+def decide(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+    mode: ModeOpt = typer.Option(ModeOpt.auto, help="the DAG run's mode (§15.4)"),
+    allow_unverified: bool | None = typer.Option(
+        None,
+        "--allow-unverified/--refuse-unverified",
+        help="override ml.yaml allow_unverified for this run",
     ),
-    "monitor": ("W6", "Drift and performance signals, the status file and the run summary (§12)."),
-}
+) -> None:
+    """Decide what this run does: SKIP, RETRAIN, RETUNE, SCORE, PROMOTE or REFUSE (§15.2), into decision.json.
+    Exit 1 while gold is not current, 2 on REFUSE, 3 for mode=promote without PI_ML_VERSION and PI_ML_REASON. Last stdout line: the decision as JSON (the DAG branches on
+    it)."""
 
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from ..evaluation.promote import PromoteUsageError, request_from_env
+        from ..monitoring.decide import run_decide
 
-def _stub(name: str, package: str, doc: str) -> Callable[..., None]:
-    def command(
-        run_id: str | None = RUN_ID_OPT,
-        env: str = ENV_OPT,
-        env_file: Path | None = ENV_FILE_OPT,
-        ml_config: Path | None = ML_CONFIG_OPT,
-    ) -> None:
-        typer.echo(
-            f"not built yet: `ml {name}` is work package {package} (docs/ML_PIPELINE_SPEC.md §18.3)",
-            err=True,
+        if mode is ModeOpt.promote:  # fail before prepare builds every frame, not at promote
+            try:
+                request_from_env()
+            except PromoteUsageError as exc:
+                raise ConfigError(str(exc)) from None
+        out = run_decide(
+            ctx.object_store,
+            ctx.metadata,
+            ml_run_id=rid,
+            cfg=load_ml_config(ml_config),
+            registry=load_feature_registry(),
+            mode=mode.value,
+            allow_unverified=allow_unverified,
+            ml_config_path=ml_config,
         )
-        raise typer.Exit(EXIT_CONFIG)
+        typer.echo(f"run {rid}: {out.decision} ({out.reason})")
+        if out.decision == "REFUSE":
+            raise MlInputError(out.reason)
+        return out.model_dump(mode="json")
 
-    command.__doc__ = f"{doc} Not built yet ({package})."
-    return command
+    _run_task("ml_decide", env, env_file, log_level, run_id, body)
 
 
-for _name, (_package, _doc) in _STUBS.items():
-    ml_app.command(_name)(_stub(_name, _package, _doc))
+@ml_app.command()
+def monitor(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+) -> None:
+    """Drift and skew signals, the stale-champion check and the re-tune request; writes status/latest.json (§12).
+    Last stdout line: the run summary as JSON (notify emails it)."""
+
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from ..monitoring.status import run_monitor
+
+        out = run_monitor(
+            ctx.object_store,
+            ctx.metadata,
+            ml_run_id=rid,
+            cfg=load_ml_config(ml_config),
+            registry=load_feature_registry(),
+        )
+        flags = out.status["flags"]
+        typer.echo(
+            f"run {rid}: {', '.join(flags) or 'no flags'}"
+            + (" (re-tune requested)" if out.status["retune_requested"] else "")
+        )
+        return out.summary()
+
+    _run_task("ml_monitor", env, env_file, log_level, run_id, body)
