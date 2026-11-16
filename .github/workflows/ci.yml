@@ -83,8 +83,8 @@ jobs:
         if: steps.scope.outputs.scope != 'none'
         run: uv run ruff check src tests
 
-      # 4 workers on GitHub's 4-vCPU runner (pytest-xdist); --dist loadfile keeps each file's module and session
-      # fixtures computed once. Run locally the same way with `uv run pytest -n auto --dist loadfile`.
+      # One worker per vCPU (4 on GitHub's runner; `auto` would count its 2 physical cores); --dist loadfile keeps each file's module and session
+      # fixtures computed once. Locally: `uv run pytest -n auto --dist loadfile`.
       - name: Unit tests (offline; live CMS tests are excluded)
         if: steps.scope.outputs.scope != 'none'
         env:
@@ -96,7 +96,7 @@ jobs:
             paths=(tests/training tests/evaluation tests/serving tests/monitoring tests/leakage/test_ml_*.py
                    tests/harmonize tests/common tests/contracts tests/alerts)
           fi
-          uv run pytest -q -n auto --dist loadfile "${paths[@]}"
+          uv run pytest -q -n logical --dist loadfile "${paths[@]}"
           code=$?
           if [ "$code" -eq 5 ]; then
             echo "::notice::No tests were collected; treating as success."
