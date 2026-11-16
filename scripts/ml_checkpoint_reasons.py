@@ -7,12 +7,15 @@ reasons ("20 random facilities' reasons read sensibly").
     uv run python scripts/ml_checkpoint_reasons.py --run-id <run that ran ml prepare> --version <v> \\
         [--env prod] [--env-file <env yaml>] [--ml-config <ml yaml>] [--n 20] [--seed 0] [--out reasons.csv]
 
-Read-only, the same way `ml score` reads:
-- the version's refit package, verified against its registering run's train.json (`load_verified_package`);
-- the run's pinned, hash-checked score frame;
+It reads the way `ml score` does, with the same checks:
+- the version's refit package, verified against its registering run's train.json (`load_verified_package`),
+  refused unless its training months are the refit window;
+- the run's pinned, hash-checked score frame, which must hold every model feature;
+- contributions that add up to the calibrated log-odds (`SHAP_TOLERANCE`);
 - the same reason labels and top-k settings.
 
-Nothing is written to the bucket or the metadata database. The table goes to stdout, and to --out as CSV.
+Nothing is written to the bucket. The only metadata-database write is `build_context`'s `ensure_schema()`, which
+creates missing tables. The table goes to stdout, and to --out as CSV.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ import polars as pl
 
 from precursorintelligence.common.config import load_ml_config, load_settings, project_root
 from precursorintelligence.evaluation.registry import load_verified_package
+from precursorintelligence.evaluation.sanity import SHAP_TOLERANCE
 from precursorintelligence.ingestion.context import build_context
 from precursorintelligence.serving import explain
 from precursorintelligence.training.contracts import RunPaths
@@ -63,7 +67,18 @@ def main() -> None:
     )
     sample = frame[rows.tolist()]
     model = load_verified_package(ctx.object_store, ctx.metadata, cfg, a.version, "refit")
-    _, contrib = model.explain(sample)
+    if model.meta is None or set(model.meta.training_months) != {"refit"}:
+        raise SystemExit(f"version {a.version} is not a refit package")
+    missing = [f for f in model.feature_names if f not in frame.columns]
+    if missing:
+        raise SystemExit(f"the score frame lacks model features: {missing}")
+    pred = model.predict_frame(sample)
+    base, contrib = model.explain(sample)
+    err = float(np.abs(base + contrib.to_numpy().sum(axis=1) - pred["logit"].to_numpy()).max())
+    if err > SHAP_TOLERANCE:
+        raise SystemExit(
+            f"contributions do not add up to the calibrated log-odds (max error {err:.2e})"
+        )
     table = explain.reasons(
         contrib,
         sample,
