@@ -85,3 +85,32 @@ def test_only_a_missing_resource_reads_as_none():
     ):
         with pytest.raises(MlflowException):
             call()
+
+
+class _RecordingClient:
+    """An MlflowClient stand-in that records create_model_version's arguments."""
+
+    def __init__(self):
+        self.calls = []
+
+    def get_registered_model(self, name):
+        return object()
+
+    def create_model_version(self, name, source, **kw):
+        from types import SimpleNamespace
+
+        self.calls.append((source, kw.get("model_id")))
+        return SimpleNamespace(version="1", tags={})
+
+
+def test_a_logged_model_is_registered_with_its_model_id():
+    # MLflow 3's log_model returns models:/<model id>; a tracking server refuses that source without the model id
+    # ("Invalid model version source"), while the SQLite store of the other tests accepts it.
+    reg = MlflowRegistry.__new__(MlflowRegistry)
+    reg.name, reg.client = "m", _RecordingClient()
+    reg.register("models:/m-6fcbd66caa67410bbc8b7ace4b5a93f1", {"ml_run_id": "r1"})
+    reg.register("runs:/abc/refit_x", {"ml_run_id": "r2"})
+    assert reg.client.calls == [
+        ("models:/m-6fcbd66caa67410bbc8b7ace4b5a93f1", "m-6fcbd66caa67410bbc8b7ace4b5a93f1"),
+        ("runs:/abc/refit_x", None),
+    ]

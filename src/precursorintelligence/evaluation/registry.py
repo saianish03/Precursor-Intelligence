@@ -110,7 +110,14 @@ class MlflowRegistry:
             if not self._missing(exc):
                 raise
             self.client.create_registered_model(self.name)
-        mv = self.client.create_model_version(self.name, model_uri, tags=dict(tags))
+        # MLflow 3 logs a model as a LoggedModel with the URI models:/<model id>; a tracking server registers that
+        # source only together with its model id (as mlflow.register_model does). A SQLite store accepts it either way.
+        model_id = (
+            model_uri.removeprefix("models:/") if model_uri.startswith("models:/m-") else None
+        )
+        mv = self.client.create_model_version(
+            self.name, model_uri, tags=dict(tags), model_id=model_id
+        )
         return self._version(mv)
 
     def set_tags(self, version: int, tags: Mapping[str, str]) -> None:
