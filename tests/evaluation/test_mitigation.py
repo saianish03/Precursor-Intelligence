@@ -9,7 +9,7 @@ from precursorintelligence.common.config import load_feature_registry
 from precursorintelligence.evaluation.mitigation import eval_weights, tradeoff, weighted_oof
 from precursorintelligence.evaluation.slices import slice_config
 from precursorintelligence.training.contracts import RunPaths
-from precursorintelligence.training.data import read_frame, read_input_manifest
+from precursorintelligence.training.data import average_precision, read_frame, read_input_manifest
 from precursorintelligence.training.train import resolve_features
 
 
@@ -48,12 +48,27 @@ def test_unit_weights_reproduce_trains_oof_predictions(trained):
 def test_the_tradeoff_compares_reweighting_with_none(trained):
     frame, features, chosen, p_none = setup(trained)
     t = tradeoff(frame, features, trained.cfg, chosen, p_none, bias_cfg=slice_config(trained.cfg))
-    assert [v.variant for v in t.variants] == ["none", "reweight"]
+    assert [v.variant for v in t.variants] == ["none", "reweight"] and t.applied == "none"
     oof_pr = {r.candidate: r.oof_pr_auc for r in trained.train.selection.candidates}[chosen]
     assert t.variant("none").pr_auc == pytest.approx(oof_pr, abs=1e-6)
     assert t.variant("reweight").pr_auc != t.variant("none").pr_auc
     assert t.weight_slice == "ownership_group" and 0 < t.effective_sample_size <= frame.height
     assert {"slice", "value", "oe_none", "oe_reweight"} <= set(t.by_value[0])
+
+
+def test_with_reweight_in_use_train_gives_the_reweighted_variant_and_none_is_refit(trained):
+    frame, features, chosen, _ = setup(trained)
+    cfg = trained.cfg.model_copy(
+        update={"bias": trained.cfg.bias.model_copy(update={"mitigation": "reweight"})}
+    )
+    bias_cfg = slice_config(cfg)
+    p_rw = weighted_oof(frame, features, cfg, chosen, eval_weights(frame, bias_cfg))
+    t = tradeoff(frame, features, cfg, chosen, p_rw, bias_cfg=bias_cfg)
+    assert t.applied == "reweight"
+    y = frame[f"y_{cfg.label}"].cast(pl.Float64).to_numpy()
+    assert t.variant("reweight").pr_auc == pytest.approx(average_precision(y, p_rw))
+    oof_pr = {r.candidate: r.oof_pr_auc for r in trained.train.selection.candidates}[chosen]
+    assert t.variant("none").pr_auc == pytest.approx(oof_pr, abs=1e-6)
 
 
 def test_the_report_and_card_carry_it(trained):

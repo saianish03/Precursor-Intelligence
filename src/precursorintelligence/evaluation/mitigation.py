@@ -6,7 +6,9 @@ mitigation``, by default inverse frequency on ``ownership_group``, clipped 0.2-5
 The selected candidate is refit fold by fold with those weights, exactly as ``train`` builds its OOF predictions
 (same folds, members, ensemble weights, and an unweighted Platt fit on the newest months), and compared with
 ``train``'s unweighted OOF predictions: overall PR-AUC, Brier and ECE against the calibration gaps of the gated
-slices. Adopting it is a recipe change (``ml.yaml: bias.mitigation: reweight``) that goes through the gates.
+slices. Adopting it is a recipe change (``ml.yaml: bias.mitigation: reweight``) that goes through the gates; ``train``
+then fits every member on these weights, so its OOF predictions are the ``reweight`` variant and ``none`` is refit
+here with unit weights.
 """
 
 from __future__ import annotations
@@ -47,6 +49,7 @@ class MitigationTradeoff(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     candidate: str
+    applied: str = "none"  # ml.yaml bias.mitigation: the variant train fitted
     scheme: str
     weight_slice: str
     rows: int
@@ -121,15 +124,22 @@ def tradeoff(
     features: Sequence[FeatureSpec],
     cfg: MlConfig,
     candidate: Candidate,
-    p_none: np.ndarray,
+    p_train: np.ndarray,
     *,
     bias_cfg: BiasConfig,
     registry: FeatureRegistry | None = None,
 ) -> MitigationTradeoff:
-    """Unweighted (``p_none``, ``train``'s OOF) vs reweighted OOF predictions of ``candidate`` on the eval frame."""
+    """Unweighted vs reweighted OOF predictions of ``candidate`` on the eval frame. ``p_train`` is ``train``'s OOF:
+    the ``none`` variant, or the ``reweight`` variant when ``bias.mitigation`` is ``reweight``; the other is refit."""
     y = frame[f"y_{cfg.label}"].cast(pl.Float64).to_numpy()
     w = eval_weights(frame, bias_cfg, registry)
-    p_rw = weighted_oof(frame, features, cfg, candidate, w)
+    applied = cfg.bias.mitigation
+    if applied == "reweight":
+        p_rw = p_train
+        p_none = weighted_oof(frame, features, cfg, candidate, np.ones(frame.height))
+    else:
+        p_none = p_train
+        p_rw = weighted_oof(frame, features, cfg, candidate, w)
     gate = slices.gated_slices(cfg)
     tables = {
         name: slices.slice_table(frame, y, p, slices=gate, bias_cfg=bias_cfg, registry=registry)
@@ -149,6 +159,7 @@ def tradeoff(
     )
     return MitigationTradeoff(
         candidate=candidate,
+        applied=applied,
         scheme=bias_cfg.mitigation.weights,
         weight_slice=bias_cfg.mitigation.weight_slice,
         rows=frame.height,

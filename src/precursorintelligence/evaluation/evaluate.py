@@ -473,7 +473,7 @@ def run_evaluate(
         "slices.csv": _csv(out.slice_table),
         "shap_mean_abs.csv": _csv(out.shap_mean_abs),
         "per_month.csv": _csv(pl.DataFrame(out.report.per_month)),
-        **plots.render_all(out),
+        **plots.render_all(out, oe_abs_max=cfg.bias.oe_abs_max),
     }
     for name, data in files.items():
         store.put_bytes(f"{report_dir}{name}", data, overwrite=True)

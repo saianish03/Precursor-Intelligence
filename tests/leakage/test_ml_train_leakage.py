@@ -205,9 +205,9 @@ def test_oof_predictions_come_from_fits_without_that_facility(
     calls: list[tuple[str, set[int]]] = []
     real_fit = train_mod._fit_member
 
-    def recording(member, x, y, feats, cfg_, levels=None):
+    def recording(member, x, y, feats, cfg_, levels=None, sample_weight=None):
         calls.append((member, set(_row_hashes(x))))
-        return real_fit(member, x, y, feats, cfg_, levels)
+        return real_fit(member, x, y, feats, cfg_, levels, sample_weight)
 
     monkeypatch.setattr(train_mod, "_fit_member", recording)
     wf = fit_window("eval", frame, features, cfg, ["lgbm", "lr"], sorted(frame["t"].unique()))

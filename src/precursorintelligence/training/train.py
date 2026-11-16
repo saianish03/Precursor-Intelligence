@@ -114,10 +114,26 @@ def _fit_member(
     features: Sequence[FeatureSpec],
     cfg: MlConfig,
     levels: dict[str, list[str]] | None = None,
+    sample_weight: np.ndarray | None = None,
 ) -> LgbmMember | LrMember:
     if member == "lgbm":
-        return LgbmMember.fit(x, y, features, cfg.members.lgbm, levels=levels)
-    return LrMember.fit(x, y, features, cfg.members.lr)
+        return LgbmMember.fit(
+            x, y, features, cfg.members.lgbm, levels=levels, sample_weight=sample_weight
+        )
+    return LrMember.fit(x, y, features, cfg.members.lr, sample_weight=sample_weight)
+
+
+def mitigation_weights(
+    frame: pl.DataFrame, cfg: MlConfig, registry: FeatureRegistry | None = None
+) -> np.ndarray | None:
+    """§7: with ``bias.mitigation: reweight``, the sample weights of ``configs/bias_slices.yaml: mitigation`` fit on
+    the window's own rows (leakage test 9), the same weights ``evaluate``'s trade-off measures; None otherwise."""
+    if cfg.bias.mitigation != "reweight":
+        return None
+    from ..evaluation.mitigation import eval_weights
+    from ..evaluation.slices import slice_config
+
+    return eval_weights(frame, slice_config(cfg), registry)
 
 
 def fit_window(
@@ -127,9 +143,11 @@ def fit_window(
     cfg: MlConfig,
     members: Sequence[Member],
     months: Sequence[str],
+    sample_weight: np.ndarray | None = None,
 ) -> WindowFit:
     """Each member on the whole window, and once per fold on the other folds to predict that fold (OOF). Every
-    facility is in one fold (``fold`` from prepare), so an OOF prediction never comes from a fit that saw it."""
+    facility is in one fold (``fold`` from prepare), so an OOF prediction never comes from a fit that saw it.
+    ``sample_weight`` (one per row, from ``mitigation_weights``) weights every member fit; Platt stays unweighted."""
     label = cfg.label
     if frame.is_empty():
         raise MlInputError(f"the {fit} frame is empty")
@@ -144,7 +162,7 @@ def fit_window(
     seconds: dict[str, float] = {}
     for m in members:
         start = time.perf_counter()
-        full[m] = _fit_member(m, x, y, features, cfg, levels)
+        full[m] = _fit_member(m, x, y, features, cfg, levels, sample_weight)
         seconds[f"{fit}.{m}.full"] = time.perf_counter() - start
         start = time.perf_counter()
         pred = np.full(len(y), np.nan)
@@ -152,7 +170,10 @@ def fit_window(
             held = folds == k
             if held.all() or len(np.unique(y[~held])) < 2:
                 raise MlInputError(f"{fit} fold {k} leaves no usable training rows")
-            member = _fit_member(m, x[~held].reset_index(drop=True), y[~held], features, cfg)
+            wk = None if sample_weight is None else sample_weight[~held]
+            member = _fit_member(
+                m, x[~held].reset_index(drop=True), y[~held], features, cfg, sample_weight=wk
+            )
             pred[held] = member.logit(x[held].reset_index(drop=True))
         oof[m] = pred
         seconds[f"{fit}.{m}.oof"] = time.perf_counter() - start
@@ -346,7 +367,13 @@ def run_train(
     eval_frame = read_frame(store, paths, "eval_train")
     candidates = list(cfg.selection.candidates)
     wf_eval = fit_window(
-        "eval", eval_frame, features, cfg, members_of(candidates, cfg), windows.eval.months
+        "eval",
+        eval_frame,
+        features,
+        cfg,
+        members_of(candidates, cfg),
+        windows.eval.months,
+        mitigation_weights(eval_frame, cfg, registry),
     )
     seconds.update(wf_eval.seconds)
     eval_fits = {c: calibrate_candidate(c, wf_eval, cfg) for c in candidates}
@@ -371,7 +398,13 @@ def run_train(
     chosen = selection.selected
     refit_frame = read_frame(store, paths, "refit_train")
     wf_refit = fit_window(
-        "refit", refit_frame, features, cfg, members_of([chosen], cfg), windows.refit.months
+        "refit",
+        refit_frame,
+        features,
+        cfg,
+        members_of([chosen], cfg),
+        windows.refit.months,
+        mitigation_weights(refit_frame, cfg, registry),
     )
     seconds.update(wf_refit.seconds)
     refit_fit = calibrate_candidate(chosen, wf_refit, cfg)
@@ -486,6 +519,7 @@ def train_params(
         "members.lgbm": cfg.members.lgbm.as_dict(),
         "members.lr": cfg.members.lr.model_dump(),
         "ensemble.weights": dict(cfg.ensemble.weights),
+        "bias.mitigation": cfg.bias.mitigation,
         "selected": chosen,
         "platt": {k: {"a": v.a, "b": v.b, "identity": v.identity} for k, v in calibration.items()},
         "train_months": cfg.windows.train_months,
