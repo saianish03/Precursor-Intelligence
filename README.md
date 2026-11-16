@@ -304,7 +304,7 @@ zips), never the Airflow API or the Docker API.
 
 ## 9. Getting started
 
-**Requirements:** Python 3.11 or 3.12, [`uv`](https://docs.astral.sh/uv/) (never pip), Docker for Airflow, and about 2 GB of
+**Requirements:** Python 3.11 or 3.12, [`uv`](https://docs.astral.sh/uv/) 0.13 or newer (never pip; `uv.lock` uses the newer lockfile format, so an older uv fails `uv sync --frozen`: `uv self update`), Docker for Airflow, and about 2 GB of
 free disk for the sample runs below (25 GB for a full-archive run). People who need pip can use `requirements.txt`, the same
 pinned versions as `uv.lock` (`pip install -r requirements.txt`); CI fails if the two drift apart.
 
@@ -336,18 +336,20 @@ design). The Airflow sample below (14, then 19 zips) reaches a published gold.
 
 ### 9.2 Run it in Airflow (laptop, real CMS downloads, about 1 GB)
 
-Build the two images from the repo root (the pipeline image needs the commit it was built from), then create
+Build the three images from the repo root (the pipeline and MLflow images need the commit they were built from), then create
 `docker/airflow-local/.env` with fresh secrets and start the stack:
 
 ```bash
 docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) -t precursor-pipeline:latest .
 docker build -f docker/airflow.Dockerfile -t precursor-airflow:latest .
+docker build -f docker/mlflow.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) -t precursor-mlflow:latest .
 cd docker/airflow-local
 cat > .env <<EOF
 AIRFLOW_DB_PASSWORD=$(openssl rand -hex 16)
 PI_META_DB_PASSWORD=$(openssl rand -hex 16)
 AIRFLOW_JWT_SECRET=$(openssl rand -hex 32)
 AIRFLOW_FERNET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
+MLFLOW_DB_PASSWORD=$(openssl rand -hex 32)
 AIRFLOW_UID=$(id -u)
 PI_PIPELINE_ENV=dev
 PI_HOST_DATA_DIR=$HOME/pi-data
