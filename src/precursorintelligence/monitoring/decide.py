@@ -5,10 +5,12 @@ recorded champion, and applies the decision table; ``decision_for`` is the table
 
 - The run folder gets ``decision.json`` (``prepare`` pins the gold run named in it; every task tags its decision).
 - SCORE also writes ``champion.json`` with the recorded champion (on the other paths ``gate`` or ``promote`` does).
-- SKIP and REFUSE are the run's ``ml_runs`` row (``gate`` and ``publish`` write the others); REFUSE then exits 2.
+- SKIP, REFUSE and RETUNE are the run's ``ml_runs`` row (``gate`` and ``publish`` write the others); REFUSE then
+  exits 2.
 
-An explicit mode wins over the automatic rules: ``score_only`` never retrains because the recipe changed, and
-``retrain`` never re-tunes. Gold not current is exit 1 (retried), as in ``prepare``.
+An explicit mode wins over the automatic rules: ``score_only`` never retrains because the recipe changed. RETUNE
+comes only from ``mode=retune`` and runs ``tune`` alone, since ``train`` doesn't apply a proposal; a drift flag
+records a re-tune request for a human (Phase 1, §12.2). Gold not current is exit 1 (retried), as in ``prepare``.
 
 The module lives outside ``training``/``evaluation``/``serving`` on purpose: those are the ``recipe_hash`` packages
 (§14.3), and a change to how runs are scheduled must not count as a new model recipe.
@@ -43,20 +45,11 @@ log = logging.getLogger(__name__)
 
 MONITOR_ACTION = "monitor"  # the ml_runs row `monitor` writes; it carries retune_requested (§12.2)
 PROCEED = {"RETRAIN", "RETUNE", "SCORE", "PROMOTE"}
-
-
-def _retune_pending(rows: Sequence[Mapping[str, Any]]) -> bool:
-    """The latest monitor row asked for a re-tune and no RETUNE run has gone through the gate since."""
-    asks = [r for r in rows if r.get("action") == MONITOR_ACTION]
-    if not asks:
-        return False
-    last = max(asks, key=lambda r: r["id"])
-    if not last.get("retune_requested"):
-        return False
-    return not any(
-        r["id"] > last["id"] and r.get("decision") == "RETUNE" and r.get("action") in GATE_ACTIONS
-        for r in rows
-    )
+OWN_ROW = (
+    "SKIP",
+    "REFUSE",
+    "RETUNE",
+)  # runs no gate or publish writes a row for, so decide writes it
 
 
 def _retrained(
@@ -107,8 +100,8 @@ def decision_for(
         return "REFUSE", f"gold V {v} is older than the last scored V {last_scored}"
     if not verified and not allow_unverified:
         return "REFUSE", "gold is not verified and allow_unverified is false"
-    if mode == "retune" or (mode == "auto" and _retune_pending(rows)):
-        return "RETUNE", "re-tune requested" + (" by monitor" if mode == "auto" else "")
+    if mode == "retune":  # Phase 1: by hand only, and tune alone (its proposal and plots); §12.2
+        return "RETUNE", "re-tune requested"
     if mode == "retrain":
         return "RETRAIN", "retrain requested"
     if mode == "auto" and not _retrained(rows, v_labels, recipe_hash, gold_sha):
@@ -132,7 +125,8 @@ def run_decide(
     ml_config_path: Path | None = None,
     actor: str = "cms_nh_ml",
 ) -> Decision:
-    """Decide, write ``decision.json`` (and ``champion.json`` on SCORE, the ``ml_runs`` row on SKIP/REFUSE)."""
+    """Decide, write ``decision.json`` (and ``champion.json`` on SCORE, the ``ml_runs`` row on SKIP, REFUSE and
+    RETUNE)."""
     from ..training.mlflow_log import recipe_hash  # imports MLflow: only when decide runs
 
     paths = RunPaths.of(cfg, ml_run_id)
@@ -177,8 +171,8 @@ def run_decide(
     if name == "SCORE":
         file = Champion(model_name=cfg.registry.model_name, version=champion, source="decide")
         store.put_bytes(paths.champion, file.model_dump_json(indent=2).encode(), overwrite=True)
-    if name in ("SKIP", "REFUSE") and not meta.read(
-        "ml_runs", {"ml_run_id": ml_run_id, "action": ["skip", "refuse"]}
+    if name in OWN_ROW and not meta.read(
+        "ml_runs", {"ml_run_id": ml_run_id, "action": [n.lower() for n in OWN_ROW]}
     ):  # a retried decide writes its row once
         meta.append(
             "ml_runs",

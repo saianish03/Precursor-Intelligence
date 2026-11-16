@@ -80,7 +80,7 @@ def test_wiring_and_trigger_rules(dag):
         "prepare": {"go"},
         "path": {"decide", "prepare"},
         "tune": {"path"},
-        "train": {"path", "tune"},
+        "train": {"path"},
         "evaluate": {"train"},
         "gate": {"evaluate"},
         "promote": {"path"},
@@ -88,10 +88,10 @@ def test_wiring_and_trigger_rules(dag):
         "scored": {"score"},
         "publish": {"scored"},
         "monitor": {"publish", "scored"},
-        "notify": {"decide", "monitor"},
+        "notify": {"decide", "monitor", "tune"},
     }
     rules = {t.task_id: t.trigger_rule for t in dag.tasks}
-    for task_id in ("train", "score", "monitor"):
+    for task_id in ("score", "monitor"):
         assert rules[task_id] == "none_failed_min_one_success"
     assert rules["notify"] == "none_failed"
     assert [a.name for a in dag.get_task("publish").outlets] == ["cms_nh_scores"]
@@ -122,7 +122,7 @@ def test_promote_gets_version_and_reason_from_the_params_through_the_environment
     [
         ("SKIP", False, None, None),
         ("RETRAIN", True, "prepare", ["train", "score"]),
-        ("RETUNE", True, "prepare", ["tune", "train", "score"]),
+        ("RETUNE", True, "prepare", ["tune"]),  # Phase 1: tune alone, nothing trained or scored
         ("PROMOTE", True, "prepare", ["promote", "score"]),
         ("SCORE", True, "prepare", ["score"]),
     ],
@@ -166,9 +166,24 @@ class FakeTi:
             },
             "[cms_nh_ml] SKIP 2026-10",
         ),
+        (
+            {
+                "decide": lines(
+                    {
+                        "decision": "RETUNE",
+                        "proceed": True,
+                        "v": "2026-10",
+                        "reason": "re-tune requested",
+                    }
+                )
+            },
+            "[cms_nh_ml] RETUNE 2026-10",
+        ),
     ],
 )
-def test_notify_emails_monitor_s_summary_or_decide_s_on_skip(dag, monkeypatch, outputs, subject):
+def test_notify_emails_monitor_s_summary_or_decide_s_without_monitor(
+    dag, monkeypatch, outputs, subject
+):
     fn = dag.get_task("notify").python_callable
     sent = []
     context = {"ti": FakeTi(outputs), "dag": dag, "run_id": "manual__1"}

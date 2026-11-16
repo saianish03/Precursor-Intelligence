@@ -68,16 +68,15 @@ DONE = [gate_row(1), published_row(2)]
         ({"rows": DONE, "verified": False, "allow": False}, "REFUSE"),
         ({"rows": DONE, "verified": False, "allow": True}, "SKIP"),
         ({"rows": DONE, "mode": "retune"}, "RETUNE"),
-        ({"rows": [*DONE, {"id": 3, "action": "monitor", "retune_requested": True}]}, "RETUNE"),
+        (
+            {"rows": [*DONE, {"id": 3, "action": "monitor", "retune_requested": True}]},
+            "SKIP",
+        ),  # a drift request asks a human: Phase 1 never re-tunes on its own
         ({"rows": DONE, "mode": "retrain"}, "RETRAIN"),
         ({"rows": []}, "RETRAIN"),  # first run
         ({"rows": [gate_row(1, recipe_hash="old")]}, "RETRAIN"),  # new code or config
         ({"rows": [gate_row(1, gold_config_sha="old")]}, "RETRAIN"),  # gold built differently
         ({"rows": [gate_row(1, v_labels="2026-09")]}, "RETRAIN"),  # labels matured a month
-        (
-            {"rows": [gate_row(1, decision="RETUNE")]},
-            "RETRAIN",
-        ),  # a tuned challenger is not the recipe
         ({"rows": TRAINED}, "SCORE"),  # a failed publish: score again
         ({"rows": [gate_row(1), published_row(2, version=2)]}, "SCORE"),  # champion changed
         (
@@ -98,16 +97,6 @@ DONE = [gate_row(1), published_row(2)]
 )
 def test_the_decision_table(kwargs, expected):
     assert decide(**kwargs) == expected
-
-
-def test_a_retune_request_is_answered_once():
-    rows = [
-        *DONE,
-        {"id": 3, "action": "monitor", "retune_requested": True},
-        gate_row(4, decision="RETUNE"),
-    ]
-    assert decide(rows=rows) == "SKIP"
-    assert decide(rows=[*rows, {"id": 5, "action": "monitor", "retune_requested": False}]) == "SKIP"
 
 
 def test_a_hold_then_a_no_op_gold_publish_skips_instead_of_retraining():
@@ -137,6 +126,14 @@ def test_score_writes_the_recorded_champion(store, meta):
     assert d.decision == "SCORE" and d.champion_version == 3
     champion = json.loads(store.open_read(RunPaths.of(ml_config(), "manual__s").champion).read())
     assert (champion["version"], champion["source"]) == (3, "decide")
+
+
+def test_retune_proceeds_and_writes_its_row_once(store, meta):
+    for _ in range(2):  # a retried decide
+        d = run(store, meta, run_id="manual__t", mode="retune")
+        assert (d.decision, d.proceed) == ("RETUNE", True)
+    rows = meta.read("ml_runs", {"ml_run_id": "manual__t"})
+    assert [(r["action"], r["mode"]) for r in rows] == [("retune", "retune")]
 
 
 def test_refuse_writes_its_row_once(store, meta):

@@ -5,18 +5,19 @@ Started by every `cms_nh_gold` event (a published, validated gold) or by hand. E
 the run folder is `ml/runs/<run id>/`. No business logic here: `decide` (monitoring/decide.py) picks the path and
 prints it; the branches only read it.
 
-    decide ─► go? ─► prepare ─► path ─┬─ RETUNE ─► tune ─┐
-       │                              ├─ RETRAIN ────────┴─► train ─► evaluate ─► gate ─┐
-       │                              ├─ PROMOTE ─► promote ────────────────────────────┤
-       │                              └─ SCORE ─────────────────────────────────────────┤
-       │                                                                                 ▼
-       │                                     score ─► scored? ─► publish ─► monitor ─► notify
-       └─ (SKIP) ────────────────────────────────────────────────────────────────────────┘
+    decide ─► go? ─► prepare ─► path ─┬─ RETUNE ─► tune ─────────────────────────────────────────────┐
+       │                              ├─ RETRAIN ─► train ─► evaluate ─► gate ─┐                       │
+       │                              ├─ PROMOTE ─► promote ───────────────────┤                       │
+       │                              └─ SCORE ────────────────────────────────┤                       ▼
+       │                                         score ─► scored? ─► publish ─► monitor ──────────► notify
+       └─ (SKIP) ───────────────────────────────────────────────────────────────────────────────────────┘
 
 - SKIP stops after `decide` (its `ml_runs` row is written) and `notify` emails decide's summary. REFUSE is exit 2
   and fails the run (alert, no retry); gold not current is exit 1 (retried).
 - `score` skips without a champion (first run, awaiting Checkpoint ML-A); then `scored?` skips `publish`, so the
   asset `cms_nh_scores` is emitted only when scores were published. `monitor` and `notify` still run.
+- RETUNE (`mode=retune` only, Phase 1) runs `tune` alone: its proposal and plots. `train` doesn't apply a proposal,
+  so a re-tune trains, gates and scores nothing (§12.2); a drift flag only asks a human for one.
 - `train` and `tune` take the `heavy` pool's one slot (shared with gold's `build_gold`, §15.6).
 - Alerts: a failed run emails through on_dag_failure; every finished run emails its summary (`notify`), which
   says when the gate held, a signal flagged or a re-tune was requested (course §7.5).
@@ -57,9 +58,10 @@ ALLOW = (
     "{{ '' if params.allow_unverified is none else "
     "('--allow-unverified' if params.allow_unverified else '--refuse-unverified') }}"
 )
-# the branch targets per decision; `score` is on every path so a branch never skips it (its trigger rule waits)
+# the branch targets per decision; `score` is on every scoring path so a branch never skips it (its trigger rule
+# waits)
 PATHS = {
-    "RETUNE": ["tune", "train", "score"],
+    "RETUNE": ["tune"],
     "RETRAIN": ["train", "score"],
     "PROMOTE": ["promote", "score"],
     "SCORE": ["score"],
@@ -120,7 +122,6 @@ def cms_nh_ml():
         pool=HEAVY_POOL,
         retries=1,
         execution_timeout=TRAIN_TIMEOUT,
-        trigger_rule=AFTER_ANY,
     )
     evaluate = run("evaluate", f"evaluate {MODE}")
     gate = run("gate", f"gate {MODE}")
@@ -145,11 +146,11 @@ def cms_nh_ml():
 
     @task(retries=0, trigger_rule="none_failed")
     def notify() -> None:
-        """Email the run's summary: monitor's, or decide's when the run skipped (§12.3)."""
+        """Email the run's summary: monitor's, or decide's when the run skipped or only re-tuned (§12.3)."""
         context = get_current_context()
         ti = context["ti"]
         output, keys = ti.xcom_pull(task_ids="monitor"), SUMMARY_KEYS
-        if output is None:  # SKIP: monitor never ran
+        if output is None:  # SKIP or RETUNE: monitor never ran
             output, keys = ti.xcom_pull(task_ids="decide"), DECISION_KEYS
         send(
             *ml_run_alert(context["dag"].dag_id, context["run_id"], last_json_object(output, keys))
@@ -158,11 +159,11 @@ def cms_nh_ml():
     branch = path(decide.output)
     is_scored = scored(score.output)
     go(decide.output) >> prepare >> branch >> [tune, train, promote, score]
-    tune >> train >> evaluate >> gate >> score
+    train >> evaluate >> gate >> score
     promote >> score
     score >> is_scored >> publish
     [publish, is_scored] >> monitor
-    [decide, monitor] >> notify()
+    [decide, monitor, tune] >> notify()
 
 
 cms_nh_ml()

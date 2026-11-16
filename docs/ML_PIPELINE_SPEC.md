@@ -457,7 +457,7 @@ All four files go to `<prefix>scores/v=YYYY-MM/` with `scores_manifest.json` (mo
 **Built in Phase 1:** feature drift, training-vs-scoring skew (with `prepare`'s regime-coverage flags) and the stale champion (`monitoring/status.py`). Score drift and the performance trend move to Phase 2 with realized performance (§18.1 cut line). PSI is computed in code (`monitoring/drift.py`, tested). Month over month is the trigger, not a fixed old reference: PR #38 found 22–35 features with PSI > 0.25 against 2022–2023, which would fire every month. An Evidently `DataDriftPreset` HTML report is an optional artifact (Phase 2).
 
 ### 12.2 Re-tune requests (ML-2, ML-19)
-A feature-drift, score-drift or performance flag sets `retune_requested = true` in this run's `ml_runs` row and emails. The next `decide` with `mode=auto` returns RETUNE: Optuna runs (§13), the tuned model is evaluated through the gates and registered as a **challenger only**, with a report. The tuned parameters become the recipe only through a human PR to `configs/ml.yaml` (CD → new image → new `recipe_hash` → RETRAIN → gates). Drift alone never promotes or demotes a model; the monthly refits already adapt to new data. Training-vs-scoring skew and stale-champion flags alert a human (they are not fixed by re-tuning).
+A feature-drift, score-drift or performance flag sets `retune_requested = true` in this run's `ml_runs` row and emails. **Phase 1:** the request is for a human, who triggers `mode=retune`; that run's RETUNE runs `tune` alone (§13: the proposal, the trials and the sensitivity plots) and trains, gates and scores nothing, because `train` doesn't apply a proposal yet. `mode=auto` never re-tunes on its own, so a request can't loop (the same gold keeps the same PSI). **Phase 2:** the next `mode=auto` run re-tunes beside its normal path, `train` fits the proposal, and the tuned model is evaluated through the gates and registered as a **challenger only**, with a report. The tuned parameters become the recipe only through a human PR to `configs/ml.yaml` (CD → new image → new `recipe_hash` → RETRAIN → gates). Drift alone never promotes or demotes a model; the monthly refits already adapt to new data. Training-vs-scoring skew and stale-champion flags alert a human (they are not fixed by re-tuning).
 
 ### 12.3 Status file and notifications
 - **`<prefix>status/latest.json`** (written last by `monitor`): `{v, v_labels, scored_at, model_name, model_version, candidate, gold_run_id, gold_verified, stale_refresh, decision, gate_outcome, failed_gates, n_facilities, flags, retune_requested, ml_run_id}`. The API and UI read it (data spec §0.6).
@@ -466,7 +466,7 @@ A feature-drift, score-drift or performance flag sets `retune_requested = true` 
 ---
 
 ## 13. Step M13: tuning (task `tune`; decision RETUNE; ML-19)
-- **When:** `mode=retune`, a re-tune request (§12.2), and once in Phase 1 to document the search space and sensitivity (course §3, §5).
+- **When:** `mode=retune` (a human answering a re-tune request, §12.2), and once in Phase 1 to document the search space and sensitivity (course §3, §5). In Phase 1 the run is `tune` alone: no tuned challenger is fitted.
 - **Search:** Optuna TPE, seed 42, `n_trials` 30, timeout 60 minutes, `n_jobs` 1; objective = mean PR-AUC over 3 facility-grouped folds of `eval_train`, with early stopping (100 rounds) on each validation fold; the final `n_estimators` = the median best iteration. Never the test frame. Space (from PR #49 `boost_models.py`):
   | Param | Range | Param | Range |
   |---|---|---|---|
@@ -509,14 +509,14 @@ sha256 over: the relative paths and bytes of the `*.py` files of `precursorintel
 
 ```
 decide ─► branch ─┬─ SKIP ───────────────────────────────────────────────────────────────► notify
-                  └─► prepare ─► branch ─┬─ RETUNE ─► tune ─┐
-                                         ├─ RETRAIN ────────┴─► train ─► evaluate ─► gate ─┐
-                                         ├─ PROMOTE ─► promote ────────────────────────────┤
-                                         └─ SCORE ─────────────────────────────────────────┤
-                                                                                           ▼
+                  └─► prepare ─► branch ─┬─ RETUNE ─► tune ─────────────────────────────────────► notify
+                                         ├─ RETRAIN ─► train ─► evaluate ─► gate ─┐
+                                         ├─ PROMOTE ─► promote ───────────────────┤
+                                         └─ SCORE ────────────────────────────────┤
+                                                                                  ▼
                                                      score ─► publish ─► monitor ─► notify
 ```
-Branches use `@task.branch`; `train` and `score` use `trigger_rule="none_failed_min_one_success"`. `score` skips itself (and so `publish`) when there is no champion; `monitor` and `notify` still run.
+Branches use `@task.branch`; `score` and `monitor` use `trigger_rule="none_failed_min_one_success"`. RETUNE is `tune` alone in Phase 1 (§12.2). `score` skips itself (and so `publish`) when there is no champion; `monitor` and `notify` still run.
 
 ### 15.2 The decide step
 | Condition (first match wins) | Decision |
@@ -524,15 +524,16 @@ Branches use `@task.branch`; `train` and `score` use `trigger_rule="none_failed_
 | gold not `current` | exit 1 (retried), in every mode: `promote`'s `prepare` needs current gold too |
 | `mode=promote` | PROMOTE: prepare → promote → score → publish → monitor |
 | `V` earlier than the last scored `V`; or unverified with `allow_unverified: false` | REFUSE (exit 2, alert) |
-| `mode=retune`, or `mode=auto` and the last run requested a re-tune | RETUNE (then the rules below for scoring) |
+| `mode=retune` | RETUNE: prepare → tune (Phase 1: nothing trained, gated or scored) |
 | `mode=retrain`, or no completed RETRAIN in `ml_runs` for (`v_labels`, `recipe_hash`, `gold_config_sha`) | RETRAIN |
 | `mode=score_only`, or a champion exists and no published scores for (`V`, `dataset_version`, champion version) | SCORE |
 | otherwise | SKIP |
 
-- An explicit mode wins over the automatic rows: the "no completed RETRAIN" and re-tune-request rows apply to `mode=auto` only, so `score_only` never retrains because the recipe changed (`monitoring/decide.py: decision_for`, tested row by row).
+- An explicit mode wins over the automatic rows: the "no completed RETRAIN" row applies to `mode=auto` only, so `score_only` never retrains because the recipe changed (`monitoring/decide.py: decision_for`, tested row by row).
 - A RETRAIN that holds still counts as completed, so a no-op gold publish doesn't retrain again (no loop).
-- A drift flag requests a re-tune once per score month `V`: once a RETUNE has gone through the gate for `V`, the RETUNE run's own `monitor` (same two months, same PSI) and later runs on `V` only alert (no loop).
-- After RETRAIN, RETUNE or PROMOTE, the run scores if a champion exists and scores for (`V`, `dataset_version`, champion version) are missing.
+- A drift flag's re-tune request never starts a run on its own in Phase 1 (§12.2), so the same gold, with the same PSI, can't re-tune again and again.
+- SKIP, REFUSE and RETUNE runs get their `ml_runs` row from `decide`; the others from `gate`, `promote` and `publish`.
+- After RETRAIN or PROMOTE, the run scores if a champion exists and scores for (`V`, `dataset_version`, champion version) are missing.
 - With no champion yet, nothing is scored; `status/latest.json` says "awaiting Checkpoint ML-A".
 - **`ml_runs`** (one row per run and per promotion action): `ml_run_id, at, mode, decision, action (retrain | retune | score | skip | refuse | promote | hold | manual_promote | rollback | monitor), reason, actor, gold_run_id, v, v_labels, dataset_version, gold_config_sha, gold_verified, recipe_hash, champion_version_before, champion_version_after, candidate_version, gate_outcome, gate_results_json, scores_published (bool), flags_json, retune_requested`.
 - **`gold_config_sha`** = sha256 (hex) of the canonical JSON (sorted keys, no spaces) of `{"config_sha256": …, "git_commit": …}`, both taken from gold's `dataset_manifest.json`: gold built with other configs or other code is another gold. One function computes it, `training/data.py: gold_config_sha(manifest)` (W2 adds it for `gate`'s rows; W6's `decide` calls the same one), so the writer and the reader always agree.
@@ -566,7 +567,7 @@ Branches use `@task.branch`; `train` and `score` use `trigger_rule="none_failed_
 | Stale refresh (new features, no new labels) | SCORE | score with the champion, stamped `stale_refresh` |
 | Pipeline rerun, nothing new | SKIP | one `ml_runs` row, a short email |
 | New ML code or config deployed | RETRAIN (next gold, or `mode=auto` by hand) | paired comparison with the champion's eval fit |
-| Drift or performance flag | RETUNE (next run) | tuned challenger + proposal for a PR |
+| Drift or performance flag | an email; a human triggers `mode=retune` (Phase 1) | proposal + sensitivity plots for a PR (Phase 2: a tuned challenger, next run) |
 | A bad model was promoted | PROMOTE (manual) | alias back to an earlier version, rescore |
 
 ### 15.5 Exit codes, retries, alerts
@@ -645,7 +646,7 @@ Phase 1 (laptop integration stack, gold under `ml-dev/`); repeated in Phase 2 on
 - [ ] Checkpoint ML-A done, `mode=promote` run: scores, reasons, SHAP and chain files in `scores/v=2026-10/`; `status/latest.json`; the summary email.
 - [ ] `mode=auto` on the same gold gives SKIP; `mode=score_only` rewrites the same partition with identical scores.
 - [ ] A forced bad candidate (a broken feature) is held and the champion keeps scoring; `mode=promote` with an earlier version rolls back.
-- [ ] One `mode=retune` run: tuned challenger, `tuning_proposal.yaml`, sensitivity plots.
+- [ ] One `mode=retune` run: `tuning_proposal.yaml`, trials and sensitivity plots (the tuned challenger is Phase 2).
 
 ### 17.3 🛑 Checkpoint ML-A: the first champion
 Before the first promotion (and after any change to the gates or mitigation), a human reads `model_card.md` and the bias report and checks: metrics vs PR #49 and the baselines, on non-development months where available; calibration; the slice table and state list; the top-20 features are plausible (nothing leakage-like); 20 random facilities' reasons read sensibly; the regime and skew flags (§1.4). Then promotes with `mode=promote`, recording the approval in `reason`.
@@ -747,7 +748,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | # | Topic | Decision | Rule in this spec |
 |---|---|---|---|
 | ML-1 | Labels | `y_g12` only in v1; label-generic code | §0.2 |
-| ML-2 | Retraining | every new matured month: retrain with the current parameters, then the gates; re-tune on demand or on a drift/performance flag | §12.2, §13, §15.2 |
+| ML-2 | Retraining | every new matured month: retrain with the current parameters, then the gates; re-tune on demand (Phase 1: a drift flag asks a human; automatic in Phase 2) | §12.2, §13, §15.2 |
 | ML-3 | MLflow | a server in the compose stack; Postgres db `mlflow`; UI through the tunnel on the VM | §14.1, §16.1 |
 | ML-4 | Scores | GCS parquet (source of truth) + BigQuery (Phase 2) | §10, §11 |
 | ML-5 | CI | a smoke run of the whole chain on synthetic gold; real training in the DAG | §16.2 |
@@ -764,7 +765,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | ML-16 | Ensemble | average the members in log-odds (measured: same scores, exact SHAP) | §4.2, Appendix A |
 | ML-17 | Star sub-ratings | follow the registry (`staffing_rating`, `qm_rating` allowed; overall and health-inspection ratings never) | §1.4 |
 | ML-18 | Quality family | in gold since #55; 33 of its 41 columns are model input, the rest excluded in `ml.yaml` (the two month keys, the two definition flags and the four measures whose scale changed) | §1.4, W5 |
-| ML-19 | Re-tuning | a re-tune produces a challenger and a parameter proposal; parameters change only through a human PR to `ml.yaml` | §12.2, §13 |
+| ML-19 | Re-tuning | a re-tune produces a parameter proposal (and, in Phase 2, a challenger); parameters change only through a human PR to `ml.yaml` | §12.2, §13 |
 | ML-20 | Evaluation gap | the production lag (H + B = 20 months); gold starts in 2022-01 (`spine_start`, data open #10) | §3 |
 | ML-21 | 2025-07 / 2025-10 regimes | `era` and `penalty_regime_2025_10` excluded until training covers both values; the two sub-ratings measured and excluded if their training-vs-scoring PSI > 0.25 | §1.4, §12.1 |
 | ML-22 | Phases and goal | Phase 1 (course-complete, laptop stack + GCS) by Nov 15; production after; a working system with decent performance, no model optimization push | §18 |

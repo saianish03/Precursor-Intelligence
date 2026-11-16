@@ -6,7 +6,6 @@ from precursorintelligence.monitoring.decide import decision_for
 from precursorintelligence.monitoring.status import run_monitor
 from precursorintelligence.serving.score import score_report_dir
 from precursorintelligence.training.contracts import RunPaths
-from precursorintelligence.training.data import read_input_manifest
 
 
 def monitor(trained, cfg=None):
@@ -38,7 +37,7 @@ def test_without_a_champion_the_status_says_awaiting_checkpoint_ml_a(trained):
     assert set(out.psi["skew"]) <= set(trained.cfg.features.regime_sensitive)
 
 
-def test_a_drifting_key_feature_requests_a_retune_that_the_next_decide_runs(trained):
+def test_a_drifting_key_feature_asks_a_human_to_retune_and_auto_never_does(trained):
     with_key_features(trained, ["sev_points_12m", "hprd_total"])
     strict = trained.cfg.model_copy(
         update={"monitor": trained.cfg.monitor.model_copy(update={"feature_psi_max": -1.0})}
@@ -64,41 +63,7 @@ def test_a_drifting_key_feature_requests_a_retune_that_the_next_decide_runs(trai
         last_scored=None,
         rows=rows,
     )
-    assert decision == "RETUNE"
-
-
-def test_a_retune_run_s_own_monitor_does_not_ask_again(trained):
-    """The RETUNE run's monitor sees the same two months and the same PSI: it still flags the drift, but asking
-    again would re-tune on every gold event until a new month arrives."""
-    v = read_input_manifest(trained.store(), RunPaths.of(trained.cfg, trained.run_id)).v
-    trained.meta().append(
-        "ml_runs",
-        [
-            {"ml_run_id": "drifted", "action": "monitor", "v": v, "retune_requested": True},
-            {"ml_run_id": "retune", "action": "hold", "decision": "RETUNE", "v": v},
-        ],
-    )
-    with_key_features(trained, ["sev_points_12m", "hprd_total"])
-    strict = trained.cfg.model_copy(
-        update={"monitor": trained.cfg.monitor.model_copy(update={"feature_psi_max": -1.0})}
-    )
-    out = monitor(trained, strict)
-    assert {"drift:sev_points_12m", "drift:hprd_total"} <= set(out.status["flags"])
-    assert out.status["retune_requested"] is False
-    decision, _ = decision_for(
-        mode="auto",
-        v=v,
-        v_labels=v,
-        dataset_version="dv",
-        verified=True,
-        allow_unverified=True,
-        recipe_hash="r",
-        gold_sha="g",
-        champion=None,
-        last_scored=None,
-        rows=trained.meta().read("ml_runs"),
-    )
-    assert decision != "RETUNE"
+    assert decision != "RETUNE"  # Phase 1: only mode=retune re-tunes, so a request can't loop
 
 
 def test_skew_alone_alerts_without_a_retune(trained):

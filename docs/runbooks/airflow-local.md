@@ -123,7 +123,7 @@ docker compose exec airflow-scheduler airflow dags trigger cms_nh_ml \
 ```
 | Param | Default | Meaning |
 |---|---|---|
-| `mode` | `auto` | `auto` (decide picks: RETRAIN, RETUNE, SCORE or SKIP), `retrain`, `retune`, `score_only`, `promote` |
+| `mode` | `auto` | `auto` (decide picks: RETRAIN, SCORE or SKIP), `retrain`, `retune` (tune alone: the proposal and plots), `score_only`, `promote` |
 | `version`, `reason` | — | `promote` only: the version `champion` moves to (an earlier one is a rollback) and why |
 | `allow_unverified` | `null` | `null` = `configs/ml.yaml`; `true`/`false` overrides it for this run |
 
