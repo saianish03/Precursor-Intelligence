@@ -38,13 +38,14 @@
   so scores are computed once a month and stored. There is no model server.
 - **The model.** LightGBM, logistic regression (LR) and their ensemble (the mean of the two members' log-odds) are
   trained on 11 recent months, each calibrated with Platt scaling on out-of-fold predictions. One is chosen on
-  training data only, after a bias check. 119 features from the feature registry; the base recipe is the best model
+  training data only, after a bias check. 119 features from the feature registry (the runs below used 120:
+  `staffing_rating_fn` was excluded since, §14); the base recipe is the best model
   of the team's exploration (PR #49).
 - **The result.** On the held-out test month 2025-02 (14,643 homes, 3,750 events), in the PR #49 setting, the
   ensemble reaches **PR-AUC 0.481 (95 % CI 0.465 to 0.498)**, 1.9 times the base rate, ROC-AUC 0.710, Brier 0.169 and
   ECE 0.026. This reproduces PR #49 (0.481, CI 0.465 to 0.499) with 120 features instead of 133. All three
   candidates beat the three baselines (prior-G+ rule 0.311, 24-month severity 0.395, star rating 0.330).
-- **Bias.** No gated group is miscalibrated (O−E within ±0.05 for every slice value). Reweighting by ownership costs
+- **Bias.** No gated group is clearly miscalibrated (no O−E 95 % CI lies wholly outside ±0.05). Reweighting by ownership costs
   ranking (OOF PR-AUC 0.523 to 0.517) and helps no group, so it is available (`bias.mitigation: reweight`) but off.
 - **Tuning.** 30 Optuna trials on 3 facility-grouped folds: every trial scores between 0.509 and 0.511; LR's `C`
   (importance 0.41) and LightGBM's `max_depth` (0.23) matter most. The surface is flat, so PR #49's parameters stay.
@@ -163,7 +164,7 @@ of 45, 90 and 60 minutes and no retry. Behaviour lives in `configs/ml.yaml`; the
 
 | Candidate (reproduction run) | OOF PR-AUC | OOF Brier | OOF bias check |
 |---|---|---|---|
-| **lgbm (selected)** | **0.5231** | 0.1666 | passed (0 of 12 slice values outside ±0.05) |
+| **lgbm (selected)** | **0.5231** | 0.1666 | passed (0 of 12 gated slice values clearly outside ±0.05) |
 | ensemble | 0.5218 | 0.1669 | passed |
 | lr | 0.5142 | 0.1682 | passed |
 
@@ -214,13 +215,18 @@ model card and MLflow. Data-side bias (label rates, inspector effects) is analys
 [`bias/findings.md`](bias/findings.md).
 
 ### 7.2 The gate and the result
-Gate G7 (§9.1) judges `bias.gate_slices` (state, ownership group, bed band, chain status, in-hospital) on values with
-at least 200 homes and 50 events: (a) against the champion, no group's |O−E| grows by more than 0.03 or its PR-AUC
+Gate G7 (§9.1) judges `bias.gate_slices` without the geographic ones: ownership group, bed band, chain status and
+in-hospital (`state` joins with the Benjamini-Hochberg correction in Phase 2, ML-27), on values with at least 200 homes
+and 50 events: (a) against the champion, no group's |O−E| grows by more than 0.03 or its PR-AUC
 drops by more than 0.05; (b) no group's O−E CI lies entirely outside ±0.05. A failure holds the model and emails.
 
-**Result (reproduction run, lgbm, test 2025-02):** 0 calibration failures: no group's O−E interval lies outside
-±0.05. The largest gaps are SFF candidates (−0.050, 433 homes, CI −0.094 to −0.006), homes under 50 beds (−0.045)
-and homes with 200+ beds (+0.040).
+**Result (reproduction run, lgbm, test 2025-02):** 0 calibration failures: no gated group's O−E 95 % CI lies wholly
+outside ±0.05. Across all reported non-geographic values, gated or not, the largest gaps are SFF candidates (−0.050,
+433 homes, CI −0.094 to −0.006; SFF status is reported, not gated), homes under 50 beds (−0.045) and homes with 200+
+beds (+0.040). Most of each group's gap is one overall shift: on 2025-02 the model over-predicts by
+2.6 points (mean p 0.282 vs an observed 0.256; in-hospital = false, 14,182 of the 14,643 homes, is −0.027), as an
+evaluation fit whose data ends 22 months before the test month can. So −0.045 for small homes is mostly that shift,
+not a small-home problem.
 Ranking is weaker for small homes (PR-AUC 0.28) and 4- and 5-star homes (0.33, 0.23), where events are rarer. States vary most (as the
 data analysis found); they are reported, not gated, and per-state shrinkage is Phase 2.
 
@@ -373,10 +379,11 @@ uv sync --all-extras
 uv run dvc repro --force --single-item toy_ml      # outputs in data/toy_ml/, summary in metrics/toy_ml.json
 ```
 
-**On the real gold, step by step** (a GCS-rooted store at `ml-dev/`; MLflow is optional):
+**On the real gold, step by step** (a GCS-rooted store at `ml-dev/`; MLflow is optional up to `evaluate`, but `gate`'s
+registration and the reasons script need it):
 ```bash
 export PI_BUCKET_URI=gs://precursor-intel-mlops-data/ml-dev PI_DATABASE_URL=sqlite:///data/ops/ml-local.db
-export MLFLOW_TRACKING_URI=http://localhost:5000      # leave unset to skip tracking
+export MLFLOW_TRACKING_URI=http://localhost:5000      # needed from gate on; unset skips tracking up to evaluate
 for step in prepare train evaluate gate; do
   uv run precursor-pipeline ml $step --env prod --run-id my-run-1 || break
 done

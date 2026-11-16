@@ -358,7 +358,7 @@ PR #49's training window):
 | Best baseline: 24-month citation severity | 0.395 (0.380-0.410) | | | | |
 
 - **The baseline model is reproduced** within its CI, with fewer features; every candidate beats every baseline.
-- **Bias:** no group's calibration gap lies outside ±0.05. Reweighting by ownership would cost 0.006 out-of-fold
+- **Bias:** no gated group is clearly miscalibrated (no O−E 95 % CI wholly outside ±0.05). Reweighting by ownership would cost 0.006 out-of-fold
   PR-AUC to shrink the largest gap from 0.018 to 0.013, so it stays off; the trade-off is in every model card.
 - **Tuning:** 30 trials all score between 0.509 and 0.511; LR's `C` and the tree depth matter most, so the base
   parameters stay (a proposal is applied only through a reviewed PR).
