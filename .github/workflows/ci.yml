@@ -20,7 +20,7 @@ jobs:
   tests:
     name: lint + tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # the offline suite on 4 workers plus the forced toy_ml chain take ~6-8 min
+    timeout-minutes: 20 # measured on #70: pytest ~6.2 min on 4 workers, jobs 6.6 (3.11) and 7.7 min (3.12, + toy_ml chain)
     strategy:
       fail-fast: false
       matrix:
