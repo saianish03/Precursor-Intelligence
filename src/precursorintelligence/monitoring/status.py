@@ -11,7 +11,8 @@ run (no champion yet) there is no drift signal. Score drift, the performance tre
 are Phase 2 (§18.1 cut line).
 
 A drift flag sets ``retune_requested`` on this run's ``ml_runs`` row (action ``monitor``): the next ``mode=auto``
-``decide`` re-tunes (§12.2). Skew and stale-champion flags only alert. The status file is written last; its fields
+``decide`` re-tunes (§12.2), once per score month: after a RETUNE went through the gate for this ``V``, the flag
+only alerts. Skew and stale-champion flags only alert. The status file is written last; its fields
 and the headline metrics (test PR-AUC and Brier with their CIs, when this run evaluated a model) are the summary
 ``notify`` emails.
 """
@@ -131,7 +132,15 @@ def run_monitor(
         lag = _months(manifest.v_labels) - _months(trained_on)
         if lag > m.champion_lag_months_max:
             flags.append(f"stale_champion:{lag}_months")
-    retune = any(f.startswith("drift:") for f in flags)
+    # once per score month: a RETUNE run's own monitor sees the same two months and the same PSI, and asking again
+    # would re-tune on every gold event until a new month arrives
+    answered = any(
+        r.get("action") in GATE_ACTIONS
+        and r.get("decision") == "RETUNE"
+        and r.get("v") == manifest.v
+        for r in rows
+    )
+    retune = not answered and any(f.startswith("drift:") for f in flags)
 
     candidate = None
     raw_train = _read(store, paths.train_result)

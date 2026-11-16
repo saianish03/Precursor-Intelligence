@@ -521,8 +521,8 @@ Branches use `@task.branch`; `train` and `score` use `trigger_rule="none_failed_
 ### 15.2 The decide step
 | Condition (first match wins) | Decision |
 |---|---|
+| gold not `current` | exit 1 (retried), in every mode: `promote`'s `prepare` needs current gold too |
 | `mode=promote` | PROMOTE: prepare → promote → score → publish → monitor |
-| gold not `current` | exit 1 (retried) |
 | `V` earlier than the last scored `V`; or unverified with `allow_unverified: false` | REFUSE (exit 2, alert) |
 | `mode=retune`, or `mode=auto` and the last run requested a re-tune | RETUNE (then the rules below for scoring) |
 | `mode=retrain`, or no completed RETRAIN in `ml_runs` for (`v_labels`, `recipe_hash`, `gold_config_sha`) | RETRAIN |
@@ -531,6 +531,7 @@ Branches use `@task.branch`; `train` and `score` use `trigger_rule="none_failed_
 
 - An explicit mode wins over the automatic rows: the "no completed RETRAIN" and re-tune-request rows apply to `mode=auto` only, so `score_only` never retrains because the recipe changed (`monitoring/decide.py: decision_for`, tested row by row).
 - A RETRAIN that holds still counts as completed, so a no-op gold publish doesn't retrain again (no loop).
+- A drift flag requests a re-tune once per score month `V`: once a RETUNE has gone through the gate for `V`, the RETUNE run's own `monitor` (same two months, same PSI) and later runs on `V` only alert (no loop).
 - After RETRAIN, RETUNE or PROMOTE, the run scores if a champion exists and scores for (`V`, `dataset_version`, champion version) are missing.
 - With no champion yet, nothing is scored; `status/latest.json` says "awaiting Checkpoint ML-A".
 - **`ml_runs`** (one row per run and per promotion action): `ml_run_id, at, mode, decision, action (retrain | retune | score | skip | refuse | promote | hold | manual_promote | rollback | monitor), reason, actor, gold_run_id, v, v_labels, dataset_version, gold_config_sha, gold_verified, recipe_hash, champion_version_before, champion_version_after, candidate_version, gate_outcome, gate_results_json, scores_published (bool), flags_json, retune_requested`.
