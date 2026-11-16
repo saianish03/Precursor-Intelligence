@@ -69,12 +69,42 @@ the moving dashes show the direction of the data flow.*
 ![ML pipeline architecture](docs/img/ml_pipeline_architecture.svg)
 
 *The ML pipeline, DAG `cms_nh_ml`, built in work packages W0 to W6. Numbered steps: 1 new gold arrives and `decide`
-picks retrain, score, re-tune or skip and pins that gold run · 2 leakage-safe windows, facility-grouped folds and
+picks retrain, score or skip (or, by hand, re-tune or promote) and pins that gold run · 2 leakage-safe windows, facility-grouped folds and
 frames are cut · 3 LightGBM, logistic regression and their ensemble are trained, Platt-calibrated and one is picked
 after a bias check · 4 held-out metrics, bias slices, SHAP and a model card are logged to MLflow · 5 deterministic
 gates decide `@champion` or `@challenger` · 6 the champion scores every facility with reasons and chain roll-ups ·
 7 scores are published and drift monitoring writes the status and emails a summary. The highlight moving across the
 stages follows one monthly run; dashed parts are Phase 2. Full write-up: [`docs/ML_PIPELINE_SPEC.md`](docs/ML_PIPELINE_SPEC.md).*
+
+**How the ML pipeline works.** The data pipeline ends at gold, a point-in-time training table. The ML pipeline
+starts there and turns gold into a calibrated, explained risk score for every nursing home, every month. It is
+one Airflow DAG, `cms_nh_ml`, triggered when the data pipeline publishes gold (asset `cms_nh_gold`) or by hand.
+
+| Step | Stage | Built in | What it does |
+|---|---|---|---|
+| 1 | Decide and pin | W6, W0 | Checks what changed: new matured labels or new code → **retrain**; only new features → **score**; nothing new → **skip**. Re-tune (`mode=retune`, `ml tune` alone) and promote (`mode=promote`) are run by hand; `auto` never picks them. Pins the gold run it reads, so a later data run cannot change its input mid-run |
+| 2 | Prepare | W0 | Cuts leakage-safe windows (the evaluation gap equals the production lag: 12-month horizon plus 8-month posting buffer = 20 months), facility-grouped folds (a home is never on both sides of a split) and the training frames |
+| 3 | Train and select | W1 | Trains LightGBM, logistic regression and their ensemble, Platt-calibrates each on out-of-fold predictions, and picks one on training data only, after a bias check |
+| 4 | Evaluate | W2 | Scores the chosen model on the newest matured months it never saw: PR-AUC against the base rate (about 26 %), precision@5 % and @10 %, Brier, ECE and the course metrics; bias slices, SHAP and a model card, all logged to MLflow |
+| 5 | Gate and promote | W2 | Deterministic gates in code (`evaluation/gates.py`), not judgment. All pass and a champion exists → `@champion` in the MLflow registry; otherwise it stays `@challenger`, the current champion keeps scoring and an email goes out. The first version (`gates.first_run: challenger`) and any rollback are promoted by hand with `mode=promote` (Checkpoint ML-A) |
+| 6 | Score and explain | W3 | The champion scores every facility for the newest month, with its top SHAP reasons, and rolls the scores up to chains |
+| 7 | Publish and monitor | W3, W6 | Scores go to GCS, the source of truth (BigQuery in Phase 2). PSI drift monitoring writes `status/latest.json` and emails a run summary; high drift emails a **re-tune request** (the teal wire to Notify), and a person runs `mode=retune` to tune with Optuna |
+
+- **Batch, not online.** CMS publishes once a month, so scores are computed once a month and stored. There is no
+  model server; "deploying" a model means moving the `@champion` alias.
+- **Same image, thin DAG.** Every task runs `precursor-pipeline ml <command>` in the same `precursor-pipeline`
+  image as the data pipeline, on the `heavy` pool (W4).
+- **Behaviour lives in config.** Windows, thresholds and feature excludes are in `configs/ml.yaml`; the feature
+  list comes from `configs/feature_registry.yaml`, so new features (such as W5's 131 quality features) change the
+  model by config, not code.
+- **Idempotent and auditable.** Runs are keyed on gold's `dataset_version` and a `recipe_hash` and are seeded, so a
+  rerun gives the same models. Every promotion, hold and rollback is a row in `ml_runs` and a tag in MLflow.
+- **The test window is looked at once.** It is used to report and gate, never to choose.
+
+In one line: gold in → decide → prepare → train → evaluate → gate → score → publish and monitor → scores out, with
+MLflow tracking every step and drift asking a person to re-tune.
+
+**Shared by both pipelines:**
 
 - **Files stay files.** Every layer is Parquet on one object store: local disk in development, Google Cloud Storage
   in test and production. All I/O goes through the `ObjectStore` / `TableSink` ports, so the same code runs on

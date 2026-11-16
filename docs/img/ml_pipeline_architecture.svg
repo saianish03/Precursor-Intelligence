@@ -90,7 +90,7 @@
   <text x="130" y="262" class="lbl" text-anchor="middle">Data pipeline</text>
   <text x="130" y="280" class="cap" text-anchor="middle">cms_nh_pipeline</text>
   <text x="130" y="298" class="cap" text-anchor="middle">gold/ · V = 2026-10</text>
-  <rect x="66" y="320" width="128" height="20" rx="10" fill="#b8902c"/>
+  <rect x="55" y="320" width="150" height="20" rx="10" fill="#b8902c"/>
   <text x="130" y="334" class="chip-t" text-anchor="middle">W5 · QUALITY FEATURES</text>
   <text x="130" y="362" class="cap" text-anchor="middle">131 registry features</text>
   <text x="130" y="380" class="cap" text-anchor="middle">feed the model by config</text>
@@ -126,9 +126,9 @@
   <path d="M628,210 V246 H365 V270" class="wire-dash"/>
   <path d="M1420,282 V180 H1278" class="wire-dash"/>
 
-  <!-- re-tune loop: monitor asks, the next run tunes before it trains -->
-  <path d="M1360,282 V262 H705 V280" class="wire-loop looping"/>
-  <text x="1032" y="256" class="cap knock-w" text-anchor="middle" style="fill:#0f7f8f">re-tune request → ml tune (Optuna) before the next train</text>
+  <!-- re-tune request: monitor emails it via notify; a person runs mode=retune (ml tune alone) -->
+  <path d="M1360,282 V262 H1248 V210" class="wire-loop looping"/>
+  <text x="1240" y="256" class="cap knock-w" text-anchor="end" style="fill:#0f7f8f">drift → re-tune request (email) · a person runs mode=retune: ml tune alone</text>
 
   <!-- a run travelling through the stages (hidden behind tiles, visible on the wires) -->
   <circle r="5.5" fill="#1a73e8" class="token">
@@ -153,6 +153,7 @@
       <rect x="378" y="295" width="46" height="16" rx="8" fill="#d01884"/><text x="401" y="307" class="chip-t" text-anchor="middle">W6·W0</text>
       <text x="365" y="402" class="lbl" text-anchor="middle">Decide · pin</text>
       <text x="365" y="420" class="cap" text-anchor="middle">retrain · score · skip</text>
+      <text x="365" y="438" class="cap" text-anchor="middle">by hand: promote · re-tune</text>
     </g>
     <g>
       <rect x="464" y="278" width="142" height="108" rx="8" class="halo d1"/>
@@ -312,7 +313,7 @@
   <text x="1072" y="848" class="grp">FLOW</text>
   <g>
     <circle cx="1084" cy="868" r="8.5" class="badge"/><text x="1084" y="872" class="badge-t" text-anchor="middle">1</text>
-    <text x="1102" y="872" class="key-t">New gold arrives; decide picks retrain, score, re-tune or skip and pins that gold run</text>
+    <text x="1102" y="872" class="key-t">New gold arrives; decide picks retrain, score or skip (by hand: promote or re-tune), pins the gold run</text>
     <circle cx="1084" cy="888" r="8.5" class="badge"/><text x="1084" y="892" class="badge-t" text-anchor="middle">2</text>
     <text x="1102" y="892" class="key-t">Leakage-safe windows, facility-grouped folds and frames are cut</text>
     <circle cx="1084" cy="908" r="8.5" class="badge"/><text x="1084" y="912" class="badge-t" text-anchor="middle">3</text>
@@ -320,7 +321,7 @@
     <circle cx="1084" cy="928" r="8.5" class="badge"/><text x="1084" y="932" class="badge-t" text-anchor="middle">4</text>
     <text x="1102" y="932" class="key-t">Held-out metrics with CIs, bias slices, SHAP and a model card are logged to MLflow</text>
     <circle cx="1084" cy="948" r="8.5" class="badge"/><text x="1084" y="952" class="badge-t" text-anchor="middle">5</text>
-    <text x="1102" y="952" class="key-t">All gates pass → @champion; otherwise it stays @challenger and the champion keeps scoring</text>
+    <text x="1102" y="952" class="key-t">Gates pass + a champion exists → @champion, else @challenger; first version, rollback: mode=promote</text>
     <circle cx="1084" cy="968" r="8.5" class="badge"/><text x="1084" y="972" class="badge-t" text-anchor="middle">6</text>
     <text x="1102" y="972" class="key-t">The champion scores every facility with its top reasons and chain roll-ups</text>
     <circle cx="1084" cy="988" r="8.5" class="badge"/><text x="1084" y="992" class="badge-t" text-anchor="middle">7</text>
@@ -332,7 +333,7 @@
     <path d="M0,0 H34" class="wire-acc"/><text x="44" y="4" class="cap">model hand-off</text>
     <path d="M160,0 H194" class="wire"/><text x="204" y="4" class="cap">read / write</text>
     <path d="M310,0 H344" class="wire-dash"/><text x="354" y="4" class="cap">control · metadata</text>
-    <path d="M490,0 H524" class="wire-loop"/><text x="534" y="4" class="cap">re-tune loop</text>
+    <path d="M490,0 H524" class="wire-loop"/><text x="534" y="4" class="cap">re-tune request (manual)</text>
     <path d="M640,0 H674" class="wire-planned"/><text x="684" y="4" class="cap">planned (phase 2)</text>
     <circle cx="806" cy="0" r="4" fill="#188038"/><text x="818" y="4" class="cap">live: the champion alias serves every score</text>
     <circle cx="1100" cy="0" r="5" fill="#1a73e8"/><text x="1112" y="4" class="cap">one monthly run moving through the stages</text>
