@@ -2,11 +2,12 @@
 
 Signals (§12.1), on the run's pinned frames:
 - **feature drift:** PSI of each key feature, score month vs the previous month (``drift:<feature>``);
-- **training vs scoring skew:** PSI of the key and regime-sensitive features, refit window vs score month
+- **training vs scoring skew:** PSI of the key, enforcement and regime-sensitive features, refit window vs score month
   (``skew:<feature>``), plus ``prepare``'s regime-coverage flags (``regime:<feature>``);
 - **stale champion:** the champion's ``v_labels`` more than ``champion_lag_months_max`` behind this gold's.
 
-Key features are the ones ``score`` recorded for the champion (``score/key_features.json``); without scores this
+Key features are the champion version's fixed list that ``score`` recorded (``score/key_features.json``, from the
+version's ``key_features`` tag, §8.2), so a feature that drifts out of a month's top list stays watched; without scores this
 run (no champion yet) there is no drift signal. Score drift, the performance trend and realized performance
 are Phase 2 (§18.1 cut line).
 
@@ -27,7 +28,7 @@ from typing import Any
 
 import polars as pl
 
-from ..common.config import MlConfig
+from ..common.config import FeatureRegistry, MlConfig
 from ..common.io.metadata_store import MetadataStore
 from ..common.io.object_store import ObjectStore
 from ..evaluation.gate import GATE_ACTIONS
@@ -86,6 +87,7 @@ def run_monitor(
     *,
     ml_run_id: str,
     cfg: MlConfig,
+    registry: FeatureRegistry,
     actor: str = "cms_nh_ml",
 ) -> MonitorOutput:
     paths = RunPaths.of(cfg, ml_run_id)
@@ -114,7 +116,10 @@ def run_monitor(
             read_frame(store, paths, "prev_score"), score, key, m.psi_bins
         )
         flags += [f"drift:{f}" for f, v in out.psi["drift"].items() if v > m.feature_psi_max]
-    skew_features = list(dict.fromkeys([*key, *cfg.features.regime_sensitive]))
+    enforcement = [
+        f.name for f in registry.family("enforcement")
+    ]  # §12.1; names not in the frames are skipped
+    skew_features = list(dict.fromkeys([*key, *enforcement, *cfg.features.regime_sensitive]))
     out.psi["skew"] = _psi_table(
         read_frame(store, paths, "refit_train"), score, skew_features, m.psi_bins
     )

@@ -18,6 +18,7 @@ from precursorintelligence.serving.score import (
     SCORES_MANIFEST,
     rank_columns,
     run_score,
+    score_report_dir,
     scores_dir,
 )
 from precursorintelligence.training import MlInputError
@@ -507,7 +508,12 @@ def test_key_features_are_set_once_per_version(trained):
     reg.set_tags(1, {"key_features": json.dumps(["kept"])})
     out = score(trained, reg)
     assert json.loads(reg.get(1).tags["key_features"]) == ["kept"]
-    assert out.key_features  # the month's own top features still go to the run folder
+    assert out.key_features and out.key_features != (
+        "kept",
+    )  # the month's own top features, in the summary
+    # monitor's drift watch list is the version's fixed one, not the month's top features
+    key = f"{score_report_dir(RunPaths.of(trained.cfg, trained.run_id))}key_features.json"
+    assert json.loads(trained.store().open_read(key).read()) == ["kept"]
 
 
 def test_the_chain_file_rolls_up_the_facility_file(trained):

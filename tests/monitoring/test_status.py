@@ -2,6 +2,7 @@
 
 import json
 
+from precursorintelligence.common.config import load_feature_registry
 from precursorintelligence.monitoring.decide import decision_for
 from precursorintelligence.monitoring.status import run_monitor
 from precursorintelligence.serving.score import score_report_dir
@@ -10,7 +11,11 @@ from precursorintelligence.training.contracts import RunPaths
 
 def monitor(trained, cfg=None):
     return run_monitor(
-        trained.store(), trained.meta(), ml_run_id=trained.run_id, cfg=cfg or trained.cfg
+        trained.store(),
+        trained.meta(),
+        ml_run_id=trained.run_id,
+        cfg=cfg or trained.cfg,
+        registry=load_feature_registry(),
     )
 
 
@@ -34,7 +39,10 @@ def test_without_a_champion_the_status_says_awaiting_checkpoint_ml_a(trained):
     assert status["note"] == "no champion yet: awaiting Checkpoint ML-A"
     assert status["candidate"] == trained.train.result.selected
     assert "drift" not in out.psi  # no scores this run, so no key features
-    assert set(out.psi["skew"]) <= set(trained.cfg.features.regime_sensitive)
+    # no scores, so no key features: skew covers the enforcement and regime-sensitive features (§12.1)
+    enforcement = {f.name for f in load_feature_registry().family("enforcement")}
+    assert set(out.psi["skew"]) <= enforcement | set(trained.cfg.features.regime_sensitive)
+    assert enforcement & set(out.psi["skew"])
 
 
 def test_a_drifting_key_feature_asks_a_human_to_retune_and_auto_never_does(trained):

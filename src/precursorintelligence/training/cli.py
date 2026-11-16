@@ -487,7 +487,11 @@ def monitor(
         from ..monitoring.status import run_monitor
 
         out = run_monitor(
-            ctx.object_store, ctx.metadata, ml_run_id=rid, cfg=load_ml_config(ml_config)
+            ctx.object_store,
+            ctx.metadata,
+            ml_run_id=rid,
+            cfg=load_ml_config(ml_config),
+            registry=load_feature_registry(),
         )
         flags = out.status["flags"]
         typer.echo(
