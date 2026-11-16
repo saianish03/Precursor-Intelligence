@@ -593,10 +593,12 @@ def cli(fake_cms, tmp_path, monkeypatch):
 
     def build(settings, run_id=None, http=None):
         s = settings.sources
+        # short retry backoff, as cms_fakes.make_settings: a test that makes CMS unreachable doesn't sleep ~15 s
+        fast = s.http.model_copy(update={"backoff_initial_s": 0.01, "backoff_max_s": 0.02})
         return build_context(
             settings,
             run_id=run_id,
-            http=SafeHttpClient(s.source, s.http, s.security, session=fake_cms),
+            http=SafeHttpClient(s.source, fast, s.security, session=fake_cms),
         )
 
     monkeypatch.setattr(pipeline_cli, "build_context", build)

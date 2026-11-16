@@ -168,6 +168,8 @@ dvc-task==0.40.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_pl
     # via dvc
 entrypoints==0.4.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
     # via gto
+execnet==2.1.2 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+    # via pytest-xdist
 fairlearn==0.15.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
     # via precursorintelligence
 fastapi==0.143.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
@@ -603,8 +605,11 @@ pyparsing==3.3.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_pl
     #   matplotlib
     #   pydot
 pytest==9.1.1 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
-    # via pytest-cov
+    # via
+    #   pytest-cov
+    #   pytest-xdist
 pytest-cov==7.1.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+pytest-xdist==3.8.0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
 python-dateutil==2.9.0.post0 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
     # via
     #   celery

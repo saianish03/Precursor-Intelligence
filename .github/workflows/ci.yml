@@ -1,7 +1,8 @@
 name: CI
 
-# Runs on every pull request into dev (feature work) and main (releases): lint and tests, plus the three images and
-# the DAG tests when the PR touches them.
+# Runs on every pull request into dev (feature work) and main (releases): lint and tests when the PR touches code,
+# configs or tests (only the ML tests when it touches only ML code), plus the three images and the DAG tests when the
+# PR touches them.
 # Make the "ci-ok" check required in the branch rulesets: a PR can then merge only when every job passes.
 on:
   pull_request:
@@ -19,16 +20,45 @@ jobs:
   tests:
     name: lint + tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30 # the offline suite plus the forced toy_ml chain take 15-19 min
+    timeout-minutes: 20 # the offline suite on 4 workers plus the forced toy_ml chain take ~6-8 min
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - name: Check out the merge commit
+      - name: Check out the merge commit and its base
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2
+
+      # On a PR, HEAD is the merge commit and HEAD^1 the base branch, so this diff is exactly the PR's changes.
+      # none: nothing that can change a test result (docs, infra, docker/: the images job builds those);
+      # ml: only ML code, configs or tests. ML code imports gold, bias and ingestion, so a change there runs
+      # everything; the data packages import no ML code except the precursor-pipeline CLI (harmonize/cli.py), so the
+      # ML set keeps tests/harmonize (and tests/alerts: the ML run email). all: everything else, and every manual run.
+      - name: Which tests does the change need?
+        id: scope
+        env:
+          CODE: '^(src/|tests/|configs/|scripts/|dags/|backend/|frontend/|pyproject\.toml$|uv\.lock$|requirements\.txt$|\.python-version$|dvc\.(yaml|lock)$|metrics/|\.github/workflows/ci\.yml$)'
+          ML: '^(src/precursorintelligence/(training|evaluation|serving|monitoring)/|tests/(training|evaluation|serving|monitoring|ml)/|tests/leakage/test_ml_[a-z_]+\.py$|configs/(ml|reason_labels)\.yaml$|scripts/(dvc_toy_ml|ml_checkpoint_reasons)\.py$|dags/cms_nh_ml\.py$|dvc\.lock$|metrics/toy_ml\.json$)'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            scope=all
+          else
+            code=$(git diff --name-only HEAD^1 HEAD | grep -E "$CODE" || true)
+            if [ -z "$code" ]; then
+              scope=none
+            elif grep -vqE "$ML" <<< "$code"; then
+              scope=all
+            else
+              scope=ml
+            fi
+          fi
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
+          echo "Test scope: **$scope**" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up uv and Python
+        if: steps.scope.outputs.scope != 'none'
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ matrix.python-version }}
@@ -38,22 +68,35 @@ jobs:
       # Exact versions from uv.lock; the dev group is installed by default. All extras, so tests for every
       # stage can import their libraries. setup-uv's python-version (UV_PYTHON) overrides .python-version.
       - name: Install the package, all extras and dev tools
+        if: steps.scope.outputs.scope != 'none'
         run: uv sync --frozen --all-extras
 
       # requirements.txt is the pip route to the same versions as uv.lock (the course asks for one). It fails
       # when stale: run the command in the error message and commit the file.
       - name: requirements.txt matches uv.lock
+        if: steps.scope.outputs.scope != 'none'
         run: |
           uv export --frozen --no-hashes --no-header --extra pipeline --extra ml --extra bias --extra dvc | diff - requirements.txt \
             || { echo "::error::requirements.txt is stale: uv export --frozen --no-hashes --no-header --extra pipeline --extra ml --extra bias --extra dvc -o requirements.txt"; exit 1; }
 
       - name: Lint (ruff)
+        if: steps.scope.outputs.scope != 'none'
         run: uv run ruff check src tests
 
+      # 4 workers on GitHub's 4-vCPU runner (pytest-xdist); --dist loadfile keeps each file's module and session
+      # fixtures computed once. Run locally the same way with `uv run pytest -n auto --dist loadfile`.
       - name: Unit tests (offline; live CMS tests are excluded)
+        if: steps.scope.outputs.scope != 'none'
+        env:
+          SCOPE: ${{ steps.scope.outputs.scope }}
         run: |
           set +e
-          uv run pytest -q
+          paths=()
+          if [ "$SCOPE" = ml ]; then
+            paths=(tests/training tests/evaluation tests/serving tests/monitoring tests/leakage/test_ml_*.py
+                   tests/harmonize tests/common tests/contracts tests/alerts)
+          fi
+          uv run pytest -q -n auto --dist loadfile "${paths[@]}"
           code=$?
           if [ "$code" -eq 5 ]; then
             echo "::notice::No tests were collected; treating as success."
@@ -66,8 +109,10 @@ jobs:
       # MLflow store on the runner), score and publish on every PR; a failed step, or a gate that holds the
       # model (validation or bias), fails this step. It is forced: its only output is committed, so a plain
       # repro skips it whenever dvc.lock is current. A stale dvc.lock is a warning, not a failure: it depends on
-      # all of src/ and configs/, so most PRs would otherwise have to regenerate it.
+      # all of src/ and configs/, so most PRs would otherwise have to regenerate it. Once, on 3.12 (the images'
+      # Python): the toy run is the same on both.
       - name: DVC pipeline reproduces (toy world)
+        if: steps.scope.outputs.scope != 'none' && matrix.python-version == '3.12'
         run: |
           uv run dvc repro --force --single-item toy_ml
           uv run dvc repro
