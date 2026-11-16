@@ -3,7 +3,7 @@
 An end-to-end MLOps application - Nursing Homes Risk Assessment for the Insurance Industry.
 
 Every month, Precursor Intelligence gives each U.S. nursing home (CMS-certified skilled nursing facility) a
-calibrated probability of a **serious health citation (scope/severity G–L) in the next 12 months**, for
+calibrated probability of a **serious health citation (scope/severity G to L) in the next 12 months**, for
 long-term-care liability insurers. An Airflow 3 pipeline turns the monthly CMS open-data releases into a
 point-in-time training table; LightGBM and four Pydantic AI agents turn that table into calibrated, explained
 scores.
@@ -100,7 +100,7 @@ metastore API. Vintages **2021-01 → 2026-08** (66 monthly archive zips, plus t
 | CMS table | Grain | Used for |
 |---|---|---|
 | Provider Information | home × release | Facility universe; facility, staffing, turnover and status features |
-| Health Deficiencies | one citation | Citation-history features; the G–L labels |
+| Health Deficiencies | one citation | Citation-history features; the G to L labels |
 | Inspection Dates | one survey | When the next inspection is due |
 | Penalties | one penalty | Enforcement features; penalty labels |
 | MDS Quality Measures | home × measure × release | Clinical-risk features (family pending approval) |
@@ -111,7 +111,7 @@ metastore API. Vintages **2021-01 → 2026-08** (66 monthly archive zips, plus t
 
 | Label | Definition | Role |
 |---|---|---|
-| `y_g12` | Any health citation with scope/severity **G–L** on a survey in the next **12 months** | Primary model |
+| `y_g12` | Any health citation with scope/severity **G to L** on a survey in the next **12 months** | Primary model |
 | `y_g6` | The same over 6 months | Between-renewal early warning |
 | `y_pen12` | Any fine or payment denial in the next 12 months | Built for comparison; role open |
 
@@ -270,7 +270,7 @@ in-hospital, CCRC, SFF status and star band, plus crossings (including star band
 |---|---|
 | Representation | Rows and homes per slice; small slices (under 30 homes or 500 labelled rows) are reported, never ranked |
 | Label-rate disparity | Rate per slice against the rest, Wilson intervals, four-fifths ratio |
-| SliceFinder testing | Cohen's h and a z-test with **home-clustered variances** (a home's labels are correlated across months), Benjamini–Hochberg FDR; risk tiers (SFF, star band) are never "problematic" |
+| SliceFinder testing | Cohen's h and a z-test with **home-clustered variances** (a home's labels are correlated across months), Benjamini-Hochberg FDR; risk tiers (SFF, star band) are never "problematic" |
 | Inspector (rater) effects | Per state: label rate vs inspection frequency and backlog, citing severity, past rate (persistence) |
 | Missingness and censoring | Null-rate and closed-home gaps per slice |
 | Drift per slice | Flagged only beyond what random same-size samples of all homes show |
@@ -405,7 +405,7 @@ More runs, checks and the GCP setup: [`docs/runbooks/airflow-local.md`](docs/run
 Real runs download from the public CMS archive and need no credentials; cloud credentials are needed only for the two GCS
 buckets. The tests and the test pipeline need nothing but the install.
 
-**Memory:** a full gold build peaks at about 4–5 GB; bronze at about 2.2 GB. On an 8 GB laptop, start with at least
+**Memory:** a full gold build peaks at about 4 to 5 GB; bronze at about 2.2 GB. On an 8 GB laptop, start with at least
 2.5 GB free.
 
 **Windows:** use Git Bash with POSIX commands, run tests with `uv run pytest -p no:cacheprovider --basetemp=C:/pt`
