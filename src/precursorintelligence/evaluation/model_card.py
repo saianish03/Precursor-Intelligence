@@ -62,8 +62,8 @@ def _mitigation(r: EvaluationReport) -> list[str]:
     out = [
         "",
         f"## Bias mitigation: reweighting ({m.scheme} on `{m.weight_slice}`), eval-window OOF, {m.candidate}",
-        f"- {m.rows:,} rows; effective sample size with the weights {m.effective_sample_size:,.0f}. Adopting it is a "
-        "recipe change (`ml.yaml: bias.mitigation: reweight`) that goes through the gates.",
+        f"- {m.rows:,} rows; effective sample size with the weights {m.effective_sample_size:,.0f}. In use: "
+        f"**{m.applied}** (`ml.yaml: bias.mitigation`); changing it is a recipe change that goes through the gates.",
         *_table(
             [
                 "variant",

@@ -1,6 +1,6 @@
-"""The evaluation's plots (docs/ML_PIPELINE_SPEC.md §6.5), as PNG bytes for the run folder and MLflow: PR and ROC
-curves, the reliability diagram before and after calibration, the lift chart, the confusion matrix and the
-candidate comparison.
+"""The evaluation's plots (docs/ML_PIPELINE_SPEC.md §6.5, §7), as PNG bytes for the run folder and MLflow: PR and ROC
+curves, the reliability diagram before and after calibration, the lift chart, the confusion matrix, the
+candidate comparison and the selected model's bias by slice.
 
 matplotlib comes with the ``bias`` extra; without it the plots are skipped (logged), never the evaluation.
 """
@@ -136,8 +136,67 @@ def _candidates(out: EvaluateOutput) -> bytes:
     return _png(fig)
 
 
-def render_all(out: EvaluateOutput) -> dict[str, bytes]:
-    """Every plot as ``{file name: PNG bytes}``; empty without matplotlib."""
+def _bias_slices(out: EvaluateOutput, oe_abs_max: float) -> bytes:
+    """The selected candidate on the test frame per slice value (the model card's rows: non-geographic slices,
+    reliable values): O−E with its 95 % CI against ±``oe_abs_max`` (red when the CI lies outside it, G7(b)), PR-AUC
+    against the overall PR-AUC, and the false-negative rate at the global top 10 %."""
+    import matplotlib.pyplot as plt
+
+    from .slices import GEOGRAPHIC
+
+    rows = [r for r in out.report.slices if r["slice"] not in GEOGRAPHIC and r.get("reliable")]
+    if not rows:
+        fig, ax = plt.subplots(figsize=(6, 1.5))
+        ax.text(0.5, 0.5, "no reliable non-geographic slice values", ha="center", va="center")
+        ax.axis("off")
+        return _png(fig)
+
+    def num(r: dict[str, Any], key: str) -> float:
+        v = r.get(key)
+        return float("nan") if v is None else float(v)
+
+    ys = np.arange(len(rows))
+    oe = np.array([num(r, "oe") for r in rows])
+    lo, hi = (
+        np.array([num(r, "oe_ci_low") for r in rows]),
+        np.array([num(r, "oe_ci_high") for r in rows]),
+    )
+    outside = (lo > oe_abs_max) | (hi < -oe_abs_max)
+    fig, (ax_oe, ax_pr, ax_fnr) = plt.subplots(
+        1, 3, figsize=(13, 0.32 * len(rows) + 1.6), sharey=True
+    )
+    for mask, colour in ((~outside, "tab:blue"), (outside, "tab:red")):
+        ax_oe.errorbar(
+            oe[mask],
+            ys[mask],
+            xerr=[(oe - lo)[mask], (hi - oe)[mask]],
+            fmt="o",
+            capsize=2,
+            color=colour,
+        )
+    for x in (-oe_abs_max, oe_abs_max):
+        ax_oe.axvline(x, color="grey", linestyle="--", linewidth=0.8)
+    ax_oe.axvline(0, color="grey", linewidth=0.6)
+    ax_oe.set(
+        xlabel=f"observed − expected rate (95% CI; limit ±{oe_abs_max:g})", title="Calibration"
+    )
+    overall = out.report.candidates[out.report.selected].ranking.get("pr_auc")
+    ax_pr.plot([num(r, "pr_auc") for r in rows], ys, "o")
+    if overall is not None:
+        ax_pr.axvline(float(overall), color="grey", linestyle=":", label="all homes")
+        ax_pr.legend(fontsize=8)
+    ax_pr.set(xlabel="PR-AUC", title="Ranking")
+    ax_fnr.plot([num(r, "fnr") for r in rows], ys, "o")
+    ax_fnr.set(xlabel="false-negative rate at the top 10%", title="Missed G+ homes")
+    ax_oe.set_yticks(ys, [f"{r['slice']}: {r['value']} ({int(r['facilities']):,})" for r in rows])
+    ax_oe.invert_yaxis()
+    fig.suptitle(f"Bias by slice, {out.report.selected} (test; homes in brackets)")
+    return _png(fig)
+
+
+def render_all(out: EvaluateOutput, *, oe_abs_max: float = 0.05) -> dict[str, bytes]:
+    """Every plot as ``{file name: PNG bytes}``; empty without matplotlib. ``oe_abs_max``: ``ml.yaml:
+    bias.oe_abs_max``, the calibration limit drawn on the bias chart."""
     try:
         import matplotlib
 
@@ -153,6 +212,7 @@ def render_all(out: EvaluateOutput) -> dict[str, bytes]:
         "lift.png": _lift(out),
         "confusion_matrix.png": _confusion(out),
         "candidates.png": _candidates(out),
+        "bias_slices.png": _bias_slices(out, oe_abs_max),
     }
 
 

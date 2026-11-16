@@ -65,6 +65,7 @@ def test_evaluate_writes_the_report_and_its_files(evaluated):
         "per_month.csv",
         "pr_curve.png",
         "reliability.png",
+        "bias_slices.png",
     ):
         assert store.exists(f"{report_prefix(p)}{name}"), name
 

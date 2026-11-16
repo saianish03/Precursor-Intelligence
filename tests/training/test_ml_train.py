@@ -14,8 +14,11 @@ from make_ml_gold import ml_config
 
 from precursorintelligence.common.config import load_feature_registry
 from precursorintelligence.common.io.object_store import FsspecObjectStore
+from precursorintelligence.evaluation.mitigation import eval_weights, weighted_oof
+from precursorintelligence.evaluation.slices import slice_config
 from precursorintelligence.harmonize.cli import main
 from precursorintelligence.training import MlInputError, mlflow_log
+from precursorintelligence.training import train as train_module
 from precursorintelligence.training.calibration import fit_platt
 from precursorintelligence.training.contracts import (
     CANDIDATES,
@@ -29,12 +32,18 @@ from precursorintelligence.training.contracts import (
 from precursorintelligence.training.data import (
     average_precision,
     read_frame,
+    read_input_manifest,
     read_windows,
     to_model_frame,
 )
 from precursorintelligence.training.ensemble import read_package
 from precursorintelligence.training.select import BiasOutcome
-from precursorintelligence.training.train import psi, run_train
+from precursorintelligence.training.train import (
+    mitigation_weights,
+    psi,
+    resolve_features,
+    run_train,
+)
 
 
 def small_config(**members):
@@ -288,6 +297,51 @@ def test_train_is_deterministic(store, meta, prepare, monkeypatch):
     for c in CANDIDATES:
         assert a.eval_models[c].to_files() == b.eval_models[c].to_files()
     assert a.selection == b.selection
+
+
+def reweight(cfg):
+    return cfg.model_copy(update={"bias": cfg.bias.model_copy(update={"mitigation": "reweight"})})
+
+
+def test_mitigation_weights_exist_only_with_reweight(store, meta, prepare):
+    cfg = small_config()
+    prepare(store, meta, run_id="manual__w", cfg=cfg)
+    frame = read_frame(store, RunPaths.of(cfg, "manual__w"), "eval_train")
+    reg = load_feature_registry()
+    assert mitigation_weights(frame, cfg, reg) is None
+    w = mitigation_weights(frame, reweight(cfg), reg)
+    assert w is not None and len(w) == frame.height and np.ptp(w) > 0
+
+
+def test_reweight_fits_both_windows_on_the_mitigation_weights(store, meta, prepare, monkeypatch):
+    # §7: train's OOF predictions are then exactly the reweighted variant evaluate's trade-off measures
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    cfg = reweight(small_config())
+    prepare(store, meta, run_id="manual__rw", cfg=cfg)
+    reg = load_feature_registry()
+    calls = []
+    real = train_module.mitigation_weights
+    monkeypatch.setattr(
+        train_module,
+        "mitigation_weights",
+        lambda frame, c, r=None: calls.append(frame.height) or real(frame, c, r),
+    )
+    out = run_train(store, ml_run_id="manual__rw", cfg=cfg, registry=reg, recipe_hash="test")
+    p = RunPaths.of(cfg, "manual__rw")
+    frame = read_frame(store, p, "eval_train")
+    assert calls == [frame.height, read_frame(store, p, "refit_train").height]
+    chosen = out.result.selected
+    oof = pl.read_parquet(io.BytesIO(_read(store, out.result.oof["eval"])))
+    p_train = (
+        frame.select("ccn", "t")
+        .join(oof, on=["ccn", "t"], how="left", maintain_order="left")[f"p_{chosen}"]
+        .to_numpy()
+    )
+    features = resolve_features(reg, cfg, read_input_manifest(store, p))
+    w = eval_weights(frame, slice_config(cfg), reg)
+    assert np.allclose(p_train, weighted_oof(frame, features, cfg, chosen, w), atol=1e-9)
+    unweighted = weighted_oof(frame, features, cfg, chosen, np.ones(frame.height))
+    assert not np.allclose(p_train, unweighted)
 
 
 def test_psi_is_zero_for_the_same_distribution_and_large_for_a_shift():
