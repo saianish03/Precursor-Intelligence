@@ -3,7 +3,10 @@
 This is both the manual promotion after Checkpoint ML-A and the rollback (any earlier version). The version and
 the reason come from the DAG params through the environment (``PI_ML_VERSION``, ``PI_ML_REASON``), never the
 command line. Only a version that passed G1 and G2 can be promoted: a hand-picked model still needs clean data and
-a sane evaluation. Every promotion is an ``ml_runs`` row (``manual_promote`` or ``rollback``), which ``score``'s
+a sane evaluation. Both checks come from ``ml_runs`` and GCS, never from MLflow, which has no login (§9.4): G1 and G2
+from the gate row that registered the version, and the version's refit package verified against its registering
+run's ``train.json`` (``load_verified_package``), so the alias never moves to a version that cannot score. Every
+promotion is an ``ml_runs`` row (``manual_promote`` or ``rollback``), which ``score``'s
 integrity check matches against ``@champion``.
 """
 
@@ -21,7 +24,8 @@ from ..common.io.object_store import ObjectStore
 from ..training import MlInputError
 from ..training.contracts import Champion, RunPaths
 from ..training.data import gold_config_sha, read_input_manifest
-from .registry import Registry
+from .gates import GateReport
+from .registry import Registry, load_verified_package, registering_gate_row
 
 log = logging.getLogger(__name__)
 
@@ -76,11 +80,10 @@ def run_promote(
     target = registry.get(version)
     if target is None:
         raise MlInputError(f"{cfg.registry.model_name} has no version {version}")
-    if target.tags.get("sanity_passed") != "true":
-        raise MlInputError(
-            f"version {version} did not pass G1 and G2 (failed: {target.tags.get('failed_gates') or 'unknown'}): "
-            "it cannot be promoted by hand"
-        )
+    check_sanity_gates(meta, version)
+    load_verified_package(
+        store, meta, cfg, version, "refit"
+    )  # refuses (exit 2) before the alias moves
     paths = RunPaths.of(cfg, ml_run_id)
     done = meta.read("ml_runs", {"ml_run_id": ml_run_id, "action": list(PROMOTE_ACTIONS)})
     if done:  # a retry: the row already records what happened (the alias may have moved since)
@@ -106,6 +109,22 @@ def run_promote(
     store.put_bytes(paths.champion, champion.model_dump_json(indent=2).encode(), overwrite=True)
     log.info("promote %s: champion %s -> %s (%s): %s", ml_run_id, before, version, action, reason)
     return PromoteOutput(version, action, before, reason)
+
+
+def check_sanity_gates(meta: MetadataStore, version: int) -> None:
+    """G1 and G2 passed at the gate that registered ``version``, read from its ``ml_runs`` row (§9.4)."""
+    row = registering_gate_row(meta, version)
+    raw = row.get("gate_results_json")
+    if not raw:
+        raise MlInputError(f"the gate row of version {version} records no gate results")
+    results = {r.gate: r.status for r in GateReport.model_validate_json(raw).results}
+    missing = [g for g in ("G1", "G2") if g not in results]
+    failed = [g for g in ("G1", "G2") if results.get(g) == "fail"]
+    if missing or failed:
+        what = f"failed {', '.join(failed)}" if failed else f"has no {', '.join(missing)} result"
+        raise MlInputError(
+            f"version {version} {what} at its gate: only a version that passed G1 and G2 can be promoted by hand"
+        )
 
 
 def _row(

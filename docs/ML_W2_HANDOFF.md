@@ -34,22 +34,25 @@ held as `challenger`, so **nothing is scored until someone runs `ml promote`** (
 
 ### Loading the version
 ```python
-from precursorintelligence.evaluation.registry import default_registry
+from precursorintelligence.evaluation.registry import load_verified_package
 
-registry = default_registry(cfg)               # None when MLFLOW_TRACKING_URI is unset
-model = registry.load_model(f"models:/{champion.model_name}/{champion.version}")   # a PrecursorModel
+model = load_verified_package(store, meta, cfg, champion.version, "refit")   # a PrecursorModel
 scores = model.predict_frame(score_frame)      # p, logit, logit_raw, logit_<member>
 ```
-`load_model` unwraps the pyfunc and checks that it is a `PrecursorModel` (W1's package). The registered version's
-source is the **refit** package (trained on the refit window), which is the model that ships.
+MLflow gives only the alias: its server has no login, so its copy of a package is never unpickled (spec §9.4, #66).
+`load_verified_package` finds the run that registered the version from its `ml_runs` gate row, reads that run's
+`train.json` from GCS, checks every file of the package against the sha256 recorded there (`refit_package_sha256`,
+or `eval_package_sha256` for `"eval"`) and only then loads it; any mismatch, missing file or path outside the run
+folder is exit 2. The **refit** package (trained on the refit window) is the model that ships; `evaluate` loads the
+champion's **eval** fit the same way, and `promote` verifies the target's refit package before moving the alias.
 
 ### Version tags (`evaluation/gate.py: version_tags`)
 | Tag | Use in W3 |
 |---|---|
 | `ml_run_id`, `recipe_hash`, `candidate` | `facility_scores` columns `ml_run_id`/`candidate`; the scores manifest |
 | `gold_run_id`, `dataset_version`, `training_dataset`, `v_labels`, `gold_verified` | stamps on the scores |
-| `eval_run_id`, `eval_model_uri` | not for scoring (G5/G7 use the eval fit) |
-| `gate_outcome`, `failed_gates`, `sanity_passed` | what the gates said |
+| `eval_run_id`, `eval_model_uri` | reported only, never loaded (G5/G7 use the verified eval fit) |
+| `gate_outcome`, `failed_gates`, `sanity_passed` | what the gates said, for people; `promote` reads G1/G2 from the `ml_runs` gate row instead |
 | `promoted_by`, `promote_reason` | set by `ml promote` |
 
 ### `ml_runs` (Postgres, `common/io/schemas.py`) and the integrity check (§9.4)
@@ -121,8 +124,8 @@ never need a server).
 
 ## 5. Phase 1 deviations you may meet
 - G7(a) leaves out `state` until Benjamini–Hochberg lands (spec §9.1); per-state O−E is in the model card.
-- W1's `write_package` returns sha256 values that nothing stores or verifies yet. Before `score` loads packages
-  for production, consider recording them (e.g. as version tags) and checking them on load.
+- Package sha256 values are recorded in `train.json` (`refit_package_sha256`, `eval_package_sha256`) and verified
+  on every load by `score`, `evaluate` and `promote` (#63, #66, #74).
 
 ## 6. Numbers from the first real run (ml-dev gold `20261112T020010Z-543cdc`)
 LightGBM selected (OOF PR-AUC 0.511). Test month 2025-02, a development month: PR-AUC 0.470 [0.454, 0.486] vs the
