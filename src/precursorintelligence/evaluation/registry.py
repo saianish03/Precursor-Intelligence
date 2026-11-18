@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from ..common.config import MlConfig
 from ..common.io.metadata_store import MetadataStore
@@ -41,7 +41,6 @@ class Registry(Protocol):
     def set_tags(self, version: int, tags: Mapping[str, str]) -> None: ...
     def set_alias(self, alias: str, version: int) -> None: ...
     def delete_alias(self, alias: str) -> None: ...
-    def load_model(self, model_uri: str) -> PrecursorModel: ...
 
 
 class MlflowRegistry:
@@ -136,16 +135,6 @@ class MlflowRegistry:
             if not self._missing(exc):  # not set: nothing to delete
                 raise
 
-    def load_model(self, model_uri: str) -> PrecursorModel:
-        import mlflow
-
-        from ..training.ensemble import PrecursorModel
-
-        model = mlflow.pyfunc.load_model(model_uri).unwrap_python_model()
-        if not isinstance(model, PrecursorModel):
-            raise TypeError(f"{model_uri} is not a PrecursorModel package")
-        return model
-
 
 PROMOTION_ACTIONS = ("promote", "manual_promote", "rollback")
 
@@ -172,6 +161,22 @@ def check_champion_integrity(meta: MetadataStore, alias_version: int | None) -> 
         )
 
 
+def registering_gate_row(meta: MetadataStore, version: int) -> dict[str, Any]:
+    """The ``ml_runs`` row of the gate that registered ``version`` (the earliest promote or hold row whose
+    ``candidate_version`` is it). The registering run and its gate results come from here, never from the version's
+    MLflow tags, which anyone who reaches the unauthenticated server can set (§9.4). None found: exit 2."""
+    rows = [
+        r
+        for r in meta.read("ml_runs", {"action": list(REGISTERING_ACTIONS)})
+        if r.get("candidate_version") == version
+    ]
+    if not rows:
+        from ..training import MlInputError
+
+        raise MlInputError(f"ml_runs records no gate run that registered version {version}")
+    return min(rows, key=lambda r: r["id"])
+
+
 def load_verified_package(
     store: ObjectStore,
     meta: MetadataStore,
@@ -193,14 +198,7 @@ def load_verified_package(
     from ..training.data import sha256_hex
     from ..training.ensemble import PrecursorModel
 
-    rows = [
-        r
-        for r in meta.read("ml_runs", {"action": list(REGISTERING_ACTIONS)})
-        if r.get("candidate_version") == version
-    ]
-    if not rows:
-        raise MlInputError(f"ml_runs records no gate run that registered version {version}")
-    source = min(rows, key=lambda r: r["id"])["ml_run_id"]
+    source = registering_gate_row(meta, version)["ml_run_id"]
     source_paths = RunPaths.of(cfg, source)
     if not store.exists(source_paths.train_result):
         raise MlInputError(

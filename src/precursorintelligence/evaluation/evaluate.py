@@ -122,12 +122,11 @@ def champion_ref(registry: Registry | None, cfg: MlConfig) -> ChampionRef | None
     v = registry.by_alias(cfg.registry.champion_alias)
     if v is None:
         return None
-    uri = v.tags.get("eval_model_uri", "")
-    if not uri:
-        raise MlInputError(
-            f"champion version {v.version} has no eval_model_uri tag: it cannot be compared on this test frame"
-        )
-    return ChampionRef(version=v.version, eval_model_uri=uri, candidate=v.tags.get("candidate"))
+    return ChampionRef(
+        version=v.version,
+        eval_model_uri=v.tags.get("eval_model_uri", ""),
+        candidate=v.tags.get("candidate"),
+    )
 
 
 def _score_report(
