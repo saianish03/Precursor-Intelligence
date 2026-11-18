@@ -127,6 +127,7 @@ def apply_gates(
             uncleared_leakage_flags=report.sanity.uncleared_leakage_flags,
             shap_additive=report.sanity.shap_additive,
             shuffled_label_roc=report.sanity.shuffled_label_roc,
+            shuffled_label_rocs=report.sanity.shuffled_label_rocs,
             roc_range=cfg.evaluation.shuffled_label.roc_range,
         ),
         gates.g3_beats_rule(rule),

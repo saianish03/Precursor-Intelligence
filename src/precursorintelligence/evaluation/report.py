@@ -63,7 +63,10 @@ class Sanity(_Report):
     shap_additive: bool | None
     shap_max_abs_error: Number
     shap_rows: int
-    shuffled_label_roc: Number  # None when it did not run (an already-evaluated recipe_hash)
+    shuffled_label_roc: (
+        Number  # the mean of the shuffles; None when it did not run (an already-evaluated recipe)
+    )
+    shuffled_label_rocs: list[float] = []  # every shuffle's ROC-AUC (#74 B20)
 
 
 class EvaluationReport(_Report):

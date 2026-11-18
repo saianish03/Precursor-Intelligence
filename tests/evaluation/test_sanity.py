@@ -4,10 +4,13 @@ import numpy as np
 import pytest
 
 from precursorintelligence.common.config import load_feature_registry
+from precursorintelligence.evaluation import sanity
+from precursorintelligence.evaluation.gates import g2_sanity
 from precursorintelligence.evaluation.sanity import (
     shap_additivity,
     shuffle_within_groups,
     shuffled_label_roc,
+    shuffled_label_rocs,
 )
 from precursorintelligence.training.contracts import RunPaths
 from precursorintelligence.training.data import read_frame, read_input_manifest
@@ -42,6 +45,33 @@ def test_a_model_on_shuffled_labels_ranks_like_chance(trained):
     train, test = read_frame(store, paths, "eval_train"), read_frame(store, paths, "test")
     roc = shuffled_label_roc(train, test, features, trained.cfg)
     assert 0.40 < roc < 0.60  # a few hundred test rows: wider than production's 0.48-0.52
+
+
+def test_g2_averages_several_shuffles_each_with_its_own_seed(trained):
+    # one shuffle is too noisy for G2's range (#74 B20): every shuffle's value is kept
+    store, paths, features = frames(trained)
+    train, test = read_frame(store, paths, "eval_train"), read_frame(store, paths, "test")
+    rocs = shuffled_label_rocs(train, test, features, trained.cfg)
+    assert len(rocs) == trained.cfg.evaluation.shuffled_label.shuffles > 1
+    assert len(set(rocs)) == len(rocs)  # different seeds, different shuffles
+    assert rocs[0] == shuffled_label_roc(train, test, features, trained.cfg, seed=0)
+    assert 0.40 < sum(rocs) / len(rocs) < 0.60
+
+
+def test_labels_that_are_not_really_shuffled_still_fail_g2(trained, monkeypatch):
+    # what the check exists for: a model that still sees the real labels ranks far above chance
+    monkeypatch.setattr(sanity, "shuffle_within_groups", lambda y, groups, seed: y)
+    store, paths, features = frames(trained)
+    train, test = read_frame(store, paths, "eval_train"), read_frame(store, paths, "test")
+    rocs = shuffled_label_rocs(train, test, features, trained.cfg)
+    g2 = g2_sanity(
+        uncleared_leakage_flags=[],
+        shap_additive=True,
+        shuffled_label_roc=sum(rocs) / len(rocs),
+        shuffled_label_rocs=rocs,
+        roc_range=trained.cfg.evaluation.shuffled_label.roc_range,
+    )
+    assert g2.status == "fail" and "outside" in g2.reason
 
 
 def test_shap_contributions_add_up_for_every_candidate(trained):

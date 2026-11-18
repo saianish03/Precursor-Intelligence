@@ -81,30 +81,34 @@ def g2_sanity(
     shap_additive: bool | None,
     shuffled_label_roc: float | None,
     roc_range: tuple[float, float],
+    shuffled_label_rocs: Sequence[float] = (),
 ) -> GateResult:
     """No uncleared single-feature leakage flag; SHAP contributions add up (when checked); the shuffled-label
-    model's ROC-AUC is near 0.5 (when it ran)."""
+    models' mean ROC-AUC (``shuffled_label_roc``, over ``shuffled_label_rocs``) is near 0.5 (when it ran)."""
     fails = []
     if uncleared_leakage_flags:
         fails.append(f"uncleared leakage flags: {sorted(uncleared_leakage_flags)}")
     if shap_additive is False:
         fails.append("SHAP contributions do not add up to the model's log-odds")
     lo, hi = roc_range
-    if shuffled_label_roc is not None and not lo <= shuffled_label_roc <= hi:
-        fails.append(f"shuffled-label ROC-AUC {shuffled_label_roc:.4f} outside [{lo}, {hi}]")
+    roc = ""
+    if shuffled_label_roc is not None:
+        each = ", ".join(f"{v:.4f}" for v in shuffled_label_rocs)
+        of = (
+            f" (mean of {len(shuffled_label_rocs)}: {each})" if len(shuffled_label_rocs) > 1 else ""
+        )
+        roc = f"shuffled-label ROC-AUC {shuffled_label_roc:.4f}{of}"
+        if not lo <= shuffled_label_roc <= hi:
+            fails.append(f"{roc} outside [{lo}, {hi}]")
     return _result(
         "G2",
         fails,
-        "no leakage flag; sanity checks in range"
-        + (
-            f" (shuffled-label ROC-AUC {shuffled_label_roc:.4f} in [{lo}, {hi}])"
-            if shuffled_label_roc is not None
-            else ""
-        ),
+        "no leakage flag; sanity checks in range" + (f" ({roc} in [{lo}, {hi}])" if roc else ""),
         {
             "uncleared_leakage_flags": len(uncleared_leakage_flags),
             "shap_additive": shap_additive,
             "shuffled_label_roc": shuffled_label_roc,
+            "shuffles": len(shuffled_label_rocs),
         },
     )
 

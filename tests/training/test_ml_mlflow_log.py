@@ -60,19 +60,6 @@ def _manifest() -> InputManifest:
     )
 
 
-@pytest.fixture
-def tracking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
-    uri = f"sqlite:///{(tmp_path / 'mlruns.db').as_posix()}"
-    monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
-    monkeypatch.setenv("MLFLOW_DISABLE_AGENT_HINT", "1")
-    monkeypatch.chdir(tmp_path)  # a default ./mlruns artifact root lands in tmp_path
-    mlflow.set_tracking_uri(uri)
-    yield uri
-    while mlflow.active_run() is not None:
-        mlflow.end_run()
-    mlflow.set_tracking_uri(None)  # type: ignore[arg-type]
-
-
 # --------------------------------------------------------------------------- recipe hash
 
 
@@ -99,6 +86,27 @@ def test_recipe_hash_tracks_configs(tmp_path: Path) -> None:
     assert (
         mlflow_log.recipe_hash(FEATURES, ml_config_path=ml, reason_labels_path=reasons) != without
     )
+
+
+def test_recipe_hash_tracks_the_bias_slices_config(tmp_path: Path) -> None:
+    # evaluation's slices and the reweighting come from it, so a change is a new recipe (#76 B8)
+    slices = tmp_path / "bias_slices.yaml"
+    slices.write_text("slices: [a]\n")
+    h = mlflow_log.recipe_hash(FEATURES, bias_slices_path=slices)
+    slices.write_text("slices: [b]\n")
+    assert mlflow_log.recipe_hash(FEATURES, bias_slices_path=slices) != h
+
+
+def test_recipe_hash_tracks_the_bias_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = tmp_path / "bias" / "slices.py"
+    module.parent.mkdir()
+    module.write_text("A = 1\n")
+    monkeypatch.setattr(mlflow_log, "_package_root", lambda: tmp_path)
+    h = mlflow_log.recipe_hash(FEATURES)
+    module.write_text("A = 2\n")
+    assert mlflow_log.recipe_hash(FEATURES) != h
 
 
 # --------------------------------------------------------------------------- tags and secrets

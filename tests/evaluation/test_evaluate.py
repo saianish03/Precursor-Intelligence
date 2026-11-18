@@ -334,10 +334,13 @@ def test_a_champion_without_the_eval_model_uri_tag_is_still_compared(trained):
 def test_shuffled_labels_run_only_for_a_recipe_no_gate_judged(trained):
     meta = trained.meta()
     first = evaluate(trained, meta=meta, shuffled_label=None)
-    assert first.report.sanity.shuffled_label_roc is not None
+    rocs = first.report.sanity.shuffled_label_rocs
+    assert len(rocs) == trained.cfg.evaluation.shuffled_label.shuffles  # every shuffle is recorded
+    assert first.report.sanity.shuffled_label_roc == pytest.approx(sum(rocs) / len(rocs))
     meta.append("ml_runs", [{"ml_run_id": "earlier", "action": "hold", "recipe_hash": "test"}])
     again = evaluate(trained, meta=meta, shuffled_label=None)
     assert again.report.sanity.shuffled_label_roc is None
+    assert again.report.sanity.shuffled_label_rocs == []
 
 
 def test_evaluate_needs_a_trained_run(trained):

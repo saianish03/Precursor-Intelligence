@@ -223,6 +223,7 @@ def tune(
             cfg=cfg,
             registry=load_feature_registry(),
             n_trials=n_trials,
+            ml_config_path=ml_config,
         )
         typer.echo(f"run {rid}: best CV PR-AUC {res.best_value:.4f}")
         typer.echo(res.proposal_yaml)

@@ -31,7 +31,8 @@ from ..common.config import FeatureSpec, MlConfig, project_root
 from .contracts import DecisionName, InputManifest, Mode
 from .ensemble import PrecursorModel
 
-RECIPE_PACKAGES = ("training", "evaluation", "serving")
+# bias: evaluation's slices and the reweighting come from it
+RECIPE_PACKAGES = ("training", "evaluation", "serving", "bias")
 PARAM_MAX_CHARS = 6000
 _SECRET_KEY = re.compile(r"password|secret|token|credential|api_key", re.IGNORECASE)
 
@@ -48,10 +49,11 @@ def recipe_hash(
     *,
     ml_config_path: Path | None = None,
     reason_labels_path: Path | None = None,
+    bias_slices_path: Path | None = None,
 ) -> str:
-    """§14.3: sha256 over the code of training/evaluation/serving, ``ml.yaml``, ``reason_labels.yaml``, the
-    feature list and the lightgbm/scikit-learn/numpy versions. A new hash means new code, config, features or
-    libraries."""
+    """§14.3: sha256 over the code of training/evaluation/serving/bias, ``ml.yaml``, ``reason_labels.yaml``,
+    ``bias_slices.yaml``, the feature list and the lightgbm/scikit-learn/numpy versions. A new hash means new code,
+    config, features or libraries."""
     h = hashlib.sha256()
 
     def part(tag: str, data: bytes) -> None:
@@ -75,6 +77,9 @@ def recipe_hash(
     reasons = Path(reason_labels_path or configs / "reason_labels.yaml")
     if reasons.is_file():
         part("reason_labels.yaml", reasons.read_bytes())
+    slices = Path(bias_slices_path or configs / "bias_slices.yaml")
+    if slices.is_file():
+        part("bias_slices.yaml", slices.read_bytes())
 
     feature_list = json.dumps([[f.name, f.dtype] for f in features], separators=(",", ":"))
     part("features", feature_list.encode("utf-8"))

@@ -353,10 +353,10 @@ def evaluate_run(
         else not recipe_evaluated(meta, train.recipe_hash)
     )
     eval_frame = read_frame(store, paths, "eval_train") if (run_shuffled or mitigation) else None
-    shuffled_roc = (
-        sanity.shuffled_label_roc(eval_frame, test, features, cfg)
+    shuffled_rocs = (
+        sanity.shuffled_label_rocs(eval_frame, test, features, cfg)
         if eval_frame is not None and run_shuffled
-        else None
+        else []
     )
 
     # ---- bias mitigation trade-off on the eval window's OOF predictions (§7), never on test
@@ -425,7 +425,8 @@ def evaluate_run(
             shap_additive=additivity.holds,
             shap_max_abs_error=additivity.max_abs_error,
             shap_rows=additivity.rows,
-            shuffled_label_roc=shuffled_roc,
+            shuffled_label_roc=sum(shuffled_rocs) / len(shuffled_rocs) if shuffled_rocs else None,
+            shuffled_label_rocs=shuffled_rocs,
         ),
         bootstrap_replicates=boot.replicates,
         mitigation=tradeoff,

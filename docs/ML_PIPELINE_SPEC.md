@@ -337,7 +337,7 @@ Facility block bootstrap, 1,000 replicates, seed 0 (`evaluation/bootstrap.py`, f
 
 ### 6.4 Sanity checks
 - **SHAP additivity** on 1,000 test rows (§8.1), every run.
-- **Shuffled labels:** when a `recipe_hash` is evaluated for the first time (and in CI), refit LightGBM (300 trees) with labels shuffled within month; test ROC-AUC must be in 0.48–0.52. It catches evaluation bugs, not feature leakage.
+- **Shuffled labels:** when a `recipe_hash` is evaluated for the first time (and in CI), refit LightGBM (300 trees) with labels shuffled within month, 10 times with seeds 0–9 (`evaluation.shuffled_label.shuffles`); the mean test ROC-AUC must be in 0.44–0.56, and every shuffle's value is recorded in `evaluation.json` and G2's reason. One shuffle is too noisy for a tight range: on the real gold its SD is 0.03 and the mean of 10 is 0.52, not 0.50 (#74 B20), while real labels left unshuffled score about 0.70. It catches evaluation bugs, not feature leakage.
 - **Single-feature leakage flags** (§1.5).
 
 ### 6.5 Report
@@ -496,7 +496,7 @@ MLflow 3.17 tracking server in the compose stack (§16.1); `MLFLOW_TRACKING_URI=
 - Artifacts: `evaluation.json`, `selection.json`, `slices.csv`, `bias_report.md`, plots, `shap_mean_abs.csv`, `model_card.md`, `feature_list.json`, `windows.json`, the input `manifest.json`, the eval-fit packages.
 
 ### 14.3 `recipe_hash`
-sha256 over: the relative paths and bytes of the `*.py` files of `precursorintelligence.{training,evaluation,serving}` (not `.pyc`, which change per build), `configs/ml.yaml`, `configs/reason_labels.yaml`, the feature list, and the lightgbm, scikit-learn and numpy versions. A new hash means new code, config, features or libraries.
+sha256 over: the relative paths and bytes of the `*.py` files of `precursorintelligence.{training,evaluation,serving,bias}` (not `.pyc`, which change per build; `bias` because evaluation's slices and the reweighting come from it), `configs/ml.yaml`, `configs/reason_labels.yaml`, `configs/bias_slices.yaml`, the feature list, and the lightgbm, scikit-learn and numpy versions. A new hash means new code, config, features or libraries.
 
 ---
 
@@ -545,7 +545,7 @@ Branches use `@task.branch`; `score` and `monitor` use `trigger_rule="none_faile
 | `prepare` | `ml prepare` | pins the gold run named in `decision.json`; §1.2, §1.5, §3 |
 | `tune` | `ml tune` | RETUNE; pool `heavy`; `retries=0`; timeout 90 min |
 | `train` | `ml train` | pool `heavy`; `retries=0`; timeout 45 min (~10 min measured) |
-| `evaluate` | `ml evaluate` | §6–§8; pool `heavy` (5 reweighting fits, the shuffled-label fit); `retries=0`; timeout 60 min |
+| `evaluate` | `ml evaluate` | §6–§8; pool `heavy` (5 reweighting fits, the 10 shuffled-label fits); `retries=0`; timeout 60 min |
 | `gate` | `ml gate` | registers (idempotent), aliases, `ml_runs`; writes `champion.json` |
 | `promote` | `ml promote` | the version comes from the param through the environment (`PI_ML_VERSION`, `PI_ML_REASON`), never the command line |
 | `score` | `ml score` | §10; skips without a champion |
