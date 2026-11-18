@@ -240,8 +240,8 @@ stages:
       nfiles: 4
     - path: src/precursorintelligence/serving
       hash: md5
-      md5: 62d77d79007923e1eaf0b8a168f3c5ed.dir
-      size: 39089
+      md5: 0fa343a8afb3b766eb0965ffbf51f6d0.dir
+      size: 39078
       nfiles: 5
     - path: src/precursorintelligence/training
       hash: md5
