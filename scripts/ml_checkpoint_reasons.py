@@ -84,6 +84,7 @@ def main() -> None:
         sample,
         score_month=date(int(manifest.v[:4]), int(manifest.v[5:7]), 1),
         model_version=a.version,
+        gold_run_id=manifest.gold_run_id,
         labels=explain.load_reason_labels(project_root() / cfg.explain.labels),
         top_raise=cfg.explain.top_raise,
         top_lower=cfg.explain.top_lower,

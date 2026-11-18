@@ -153,7 +153,14 @@ def _reason_inputs():
 def test_reasons_rank_raising_and_lowering_contributions_by_size():
     contrib, frame = _reason_inputs()
     out = explain.reasons(
-        contrib, frame, score_month=MONTH, model_version=3, labels=LABELS, top_raise=2, top_lower=1
+        contrib,
+        frame,
+        score_month=MONTH,
+        model_version=3,
+        gold_run_id="g1",
+        labels=LABELS,
+        top_raise=2,
+        top_lower=1,
     )
     first = out.filter(pl.col("ccn") == "000001")
     assert first.select("direction", "rank", "feature").rows() == [
@@ -169,13 +176,21 @@ def test_reasons_rank_raising_and_lowering_contributions_by_size():
     ]
     assert out.columns == list(explain.REASON_COLUMNS)
     assert set(out["model_version"]) == {3} and set(out["score_month"]) == {MONTH}
+    assert set(out["gold_run_id"]) == {"g1"}
 
 
 def test_a_zero_contribution_is_never_a_reason():
     contrib = pd.DataFrame({"a": [0.5], "b": [0.0], "c": [0.0]})
     frame = pl.DataFrame({"ccn": ["000001"], "t": ["2026-10"], "a": [1.0], "b": [1.0], "c": [True]})
     out = explain.reasons(
-        contrib, frame, score_month=MONTH, model_version=1, labels=LABELS, top_raise=5, top_lower=3
+        contrib,
+        frame,
+        score_month=MONTH,
+        model_version=1,
+        gold_run_id="g1",
+        labels=LABELS,
+        top_raise=5,
+        top_lower=3,
     )
     assert out.select("direction", "feature").rows() == [("raises", "a")]
 
@@ -183,7 +198,14 @@ def test_a_zero_contribution_is_never_a_reason():
 def test_reason_rows_carry_labels_formatted_values_and_null_text():
     contrib, frame = _reason_inputs()
     out = explain.reasons(
-        contrib, frame, score_month=MONTH, model_version=1, labels=LABELS, top_raise=2, top_lower=1
+        contrib,
+        frame,
+        score_month=MONTH,
+        model_version=1,
+        gold_run_id="g1",
+        labels=LABELS,
+        top_raise=2,
+        top_lower=1,
     )
     row = {r["feature"]: r for r in out.filter(pl.col("ccn") == "000001").to_dicts()}
     assert row["a"]["label"] == "citations in 24 months" and row["a"]["feature_value"] == "4"
@@ -202,6 +224,7 @@ def test_reasons_refuse_mismatched_rows():
             frame.head(1),
             score_month=MONTH,
             model_version=1,
+            gold_run_id="g1",
             labels=LABELS,
             top_raise=1,
             top_lower=1,
@@ -258,9 +281,12 @@ def test_global_tables_and_key_features():
 
 def test_shap_table_is_wide_with_the_base_value():
     contrib, frame = _reason_inputs()
-    out = explain.shap_table(np.array([0.1, 0.2]), contrib, frame, model_version=4)
-    assert out.columns[:4] == ["ccn", "t", "model_version", "base_value"]
-    assert out.columns[4:] == list(contrib.columns)
+    out = explain.shap_table(
+        np.array([0.1, 0.2]), contrib, frame, model_version=4, gold_run_id="g1"
+    )
+    assert out.columns[:5] == ["ccn", "t", "model_version", "gold_run_id", "base_value"]
+    assert out.columns[5:] == list(contrib.columns)
+    assert set(out["gold_run_id"]) == {"g1"}
 
 
 def test_plots_render_png(members):

@@ -324,11 +324,14 @@ def run_score(
         frame,
         score_month=_month_start(manifest.v),
         model_version=version,
+        gold_run_id=manifest.gold_run_id,
         labels=explain.load_reason_labels(project_root() / cfg.explain.labels),
         top_raise=cfg.explain.top_raise,
         top_lower=cfg.explain.top_lower,
     )
-    shap = explain.shap_table(base, contrib, frame, model_version=version)
+    shap = explain.shap_table(
+        base, contrib, frame, model_version=version, gold_run_id=manifest.gold_run_id
+    )
     beds = (
         frame["certified_beds"]
         if "certified_beds" in frame.columns

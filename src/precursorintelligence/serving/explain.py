@@ -37,6 +37,7 @@ REASON_COLUMNS = (
     "t",
     "score_month",
     "model_version",
+    "gold_run_id",
     "direction",
     "rank",
     "feature",
@@ -137,6 +138,7 @@ def reasons(
     *,
     score_month: date,
     model_version: int,
+    gold_run_id: str,
     labels: Mapping[str, ReasonLabel],
     top_raise: int,
     top_lower: int,
@@ -169,6 +171,7 @@ def reasons(
                         t[i],
                         score_month,
                         model_version,
+                        gold_run_id,
                         direction,
                         rank,
                         feature,
@@ -182,6 +185,7 @@ def reasons(
         "t": frame.schema["t"],
         "score_month": pl.Date,
         "model_version": pl.Int64,
+        "gold_run_id": pl.String,
         "direction": pl.String,
         "rank": pl.Int64,
         "feature": pl.String,
@@ -199,14 +203,17 @@ def shap_table(
     frame: pl.DataFrame,
     *,
     model_version: int,
+    gold_run_id: str,
 ) -> pl.DataFrame:
-    """The wide SHAP matrix (§10.2): ``ccn, t, model_version, base_value`` and one float column per feature."""
+    """The wide SHAP matrix (§10.2): ``ccn, t, model_version, gold_run_id, base_value`` and one float column per
+    feature."""
     wide = pl.from_pandas(contrib.reset_index(drop=True))
     head = pl.DataFrame(
         {
             "ccn": frame["ccn"],
             "t": frame["t"],
             "model_version": pl.Series([model_version] * frame.height, dtype=pl.Int64),
+            "gold_run_id": pl.Series([gold_run_id] * frame.height, dtype=pl.String),
             "base_value": pl.Series(np.asarray(base, dtype=float)),
         }
     )
