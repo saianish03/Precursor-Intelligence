@@ -173,6 +173,23 @@ def test_every_score_table_has_a_stable_schema_and_its_provenance(trained):
         assert set(t["model_version"]) == {1} and set(t["gold_run_id"]) == {gold_run_id}, name
 
 
+def test_a_plot_that_fails_never_stops_the_scores(trained, monkeypatch, caplog):
+    # the plots are report extras (#75 B6): any error, not only a missing library, is logged and skipped
+    def broken(*args, **kwargs):
+        raise RuntimeError("shap could not draw")
+
+    monkeypatch.setattr(explain, "beeswarm", broken)
+    out = score(trained, setup_champion(trained, 1))
+    assert not out.skipped
+    for name in SCORE_FILES:
+        assert table(trained, name).height > 0
+    assert trained.store().exists(f"{scores_dir(trained.cfg, out.v)}{SCORES_MANIFEST}")
+    report = score_report_dir(RunPaths.of(trained.cfg, trained.run_id))
+    assert trained.store().exists(f"{report}shap_bar.png")  # the other plot is still drawn
+    assert not trained.store().exists(f"{report}shap_beeswarm.png")
+    assert "shap_beeswarm.png skipped" in caplog.text and "shap could not draw" in caplog.text
+
+
 def test_reasons_are_the_top_raising_and_lowering_contributions(trained):
     score(trained, setup_champion(trained, 1))
     r, shap = table(trained, "facility_reasons"), table(trained, "shap_values")
