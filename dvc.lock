@@ -215,8 +215,8 @@ stages:
       nfiles: 11
     - path: src/precursorintelligence/evaluation
       hash: md5
-      md5: fa2d026f341c229eca34f98658170367.dir
-      size: 127236
+      md5: 6b9643f0e504895d323b0c1b4d20f303.dir
+      size: 127638
       nfiles: 15
     - path: src/precursorintelligence/gold
       hash: md5

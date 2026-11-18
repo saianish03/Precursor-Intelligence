@@ -11,9 +11,10 @@ scores.
 > **Status (branch `dev`, November 2026):** the **data pipeline runs end to end**, locally and against the GCS
 > bucket: ingestion → bronze → silver → gold, with schema and drift validation, data bias slicing, alerts, DVC and
 > CI. **The ML pipeline (Phase 1) is built** (work packages W0 to W6): one Airflow DAG, `cms_nh_ml`, trains, evaluates,
-> bias-checks, gates, registers, scores, explains and monitors, with MLflow tracking and a model registry; its
-> training, evaluation and tuning have run on the real gold on the laptop compose stack against GCS (section 8). Phase 2 moves the ML pipeline to the GCP VM and adds BigQuery, the
-> agents, the API and the dashboard.
+> bias-checks, gates, registers, scores, explains and monitors, with MLflow tracking and a model registry. It runs end
+> to end on the real gold on the laptop compose stack against GCS: the first champion was approved on 2026-11-17 and
+> scores every home monthly (section 8). Phase 2 moves the ML pipeline to the GCP VM and adds BigQuery, the agents,
+> the API and the dashboard.
 
 ---
 
@@ -64,9 +65,10 @@ scores.
 (t = 2023-01 → 2026-08). A full backfill through Airflow into the GCS bucket ran 37/37 tasks green in 26.5 min and
 gave gold byte-identical to the local-disk run of the same zips (PR #30).
 
-**ML gold and model (`ml-dev/`, V = 2026-10, rows from 2022-01):** 775,400 home-months × 148 columns, 52 months. On
-the held-out month 2025-02 the model reaches PR-AUC 0.481 (95 % CI 0.465 to 0.498), 1.9 times the base rate,
-reproducing the team's best exploration model (PR #49); section 8.
+**ML gold and model (`ml-dev/`, V = 2026-10, rows from 2022-01):** 775,400 home-months × 148 columns, 52 months. The
+champion (v1, LightGBM) scores PR-AUC 0.470 (95 % CI 0.454 to 0.486) on the held-out month 2025-02, 1.8 times the base
+rate, and scores all 14,686 homes for 2026-10; in PR #49's training window the recipe reproduces the team's best
+exploration model (0.481); section 8.
 
 ---
 
@@ -347,26 +349,37 @@ behind the numbers: [`docs/ML_PIPELINE.md`](docs/ML_PIPELINE.md). Stage numbers 
 | CI/CD, alerts, rollback | the whole chain on a synthetic gold on every pull request (a held gate fails CI); an email for every run; rollback = promote an earlier version | 5, 7 |
 | Docker | every step is `precursor-pipeline ml <command>` in the `precursor-pipeline` image | all |
 
-**Results on the real gold** (held-out month 2025-02: 14,643 homes, 25.6 % with a G to L citation within 12 months;
-PR #49's training window):
+**Results on the real gold** (held-out month 2025-02: 14,643 homes, 25.6 % with a G to L citation within 12 months):
 
-| Model | PR-AUC (95 % CI) | ROC-AUC | Brier | ECE | Precision@5 % |
-|---|---|---|---|---|---|
-| PR #49's ensemble (133 features) | 0.481 (0.465-0.499) | 0.709 | 0.169 | 0.027 | 0.682 |
-| **Ensemble** (120 features) | **0.481 (0.465-0.498)** | 0.710 | 0.169 | 0.026 | 0.676 |
-| LightGBM (selected on out-of-fold PR-AUC 0.523) | 0.478 (0.461-0.494) | 0.709 | 0.170 | 0.034 | 0.660 |
-| Best baseline: 24-month citation severity | 0.395 (0.380-0.410) | | | | |
+| Model | Training window | PR-AUC (95 % CI) | ROC-AUC | Brier | ECE | Precision@5 % |
+|---|---|---|---|---|---|---|
+| **Champion v1: LightGBM, 119 features** (in production on the stack) | production: 2022-05 to 2023-04, the same 20-month lag as live scoring | **0.470 (0.454-0.486)** | 0.706 | 0.171 | 0.028 | 0.643 |
+| Ensemble, 120 features (reproduction) | PR #49's: 2023-01 to 2023-11 | 0.481 (0.465-0.498) | 0.710 | 0.169 | 0.026 | 0.676 |
+| PR #49's ensemble, 133 features | PR #49's | 0.481 (0.465-0.499) | 0.709 | 0.169 | 0.027 | 0.682 |
+| Best baseline: 24-month citation severity | | 0.395 (0.380-0.410) | 0.657 | | | |
 
-- **The baseline model is reproduced** within its CI, with fewer features; every candidate beats every baseline.
-- **Bias:** no gated group is clearly miscalibrated (no O−E 95 % CI wholly outside ±0.05). Reweighting by ownership would cost 0.006 out-of-fold
-  PR-AUC to shrink the largest gap from 0.018 to 0.013, so it stays off; the trade-off is in every model card.
-- **Tuning:** 30 trials all score between 0.509 and 0.511; LR's `C` and the tree depth matter most, so the base
+- **The champion** beats every baseline (by +0.159 PR-AUC over the prior-G+ rule) and passed every gate. It was
+  approved at Checkpoint ML-A on 2026-11-17 and scores all 14,686 homes for 2026-10, with reasons and chain roll-ups.
+- **The baseline model is reproduced** in its own window, with fewer features. The production window scores a little
+  lower because its data is 7 months older, as live scoring's is.
+- **End to end on the stack** (spec §17.2, all passed):
+  - a run with nothing new skips;
+  - a rescore is identical;
+  - a re-tune runs alone;
+  - a second version was promoted automatically through all seven gates;
+  - a deliberately weak candidate was held;
+  - a rollback moved the champion back.
+
+  Every run emails its summary.
+- **Bias:** no gated group is clearly miscalibrated (no O−E 95 % CI wholly outside ±0.05). Reweighting by ownership
+  would cost 0.006 out-of-fold PR-AUC and widen the largest gap (0.016 to 0.022), so it stays off; the trade-off is
+  in every model card.
+- **Tuning:** two runs of 30 trials, all between 0.509 and 0.511; tree depth and LR's `C` matter most, so the base
   parameters stay (a proposal is applied only through a reviewed PR).
 - **What drives the score:** the home's state and the state's recent G+ rate, its size, and its own complaint and
   citation history; staffing and quality measures add the rest.
 - **Caveat:** labels mature 20 months after `t`, so 2025-02 is the newest test month, and PR #49 chose its settings on
-  it. It is reported, not used for decisions; the production window (a 20-month gap) scored 0.470 (0.454-0.486) in
-  W2's first full run (PR #62).
+  it. It is reported, not used for decisions; the first honest month, 2025-03, comes with the late-November release.
 
 <table>
 <tr>
@@ -379,8 +392,9 @@ PR #49's training window):
 </tr>
 </table>
 
-*Candidates and baselines on the test month; the top 20 features by mean |SHAP|; bias by slice (calibration gap
-with its CI against ±0.05, PR-AUC, false-negative rate at the top 10 %); hyperparameter importances from tuning.*
+*From the champion's runs: candidates and baselines on the test month; the top 20 features by mean |SHAP|; bias by
+slice (calibration gap with its CI against ±0.05, PR-AUC, false-negative rate at the top 10 %); hyperparameter
+importances from the DAG's re-tune.*
 
 To run it: section 10.4.
 
