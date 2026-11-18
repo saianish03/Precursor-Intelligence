@@ -1,0 +1,11 @@
+[    21s] DEV 132,832 (SEL 106,286 / HOLD 26,546), TEST 29,324; 75 features (5 categorical: ['x_size_ownership', 'provider_type', 'qm_ss_new_antipsychotic_fn', 'resident_family_council', 'std_recency_band'])
+[    21s] reusing saved tuned params: {'objective': 'binary', 'learning_rate': 0.01010181335221733, 'num_leaves': 36, 'max_depth': 12, 'min_child_samples': 299, 'subsample': 0.5573786473341799, 'subsample_freq': 1, 'colsample_bytree': 0.40660081649133695, 'reg_alpha': 0.007473657441815353, 'reg_lambda': 0.0113399638639673, 'min_split_gain': 0.0845880113977155, 'cat_smooth': 1.6953077021613336, 'n_estimators': 490, 'verbose': -1, 'random_state': 42, 'n_jobs': 2}
+[   221s] test (29,324 rows, base rate 0.264; CatBoost iters 140):
+                                       roc_auc  pr_auc  p_at_5  p_at_10
+GBM default (current)                   0.7021  0.4793  0.6719   0.5679
+LightGBM tuned                          0.7076  0.4894  0.6896   0.5839
+CatBoost                                0.7058  0.4857  0.6855   0.5805
+Logistic regression                     0.7068  0.4858  0.6869   0.5877
+Ensemble (tuned LGBM + CatBoost + LR)   0.7090  0.4903  0.7026   0.5880
+Ensemble (tuned LGBM + CatBoost)        0.7074  0.4884  0.6917   0.5832
+[   221s] DONE

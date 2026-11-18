@@ -1,0 +1,33 @@
+{
+  "experiment": "exp4",
+  "model": "lgbm_native_cat",
+  "smoke": false,
+  "calib_gap": "h",
+  "calib": {
+    "n": 44205,
+    "base_rate": 0.27462956679108697,
+    "roc_auc": 0.7209271478265293,
+    "pr_auc": 0.5100799889450671,
+    "p_at_5": 0.685972850678733,
+    "p_at_10": 0.6070135746606334,
+    "brier": 0.173684282677354
+  },
+  "test": {
+    "n": 29324,
+    "base_rate": 0.26374300913927157,
+    "roc_auc": 0.6927583555489598,
+    "pr_auc": 0.465315802330625,
+    "p_at_5": 0.6289222373806276,
+    "p_at_10": 0.5630968622100955,
+    "brier": 0.17608852570700248
+  },
+  "extra": {
+    "encoding": "native_category",
+    "best_iteration": 58,
+    "fit_s": 6.7,
+    "n_features": 133,
+    "elapsed_s_total": 14.0,
+    "peak_rss_gb": 0.913
+  },
+  "written": "2026-11-03T13:10:22"
+}

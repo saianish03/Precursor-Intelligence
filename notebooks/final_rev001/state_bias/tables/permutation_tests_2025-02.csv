@@ -1,0 +1,7 @@
+test,observed_between_state_SS,null_mean,ratio_obs_over_null,perm_p
+residual y-p (calibration),56.045,8.9035,6.2947,0.000999
+flag rate (demographic parity),417.9,4.9667,84.14,0.000999
+"TPR (equal opportunity, among y=1)",247.25,9.1304,27.08,0.000999
+FPR (among y=0),132.1,2.9629,44.583,0.000999
+precision (among flagged),20.755,7.6619,2.7088,0.000999
+"base rate (label, reference)",186.65,9.9095,18.836,0.000999

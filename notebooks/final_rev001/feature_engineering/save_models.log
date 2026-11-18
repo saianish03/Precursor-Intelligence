@@ -1,0 +1,16 @@
+[    18s] DEV 296,476, TEST 29,324; 75 features (5 categorical: ['x_size_ownership', 'provider_type', 'qm_ss_new_antipsychotic_fn', 'resident_family_council', 'std_recency_band'])
+[   106s] LightGBM fitted (1265 trees)
+[   452s] CatBoost fitted (300 iterations)
+[   460s] LR fitted (70 numeric + 30 dummy columns)
+[   462s] saved models to ../feature engineering run/spine2022/boost/models
+[   464s] reload check p_lgbm: max |disk - memory| = 0
+[   464s] reload check p_catboost: max |disk - memory| = 0
+[   464s] reload check p_logreg: max |disk - memory| = 0
+[   465s] TEST (29,324 rows, base rate 0.264):
+               roc_auc  pr_auc  p_at_5  p_at_10  pr_auc_reference  abs_diff_pr_auc
+model                                                                             
+p_lgbm          0.7082  0.4870  0.6753   0.5815            0.4870           0.0000
+p_catboost      0.7069  0.4854  0.6678   0.5846            0.4865           0.0011
+p_logreg        0.7032  0.4819  0.6842   0.5825            0.4819           0.0000
+ensemble_rank   0.7081  0.4874  0.6808   0.5853            0.4876           0.0002
+[   465s] DONE

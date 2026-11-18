@@ -1,0 +1,34 @@
+{
+  "experiment": "exp6",
+  "model": "AxB_all",
+  "smoke": false,
+  "calib_gap": "h",
+  "calib": {},
+  "test": {
+    "n": 29324,
+    "base_rate": 0.26374300913927157,
+    "roc_auc": 0.6961714411548509,
+    "pr_auc": 0.4685169618428358,
+    "p_at_5": 0.6330150068212824,
+    "p_at_10": 0.5586630286493861,
+    "brier": 0.17594044328421862
+  },
+  "extra": {
+    "seeds": [
+      42,
+      7,
+      2026
+    ],
+    "params": {
+      "objective": "binary",
+      "metric": "average_precision",
+      "learning_rate": 0.05,
+      "num_leaves": 31,
+      "min_child_samples": 100,
+      "feature_fraction": 0.8,
+      "num_threads": 4,
+      "verbosity": -1
+    }
+  },
+  "written": "2026-11-04T00:16:55"
+}

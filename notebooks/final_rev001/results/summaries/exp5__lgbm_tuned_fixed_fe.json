@@ -1,0 +1,47 @@
+{
+  "experiment": "exp5",
+  "model": "lgbm_tuned_fixed_fe",
+  "smoke": false,
+  "calib_gap": "h",
+  "calib": {
+    "n": 44205,
+    "base_rate": 0.27462956679108697,
+    "roc_auc": 0.7210706989072597,
+    "pr_auc": 0.5118839267318837,
+    "p_at_5": 0.6918552036199095,
+    "p_at_10": 0.6176470588235294,
+    "brier": 0.17473453360779653
+  },
+  "test": {
+    "n": 29324,
+    "base_rate": 0.26374300913927157,
+    "roc_auc": 0.6991286737232049,
+    "pr_auc": 0.47349387407580323,
+    "p_at_5": 0.6480218281036835,
+    "p_at_10": 0.560368349249659,
+    "brier": 0.17792143039372807
+  },
+  "extra": {
+    "train_s": 14.89,
+    "best_iter": 156,
+    "calib_pr_auc_es": 0.511883926731882,
+    "params": {
+      "num_leaves": 24,
+      "min_child_samples": 28,
+      "learning_rate": 0.022344318462102972,
+      "feature_fraction": 0.40757467520741386,
+      "lambda_l2": 4.0621446953241515e-08,
+      "data_sample_strategy": "goss",
+      "top_rate": 0.26666907338693474,
+      "other_rate": 0.09264203595126089,
+      "scale_pos_weight": 1.3617354222037434
+    },
+    "num_threads": 4,
+    "n_features": 253,
+    "n_engineered": 120,
+    "train_rows": 89459,
+    "elapsed_s_total": 120.8,
+    "peak_rss_gb": 1.303
+  },
+  "written": "2026-11-03T14:44:58"
+}

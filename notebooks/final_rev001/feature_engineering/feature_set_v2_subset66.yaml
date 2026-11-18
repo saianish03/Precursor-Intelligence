@@ -1,0 +1,555 @@
+version: 2
+label: y_g12
+fitted_on_months:
+- 2023-01
+- 2023-04
+- 2023-07
+n_features: 66
+accepted: false
+decision_holdout:
+  v1:
+    pr_auc: 0.5116
+    p_at_5: 0.7104
+  v2:
+    pr_auc: 0.5088
+    p_at_5: 0.7014
+dropped_from_v1:
+- state
+features:
+  state_te:
+    family: 'engineered: categorical'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  certified_beds_clip:
+    family: 'engineered: transform'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  state_gplus_rate_12m:
+    name: state_gplus_rate_12m
+    family: context
+    source_table: provider_by_vintage + citations_by_vintage
+    formula: "MEAN by state; 12 months; severity G\u2013L, last 12 months"
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  n_complaint_surveys_cited_24m:
+    name: n_complaint_surveys_cited_24m
+    family: survey_timing
+    source_table: surveys_by_vintage
+    formula: COUNT DISTINCT; 24 months; Type = Health Complaint
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  n_cat_qol_care_24m:
+    name: n_cat_qol_care_24m
+    family: citations
+    source_table: citations_by_vintage
+    formula: COUNT; 24 months; category = Quality of Life and Care
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  n_cit_24m:
+    name: n_cit_24m
+    family: citations
+    source_table: citations_by_vintage
+    formula: COUNT; 24 months; none
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  days_since_last_complaint_survey_cited:
+    name: days_since_last_complaint_survey_cited
+    family: survey_timing
+    source_table: surveys_by_vintage
+    formula: DATEDIFF(cutoff, MAX(date)); all history; Type = Health Complaint
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  days_since_last_std:
+    name: days_since_last_std
+    family: survey_timing
+    source_table: surveys_by_vintage
+    formula: DATEDIFF(cutoff, MAX(date)); all history in the file; Type = Health Standard
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  n_complaint_cit_12m:
+    name: n_complaint_cit_12m
+    family: citations
+    source_table: citations_by_vintage
+    formula: COUNT; 12 months; Complaint Deficiency = Y
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  sev_points_24m:
+    name: sev_points_24m
+    family: citations
+    source_table: citations_by_vintage
+    formula: SUM; 24 months; none
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  n_gplus_surveys_36m:
+    name: n_gplus_surveys_36m
+    family: citations
+    source_table: citations_by_vintage
+    formula: "COUNT DISTINCT; 36 months; severity G\u2013L"
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  hprd_lpn:
+    name: hprd_lpn
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  sev_points_12m:
+    name: sev_points_12m
+    family: citations
+    source_table: citations_by_vintage
+    formula: SUM; 12 months; none
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  d12_turnover_total:
+    name: d12_turnover_total
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: "DIFF (t vs t\u2212k); t vs t\u221212 months"
+    first_available_vintage: 2023-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  pct_state_hprd_rn:
+    family: 'engineered: peer rank'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  qm_ls_catheter_clip:
+    family: 'engineered: transform'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  n_cat_assessment_24m:
+    name: n_cat_assessment_24m
+    family: citations
+    source_table: citations_by_vintage
+    formula: COUNT; 24 months; category = Resident Assessment and Care Planning
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  pct_state_turnover_total:
+    family: 'engineered: peer rank'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  qm_ls_uti:
+    name: qm_ls_uti
+    family: quality
+    source_table: mds_qm_by_vintage
+    formula: AS-IS (1:1); snapshot at t; codes 407
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  hprd_pt:
+    name: hprd_pt
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  state_median_hprd_total:
+    name: state_median_hprd_total
+    family: context
+    source_table: provider_by_vintage + citations_by_vintage
+    formula: MEDIAN by state; snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  qm_ls_falls_major_injury:
+    name: qm_ls_falls_major_injury
+    family: quality
+    source_table: mds_qm_by_vintage
+    formula: AS-IS (1:1); snapshot at t; codes 410
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  pct_state_n_cit_24m:
+    family: 'engineered: peer rank'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  qm_ls_incontinence:
+    name: qm_ls_incontinence
+    family: quality
+    source_table: mds_qm_by_vintage
+    formula: AS-IS (1:1); snapshot at t; codes 405 -> 480
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  x_size_ownership:
+    family: 'engineered: cross'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  qm_ls_depressive:
+    name: qm_ls_depressive
+    family: quality
+    source_table: mds_qm_by_vintage
+    formula: AS-IS (1:1); snapshot at t; codes 408
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  n_cat_resident_rights_24m:
+    name: n_cat_resident_rights_24m
+    family: citations
+    source_table: citations_by_vintage
+    formula: COUNT; 24 months; category = Resident Rights
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  n_uncorrected:
+    name: n_uncorrected
+    family: citations
+    source_table: citations_by_vintage
+    formula: COUNT; 24 months; status 'plan of correction' / 'no plan of correction'
+      in the month-t file
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  n_ic_cit_24m:
+    name: n_ic_cit_24m
+    family: citations
+    source_table: citations_by_vintage
+    formula: COUNT; 24 months; category Infection Control OR IC flag = Y
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  qm_ls_pressure_ulcer:
+    name: qm_ls_pressure_ulcer
+    family: quality
+    source_table: mds_qm_by_vintage
+    formula: AS-IS (1:1); snapshot at t; codes 453 -> 479
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  adj_hprd_total:
+    name: adj_hprd_total
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  days_since_last_penalty:
+    name: days_since_last_penalty
+    family: enforcement
+    source_table: penalties_by_vintage
+    formula: DATEDIFF(cutoff, MAX(date)); all history in file; any penalty
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  n_cit_AC_24m:
+    name: n_cit_AC_24m
+    family: citations
+    source_table: citations_by_vintage
+    formula: COUNT; 24 months; severity A, B, C
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  x_complaints_x_low_rn:
+    family: 'engineered: cross'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  hprd_total:
+    name: hprd_total
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  rel_hprd_total:
+    name: rel_hprd_total
+    family: context
+    source_table: provider_by_vintage + citations_by_vintage
+    formula: RATIO to state median; snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  n_cit_GI_24m:
+    name: n_cit_GI_24m
+    family: citations
+    source_table: citations_by_vintage
+    formula: COUNT; 24 months; severity G, H, I (actual harm)
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  turnover_rn:
+    name: turnover_rn
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2022-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  qm_ls_adl_decline:
+    name: qm_ls_adl_decline
+    family: quality
+    source_table: mds_qm_by_vintage
+    formula: AS-IS (1:1); snapshot at t; codes 401
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  max_sev_prev_std:
+    name: max_sev_prev_std
+    family: citations
+    source_table: citations_by_vintage + surveys_by_vintage
+    formula: MAX; previous standard survey; citations on the second-latest standard
+      survey
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  d6_hprd_rn:
+    name: d6_hprd_rn
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: "DIFF (t vs t\u2212k); t vs t\u22126 months"
+    first_available_vintage: 2021-07
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  admin_departures:
+    name: admin_departures
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2022-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  denial_days_24m_clip:
+    family: 'engineered: transform'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  qm_rating:
+    name: qm_rating
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  n_cat_administration_24m:
+    name: n_cat_administration_24m
+    family: citations
+    source_table: citations_by_vintage
+    formula: COUNT; 24 months; category = Administration
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  max_sev_last_std:
+    name: max_sev_last_std
+    family: citations
+    source_table: citations_by_vintage + surveys_by_vintage
+    formula: MAX; last standard survey; citations dated on the latest standard survey
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  complaint_momentum_12m:
+    family: 'engineered: trend'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  qm_ss_rehosp:
+    name: qm_ss_rehosp
+    family: quality
+    source_table: claims_qm_by_vintage
+    formula: AS-IS (1:1); snapshot at t; codes 521
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  occupancy:
+    name: occupancy
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: RATIO; snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  n_fines_24m_clip:
+    family: 'engineered: transform'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  ownership_group:
+    name: ownership_group
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2021-01
+    dtype: str
+    model_use: model
+    origin: pipeline (v1)
+  hprd_aide:
+    name: hprd_aide
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  changed_ownership_12m:
+    name: changed_ownership_12m
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2021-01
+    dtype: bool
+    model_use: model
+    origin: pipeline (v1)
+  n_ic_surveys_12m:
+    name: n_ic_surveys_12m
+    family: survey_timing
+    source_table: surveys_by_vintage
+    formula: COUNT DISTINCT; 12 months; Type = Infection Control
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  rn_share:
+    name: rn_share
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: RATIO; snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  vol4_hprd_total:
+    family: 'engineered: trend'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  isna_days_since_last_gplus:
+    family: 'engineered: missingness'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  d6_qm_ls_pressure_ulcer:
+    name: d6_qm_ls_pressure_ulcer
+    family: quality
+    source_table: mds_qm_by_vintage
+    formula: "DIFF (t vs t\u22126); codes 453 -> 479; null if code differs or measure_period_end\
+      \ unchanged"
+    first_available_vintage: 2021-07
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  n_complaint_gplus_24m:
+    name: n_complaint_gplus_24m
+    family: citations
+    source_table: citations_by_vintage
+    formula: "COUNT; 24 months; complaint AND G\u2013L"
+    first_available_vintage: 2021-01
+    dtype: i64
+    model_use: model
+    origin: pipeline (v1)
+  qm_ls_restraints_clip:
+    family: 'engineered: transform'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  qm_ls_ed_per_1000_fn:
+    name: qm_ls_ed_per_1000_fn
+    family: quality
+    source_table: claims_qm_by_vintage
+    formula: "MAP code \u2192 reason; snapshot at t; codes 552"
+    first_available_vintage: 2021-01
+    dtype: str
+    model_use: model
+    origin: pipeline (v1)
+  provider_in_hospital:
+    name: provider_in_hospital
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2021-01
+    dtype: bool
+    model_use: model
+    origin: pipeline (v1)
+  vol4_n_complaint_surveys_cited_12m:
+    family: 'engineered: trend'
+    model_use: model
+    origin: feature_engineering_v2
+    fit_on: DEV only
+  d6_hprd_total:
+    name: d6_hprd_total
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: "DIFF (t vs t\u2212k); t vs t\u22126 months"
+    first_available_vintage: 2021-07
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)
+  ccrc:
+    name: ccrc
+    family: facility_staffing
+    source_table: provider_by_vintage
+    formula: AS-IS (1:1); snapshot at t
+    first_available_vintage: 2021-01
+    dtype: bool
+    model_use: model
+    origin: pipeline (v1)
+  qm_age_months_mds:
+    name: qm_age_months_mds
+    family: quality
+    source_table: mds_qm_by_vintage
+    formula: months from MAX(measure_period_end) to cutoff_date; snapshot at t
+    first_available_vintage: 2021-01
+    dtype: f64
+    model_use: model
+    origin: pipeline (v1)

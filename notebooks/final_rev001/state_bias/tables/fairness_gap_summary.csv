@@ -1,0 +1,91 @@
+month,cutoff,criterion,national,min,argmin,max,argmax,max_minus_min,max_abs_diff_vs_national,ratio_min_over_max
+2025-02,thr,demographic_parity (flag rate),0.1064,0.0000,AR,0.7526,IL,0.7526,0.6462,0.0000
+2025-02,thr,equal_opportunity (TPR),0.2352,0.0000,AR,0.8734,IL,0.8734,0.6382,0.0000
+2025-02,thr,FPR,0.0621,0.0000,AR,0.5857,IL,0.5857,0.5237,0.0000
+2025-02,thr,predictive_parity (precision),0.5661,0.0000,NE,1.0000,SC,1.0000,0.5661,0.0000
+2025-02,thr,FNR,0.7648,0.1266,IL,1.0000,AR,0.8734,0.6382,0.1266
+2025-02,thr,FOR (false omission rate),0.2192,0.0868,KY,0.3634,MI,0.2766,0.1442,0.2389
+2025-02,thr,accuracy,0.7580,0.6105,MI,0.9132,KY,0.3028,0.1552,0.6685
+2025-02,thr,treatment_equality (FN/FP),4.2426,0.2988,IL,69.0000,MS,68.7012,64.7574,0.0043
+2025-02,thr,disparate_impact (4/5ths): states with flag rate < 0.8 x max state,0.1064,0.0000,AR,1.0000,IL,,33.0000,0.0000
+2025-02,thr,disparate_impact vs national: states with flag rate < 0.8 x national,0.1064,,,,,,24.0000,
+2025-02,thr,"equalized_odds (max of |dTPR|,|dFPR| vs national)",0.0000,0.0097,WI,0.6382,IL,0.8734,0.6382,
+2025-02,thr,flag rate / base rate (base-rate-adjusted parity),0.4155,0.0000,AR,1.5088,WA,1.5088,1.0933,0.0000
+2025-02,top10,demographic_parity (flag rate),0.1000,0.0000,AR,0.7406,IL,0.7406,0.6406,0.0000
+2025-02,top10,equal_opportunity (TPR),0.2248,0.0000,AR,0.8630,IL,0.8630,0.6382,0.0000
+2025-02,top10,FPR,0.0571,0.0000,AR,0.5714,IL,0.5714,0.5143,0.0000
+2025-02,top10,predictive_parity (precision),0.5754,0.0000,NE,1.0000,SC,1.0000,0.5754,0.0000
+2025-02,top10,FNR,0.7752,0.1370,IL,1.0000,AR,0.8630,0.6382,0.1370
+2025-02,top10,FOR (false omission rate),0.2206,0.0868,KY,0.3758,MI,0.2890,0.1552,0.2310
+2025-02,top10,accuracy,0.7590,0.5962,MI,0.9132,KY,0.3170,0.1628,0.6529
+2025-02,top10,treatment_equality (FN/FP),4.6736,0.3312,IL,69.0000,MS,68.6688,64.3264,0.0048
+2025-02,top10,disparate_impact (4/5ths): states with flag rate < 0.8 x max state,0.1000,0.0000,AR,1.0000,IL,,33.0000,0.0000
+2025-02,top10,disparate_impact vs national: states with flag rate < 0.8 x national,0.1000,,,,,,25.0000,
+2025-02,top10,"equalized_odds (max of |dTPR|,|dFPR| vs national)",0.0000,0.0051,WI,0.6382,IL,0.8630,0.6382,
+2025-02,top10,flag rate / base rate (base-rate-adjusted parity),0.3907,0.0000,AR,1.4561,WA,1.4561,1.0655,0.0000
+2025-02,top20,demographic_parity (flag rate),0.2000,0.0000,AR,0.8681,IL,0.8681,0.6680,0.0000
+2025-02,top20,equal_opportunity (TPR),0.3891,0.0000,AR,0.9638,IL,0.9638,0.5748,0.0000
+2025-02,top20,FPR,0.1349,0.0000,AR,0.7357,IL,0.7357,0.6008,0.0000
+2025-02,top20,predictive_parity (precision),0.4981,0.0000,OK,0.7500,MS,0.7500,0.4981,0.0000
+2025-02,top20,FNR,0.6109,0.0362,IL,1.0000,AR,0.9638,0.5748,0.0362
+2025-02,top20,FOR (false omission rate),0.1956,0.0868,KY,0.3245,MS,0.2377,0.1289,0.2675
+2025-02,top20,accuracy,0.7432,0.4974,WA,0.9132,KY,0.4158,0.2458,0.5447
+2025-02,top20,treatment_equality (FN/FP),1.5585,0.0680,IL,86.0000,OK,85.9320,84.4415,0.0008
+2025-02,top20,disparate_impact (4/5ths): states with flag rate < 0.8 x max state,0.2000,0.0000,AR,1.0000,IL,,33.0000,0.0000
+2025-02,top20,disparate_impact vs national: states with flag rate < 0.8 x national,0.2000,,,,,,20.0000,
+2025-02,top20,"equalized_odds (max of |dTPR|,|dFPR| vs national)",0.0000,0.0206,CA,0.6008,IL,0.9638,0.6008,
+2025-02,top20,flag rate / base rate (base-rate-adjusted parity),0.7811,0.0000,AR,2.2632,WA,2.2632,1.4821,0.0000
+2025-02,-,calibration-in-the-large (O-E),-0.0060,-0.1922,WA,0.1728,OK,0.3650,0.1863,-1.1128
+2025-02,-,ECE,0.0275,0.0219,FL,0.1922,WA,0.1704,0.1648,0.1139
+2025-02,-,ROC-AUC,0.7092,0.5246,AR,0.7592,IL,0.2346,0.1847,0.6910
+2025-02,-,PR-AUC,0.4802,0.1389,AR,0.7973,IL,0.6585,0.3414,0.1742
+2025-02,-,PR-AUC lift,1.8752,1.0763,AR,2.5881,NE,1.5118,0.7989,0.4159
+2025-02,-,Brier,0.1690,0.0779,KY,0.2428,WA,0.1648,0.0911,0.3210
+2025-02,-,calibration slope,0.8289,0.0894,AR,1.3937,NC,1.3043,0.7395,0.0641
+2025-02,-,base rate (label),0.2561,0.0868,KY,0.5802,IL,0.4934,0.3241,0.1496
+2025-02,-,mean predicted,0.2620,0.0878,NY,0.6234,IL,0.5356,0.3614,0.1409
+2024-11,thr,demographic_parity (flag rate),0.1100,0.0000,AR,0.7407,IL,0.7407,0.6308,0.0000
+2024-11,thr,equal_opportunity (TPR),0.2414,0.0000,AR,0.8663,IL,0.8663,0.6249,0.0000
+2024-11,thr,FPR,0.0633,0.0000,AR,0.5535,IL,0.5535,0.4902,0.0000
+2024-11,thr,predictive_parity (precision),0.5751,0.0000,NY,1.0000,CT,1.0000,0.5751,0.0000
+2024-11,thr,FNR,0.7586,0.1337,IL,1.0000,AR,0.8663,0.6249,0.1337
+2024-11,thr,FOR (false omission rate),0.2233,0.1053,KY,0.3587,TX,0.2534,0.1354,0.2935
+2024-11,thr,accuracy,0.7546,0.6021,WA,0.8947,KY,0.2926,0.1525,0.6729
+2024-11,thr,treatment_equality (FN/FP),4.2526,0.3600,IL,92.0000,NY,91.6400,87.7474,0.0039
+2024-11,thr,disparate_impact (4/5ths): states with flag rate < 0.8 x max state,0.1100,0.0000,AR,1.0000,IL,,33.0000,0.0000
+2024-11,thr,disparate_impact vs national: states with flag rate < 0.8 x national,0.1100,,,,,,23.0000,
+2024-11,thr,"equalized_odds (max of |dTPR|,|dFPR| vs national)",0.0000,0.0045,WI,0.6249,IL,0.8663,0.6249,
+2024-11,thr,flag rate / base rate (base-rate-adjusted parity),0.4198,0.0000,AR,1.5333,WA,1.5333,1.1135,0.0000
+2024-11,top10,demographic_parity (flag rate),0.1000,0.0000,AR,0.7096,IL,0.7096,0.6096,0.0000
+2024-11,top10,equal_opportunity (TPR),0.2253,0.0000,AR,0.8366,IL,0.8366,0.6114,0.0000
+2024-11,top10,FPR,0.0556,0.0000,AR,0.5203,IL,0.5203,0.4647,0.0000
+2024-11,top10,predictive_parity (precision),0.5900,0.0000,SC,1.0000,CT,1.0000,0.5900,0.0000
+2024-11,top10,FNR,0.7747,0.1634,IL,1.0000,AR,0.8366,0.6114,0.1634
+2024-11,top10,FOR (false omission rate),0.2255,0.1053,KY,0.3578,TX,0.2526,0.1323,0.2942
+2024-11,top10,accuracy,0.7561,0.6126,WA,0.8947,KY,0.2822,0.1435,0.6846
+2024-11,top10,treatment_equality (FN/FP),4.9501,0.4681,IL,44.0000,SC,43.5319,39.0499,0.0106
+2024-11,top10,disparate_impact (4/5ths): states with flag rate < 0.8 x max state,0.1000,0.0000,AR,1.0000,IL,,33.0000,0.0000
+2024-11,top10,disparate_impact vs national: states with flag rate < 0.8 x national,0.1000,,,,,,22.0000,
+2024-11,top10,"equalized_odds (max of |dTPR|,|dFPR| vs national)",0.0000,0.0060,WI,0.6114,IL,0.8366,0.6114,
+2024-11,top10,flag rate / base rate (base-rate-adjusted parity),0.3818,0.0000,AR,1.4333,WA,1.4333,1.0516,0.0000
+2024-11,top20,demographic_parity (flag rate),0.2000,0.0000,AR,0.8696,IL,0.8696,0.6696,0.0000
+2024-11,top20,equal_opportunity (TPR),0.3839,0.0000,AR,0.9579,IL,0.9579,0.5741,0.0000
+2024-11,top20,FPR,0.1348,0.0000,AR,0.7380,IL,0.7380,0.6032,0.0000
+2024-11,top20,predictive_parity (precision),0.5027,0.0000,FL,0.8333,SC,0.8333,0.5027,0.0000
+2024-11,top20,FNR,0.6161,0.0421,IL,1.0000,AR,0.9579,0.5741,0.0421
+2024-11,top20,FOR (false omission rate),0.2018,0.1053,KY,0.3121,OK,0.2068,0.1103,0.3373
+2024-11,top20,accuracy,0.7391,0.4712,WA,0.8947,KY,0.4235,0.2679,0.5266
+2024-11,top20,treatment_equality (FN/FP),1.6228,0.0850,IL,116.0000,FL,115.9150,114.3772,0.0007
+2024-11,top20,disparate_impact (4/5ths): states with flag rate < 0.8 x max state,0.2000,0.0000,AR,1.0000,IL,,33.0000,0.0000
+2024-11,top20,disparate_impact vs national: states with flag rate < 0.8 x national,0.2000,,,,,,20.0000,
+2024-11,top20,"equalized_odds (max of |dTPR|,|dFPR| vs national)",0.0000,0.0183,CA,0.6032,IL,0.9579,0.6032,
+2024-11,top20,flag rate / base rate (base-rate-adjusted parity),0.7635,0.0000,AR,2.1500,WA,2.1500,1.3865,0.0000
+2024-11,-,calibration-in-the-large (O-E),-0.0040,-0.1777,WA,0.1808,OK,0.3585,0.1847,-0.9832
+2024-11,-,ECE,0.0260,0.0147,NE,0.2047,WA,0.1899,0.1787,0.0720
+2024-11,-,ROC-AUC,0.7107,0.5231,AR,0.7701,IL,0.2470,0.1876,0.6792
+2024-11,-,PR-AUC,0.4892,0.1326,KY,0.8198,IL,0.6872,0.3566,0.1618
+2024-11,-,PR-AUC lift,1.8677,1.2592,NJ,2.4608,NE,1.2017,0.6085,0.5117
+2024-11,-,Brier,0.1709,0.0966,KY,0.2483,WA,0.1517,0.0775,0.3891
+2024-11,-,calibration slope,0.8382,0.2115,AR,1.3282,IL,1.1167,0.6267,0.1593
+2024-11,-,base rate (label),0.2620,0.1053,KY,0.5985,IL,0.4933,0.3366,0.1759
+2024-11,-,mean predicted,0.2659,0.0896,NY,0.6251,IL,0.5355,0.3592,0.1433

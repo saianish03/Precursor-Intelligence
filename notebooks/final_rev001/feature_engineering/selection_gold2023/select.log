@@ -1,0 +1,21 @@
+[    80s] loaded DEV 132,832 (2023-01..2023-09), TEST 29,324 (['2024-10', '2024-11']); 133 v1 feats, 120 engineered
+[    80s] selection rows 106,286 | holdout 26,546 (2,966 facilities, 26.5% positive)
+[   359s] filter: 252 -> 176 (10 near-constant, 66 duplicates)
+[  1347s] fold 1/3 permutation importance done
+[  2327s] fold 2/3 permutation importance done
+[  3266s] fold 3/3 permutation importance done
+[  3266s] candidates 252 -> after filter 176 -> selected 75 (27 engineered, 48 original)
+[  3300s] holdout decision:
+          n_features  pr_auc  p_at_5
+v1             133.0  0.5207  0.7061
+selected        75.0  0.5167  0.6940
+accept selected: False
+[  3346s] test months ['2024-10', '2024-11'] (base rate 0.264):
+                                  roc_auc  pr_auc  p_at_5  p_at_10
+model                                                             
+baseline: overall star rating       0.628   0.341   0.412    0.384
+baseline: severity rule             0.661   0.411   0.576    0.503
+logistic regression - selected      0.707   0.486   0.687    0.588
+GBM - v1 (133 pipeline features)    0.706   0.483   0.685    0.578
+GBM - selected (75)                 0.702   0.479   0.672    0.568
+[  3436s] DONE slim CSV 578,975 rows x 86 cols -> C:/Users/Windows 11/Desktop/NEU_sem3/IE7275/MLOPS project/feature engineering run/selection_full_gold\facility_month_dataset_selected.csv (369 MB)
