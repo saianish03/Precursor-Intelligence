@@ -642,7 +642,7 @@ Tests never call paid services or a shared MLflow server; fixtures are synthetic
 Phase 1 (laptop integration stack, gold under `ml-dev/`); repeated in Phase 2 on the VM after T25.
 Phase 1 passed on 2026-11-18 (gold `3f9bac9367ae18ec`; runs and evidence in `docs/ML_PIPELINE.md` §11 and §14):
 - [x] `mode=retrain` completes: MLflow shows the `train`, `evaluate` and `gate` runs, a registered version (challenger), the model card (`phase1-retrain-2`: v1).
-- [x] With `eval_gap: purge` and the window 2023-01..2023-11, the eval fit lands within PR #49's CI (0.465–0.499) on 2025-02, or the gap is explained (121 features vs PR #49's 133). The production setting (`production_lag`) is then used for everything else (`repro-purge-1`: the ensemble 0.481, CI 0.465–0.498, with 120 features).
+- [x] With `eval_gap: purge` and the window 2023-01..2023-11, the eval fit lands within PR #49's CI (0.465–0.499) on 2025-02, or the gap is explained (120 features vs PR #49's 133). The production setting (`production_lag`) is then used for everything else (`repro-purge-1`: the ensemble 0.481, CI 0.465–0.498, with 120 features).
 - [x] Selection (`selection.json`), calibration (OOF diagnostics, `a`, `b`, ECE before/after, in `train.json` and `evaluation.json`) and G1–G7 results (`report/gates.json`) are recorded.
 - [x] Checkpoint ML-A done, `mode=promote` run: scores, reasons, SHAP and chain files in `scores/v=2026-10/`; `status/latest.json`; the summary email (`phase1-promote-1`).
 - [x] `mode=auto` on the same gold gives SKIP; `mode=score_only` rewrites the same partition with identical scores (`p1-auto-1`; `p1-score-only-1`: only `ml_run_id` and `scored_at` differ).
@@ -800,7 +800,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | O4 | Reweighting | off | ✅ **decided at Checkpoint ML-A (2026-11-17): stays off.** No gated group is miscalibrated; on v1's window reweighting costs OOF PR-AUC 0.511 → 0.505 and widens the largest gated gap 0.016 → 0.022. Wired since #69 (`bias.mitigation: reweight`), recomputed in every model card |
 | O5 | MLflow authentication | none (tasks network + 127.0.0.1 + IAP) | revisit if anything outside the VM needs MLflow |
 | O6 | `CLAUDE.md` star-rating wording | changed 2026-11-10 in the maintainer's local copy | teammates update their local `CLAUDE.md` (it is not in git): "overall and health-inspection star ratings are never features" (ML-17) |
-| O7 | Data spec edits | §14 #10 recorded (2022-01) on 2026-11-10 | still to do when the team agrees: §9.5 open #16 → resolved by ML-24; §15.1's three ML DAGs → one `cms_nh_ml` |
+| O7 | Data spec edits | §14 #10 recorded (2022-01) on 2026-11-10 | ✅ done (#82): §9.5 and §14 #16 resolved by ML-24 (out-of-fold Platt in the ML layer); the data spec now names one ML DAG, `cms_nh_ml` |
 | O8 | Regime-invariant enforcement features | — | a data-side idea (counts per revision group or per survey) so the 2025-10 fine-count jump doesn't skew scores |
 | O9 | `d12_turnover_total` is empty for all of 2022 (§1.4) | in the feature list | ✅ decided (W1, #60): excluded for Phase 1 (`features.exclude`); take it back once the eval window starts in 2023-01 or later (about `V_L` = 2027-05) |
 
