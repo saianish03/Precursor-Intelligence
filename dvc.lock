@@ -245,8 +245,8 @@ stages:
       nfiles: 5
     - path: src/precursorintelligence/training
       hash: md5
-      md5: 765a65fa228efd725e479ce1b7f1f970.dir
-      size: 148077
+      md5: 7ba4ae462110d4e3051e9d15bbea07d6.dir
+      size: 149590
       nfiles: 11
     - path: tests/ml/make_ml_gold.py
       hash: md5
