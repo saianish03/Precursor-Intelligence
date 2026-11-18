@@ -496,7 +496,7 @@ MLflow 3.17 tracking server in the compose stack (§16.1); `MLFLOW_TRACKING_URI=
 - Artifacts: `evaluation.json`, `selection.json`, `slices.csv`, `bias_report.md`, plots, `shap_mean_abs.csv`, `model_card.md`, `feature_list.json`, `windows.json`, the input `manifest.json`, the eval-fit packages.
 
 ### 14.3 `recipe_hash`
-sha256 over: the relative paths and bytes of the `*.py` files of `precursorintelligence.{training,evaluation,serving}` (not `.pyc`, which change per build), `configs/ml.yaml`, `configs/reason_labels.yaml`, the feature list, and the lightgbm, scikit-learn and numpy versions. A new hash means new code, config, features or libraries.
+sha256 over: the relative paths and bytes of the `*.py` files of `precursorintelligence.{training,evaluation,serving,bias}` (not `.pyc`, which change per build; `bias` because evaluation's slices and the reweighting come from it), `configs/ml.yaml`, `configs/reason_labels.yaml`, `configs/bias_slices.yaml`, the feature list, and the lightgbm, scikit-learn and numpy versions. A new hash means new code, config, features or libraries.
 
 ---
 
