@@ -396,7 +396,7 @@ behind the numbers: [`docs/ML_PIPELINE.md`](docs/ML_PIPELINE.md). Stage numbers 
 slice (calibration gap with its CI against ±0.05, PR-AUC, false-negative rate at the top 10 %); hyperparameter
 importances from the DAG's re-tune.*
 
-To run it: section 10.4.
+Screenshots of MLflow (runs, model card, registry), Airflow (the DAG runs) and the run emails: [`docs/ML_PIPELINE.md` §14.1](docs/ML_PIPELINE.md#141-screenshots-from-the-stack). To run it: section 10.4.
 
 ---
 

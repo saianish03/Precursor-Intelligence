@@ -499,6 +499,38 @@ are spec §17.2's acceptance list:
   the champion's SHAP charts from `phase1-promote-1/score/`, the tuning plots from `p1-retune-1/tuning/`;
   `shap_top20.png` is drawn from `phase1-retrain-2`'s `shap_mean_abs.csv` with the pipeline's own plotting code.
 
+### 14.1 Screenshots from the stack
+
+Taken on the `ml_dev` stack on 2026-11-18 (MLflow at `127.0.0.1:5082`, Airflow at `127.0.0.1:8082`). Email senders and
+recipients are redacted. Click a screenshot for the full size.
+
+<table>
+<tr>
+<td width="50%"><a href="img/ml/screens/mlflow-experiment-runs.png"><img src="img/ml/screens/mlflow-experiment-runs.png" alt="MLflow: experiment <code>precursor_y_g12</code>, one run per task (train, evaluate, gate, score, tune), the gold dataset logged as input" width="420"></a><br><sub>MLflow: experiment <code>precursor_y_g12</code>, one run per task (train, evaluate, gate, score, tune), the gold dataset logged as input</sub></td>
+<td width="50%"><a href="img/ml/screens/mlflow-train-run.png"><img src="img/ml/screens/mlflow-train-run.png" alt="MLflow: v1's <code>train</code> run: 67 metrics (OOF PR-AUC and Brier per candidate, calibration diagnostics), 44 parameters, the provenance tags, registered as v1" width="420"></a><br><sub>MLflow: v1's <code>train</code> run: 67 metrics (OOF PR-AUC and Brier per candidate, calibration diagnostics), 44 parameters, the provenance tags, registered as v1</sub></td>
+</tr>
+<tr>
+<td width="50%"><a href="img/ml/screens/mlflow-evaluate-artifacts.png"><img src="img/ml/screens/mlflow-evaluate-artifacts.png" alt="MLflow: the <code>evaluate</code> run's artifacts (the plots, <code>slices.csv</code>, <code>evaluation.json</code>), the bias chart open" width="420"></a><br><sub>MLflow: the <code>evaluate</code> run's artifacts (the plots, <code>slices.csv</code>, <code>evaluation.json</code>), the bias chart open</sub></td>
+<td width="50%"><a href="img/ml/screens/mlflow-gate-model-card.png"><img src="img/ml/screens/mlflow-gate-model-card.png" alt="MLflow: the <code>gate</code> run's model card for v1 (data, recipe and selection, test metrics with CIs, calibration)" width="420"></a><br><sub>MLflow: the <code>gate</code> run's model card for v1 (data, recipe and selection, test metrics with CIs, calibration)</sub></td>
+</tr>
+<tr>
+<td width="50%"><a href="img/ml/screens/mlflow-registry.png"><img src="img/ml/screens/mlflow-registry.png" alt="MLflow registry: v1 <code>@champion</code> (after the rollback), v2 (promoted automatically, then rolled back), v3 <code>@challenger</code> (held: failed G2, G5)" width="420"></a><br><sub>MLflow registry: v1 <code>@champion</code> (after the rollback), v2 (promoted automatically, then rolled back), v3 <code>@challenger</code> (held: failed G2, G5)</sub></td>
+<td width="50%"><a href="img/ml/screens/mlflow-tune-run.png"><img src="img/ml/screens/mlflow-tune-run.png" alt="MLflow: the DAG's <code>tune</code> run (<code>mode=retune</code>): the proposal, the trials and the sensitivity plots" width="420"></a><br><sub>MLflow: the DAG's <code>tune</code> run (<code>mode=retune</code>): the proposal, the trials and the sensitivity plots</sub></td>
+</tr>
+<tr>
+<td width="50%"><a href="img/ml/screens/airflow-grid.png"><img src="img/ml/screens/airflow-grid.png" alt="Airflow: every <code>cms_nh_ml</code> run; the red <code>gate</code> is <code>phase1-retrain-1</code> (fixed in PR #72); pink is a branch not taken" width="420"></a><br><sub>Airflow: every <code>cms_nh_ml</code> run; the red <code>gate</code> is <code>phase1-retrain-1</code> (fixed in PR #72); pink is a branch not taken</sub></td>
+<td width="50%"><a href="img/ml/screens/airflow-graph-promote.png"><img src="img/ml/screens/airflow-graph-promote.png" alt="Airflow: <code>phase1-promote-1</code> (Checkpoint ML-A): decide → prepare → promote → score → publish → monitor → notify; train, evaluate, gate and tune skipped" width="420"></a><br><sub>Airflow: <code>phase1-promote-1</code> (Checkpoint ML-A): decide → prepare → promote → score → publish → monitor → notify; train, evaluate, gate and tune skipped</sub></td>
+</tr>
+<tr>
+<td width="50%"><a href="img/ml/screens/airflow-graph-auto-promotion.png"><img src="img/ml/screens/airflow-graph-auto-promotion.png" alt="Airflow: <code>p1-retrain-2</code>: train → evaluate → gate (all seven gates passed, promoted automatically) → score → publish → monitor → notify" width="420"></a><br><sub>Airflow: <code>p1-retrain-2</code>: train → evaluate → gate (all seven gates passed, promoted automatically) → score → publish → monitor → notify</sub></td>
+<td width="50%"><a href="img/ml/screens/email-auto-promotion.png"><img src="img/ml/screens/email-auto-promotion.png" alt="Email from <code>p1-retrain-2</code>: the new champion (v2), gate pass, the test metrics with CIs, the flags (the drift flag is the false alarm of #73)" width="420"></a><br><sub>Email from <code>p1-retrain-2</code>: the new champion (v2), gate pass, the test metrics with CIs, the flags (the drift flag is the false alarm of #73)</sub></td>
+</tr>
+<tr>
+<td width="50%"><a href="img/ml/screens/email-first-run-challenger.png"><img src="img/ml/screens/email-first-run-challenger.png" alt="Email from <code>phase1-retrain-2</code> (the first version): no gate outcome or metrics, because <code>monitor</code> was skipped without scores (#73)" width="420"></a><br><sub>Email from <code>phase1-retrain-2</code> (the first version): no gate outcome or metrics, because <code>monitor</code> was skipped without scores (#73)</sub></td>
+<td width="50%"></td>
+</tr>
+</table>
+
 ---
 
 ## 15. Known limitations and Phase 2
