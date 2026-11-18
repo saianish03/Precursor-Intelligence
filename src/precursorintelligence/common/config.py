@@ -650,6 +650,7 @@ class BootstrapCfg(_Strict):
 
 class ShuffledLabelCfg(_Strict):
     n_estimators: int = Field(ge=1)
+    shuffles: int = Field(ge=1)  # G2 judges their mean: one shuffle is too noisy for roc_range
     roc_range: tuple[float, float]
 
     @field_validator("roc_range")

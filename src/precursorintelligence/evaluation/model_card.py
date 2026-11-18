@@ -35,6 +35,16 @@ def _f(v: Any, digits: int = 3) -> str:
     return str(v)
 
 
+def _shuffled(mean: float | None, each: list[float]) -> str:
+    if mean is None:
+        return "not run (recipe already evaluated)"
+    return (
+        f"{mean:.3f} (mean of {len(each)}: {', '.join(f'{v:.3f}' for v in each)})"
+        if len(each) > 1
+        else _f(mean)
+    )
+
+
 def _ci(iv: Interval | None, digits: int = 3, sign: bool = False) -> str:
     if iv is None:
         return "–"
@@ -236,7 +246,7 @@ def render_model_card(
         "## Flags",
         f"- Sanity: SHAP additivity {'holds' if r.sanity.shap_additive else 'FAILS'} "
         f"(max error {_f(r.sanity.shap_max_abs_error, 8)} on {r.sanity.shap_rows} rows); shuffled-label "
-        f"ROC-AUC {_f(r.sanity.shuffled_label_roc) if r.sanity.shuffled_label_roc is not None else 'not run (recipe already evaluated)'}; "
+        f"ROC-AUC {_shuffled(r.sanity.shuffled_label_roc, r.sanity.shuffled_label_rocs)}; "
         f"uncleared leakage flags: {', '.join(r.sanity.uncleared_leakage_flags) or 'none'}",
         f"- Run flags: {', '.join(r.flags) or 'none'}",
         *(f"- Regime flag `{f.feature}`: {f.detail}" for f in manifest.regime_flags),

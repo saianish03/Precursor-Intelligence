@@ -60,6 +60,29 @@ def test_g2_sanity(flags, shap, roc, status):
 
 
 @pytest.mark.parametrize(
+    "rocs, status",
+    [
+        # one shuffle out of range, their mean in it (#74 B20)
+        ([0.5253, 0.4987, 0.4835, 0.5021, 0.4904], "pass"),
+        # consistently above: the check still holds a model
+        ([0.53, 0.54, 0.535, 0.528, 0.531], "fail"),
+    ],
+)
+def test_g2_judges_the_mean_of_the_shuffles_and_shows_each(rocs, status):
+    mean = sum(rocs) / len(rocs)
+    r = g2_sanity(
+        uncleared_leakage_flags=[],
+        shap_additive=True,
+        shuffled_label_roc=mean,
+        shuffled_label_rocs=rocs,
+        roc_range=(0.48, 0.52),
+    )
+    assert r.status == status
+    assert f"{mean:.4f}" in r.reason and all(f"{v:.4f}" in r.reason for v in rocs)
+    assert r.values["shuffles"] == len(rocs)
+
+
+@pytest.mark.parametrize(
     "diff, status",
     [
         (iv(0.16, 0.146, 0.173), "pass"),
