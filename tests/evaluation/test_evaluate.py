@@ -321,12 +321,14 @@ def test_the_champions_eval_fit_is_compared_on_the_same_rows(trained):
     assert all(s.abs_oe_diff.estimate == 0 for s in r.slices_vs_champion)
 
 
-def test_a_champion_without_its_eval_fit_is_refused(trained):
-    reg = FakeRegistry()
-    reg.register("models:/x", {"candidate": "lgbm"})
-    reg.set_alias("champion", 1)
-    with pytest.raises(MlInputError, match="eval_model_uri"):
-        evaluate(trained, registry=reg)
+def test_a_champion_without_the_eval_model_uri_tag_is_still_compared(trained):
+    # the tag is reported only since #66: the eval fit comes verified from GCS
+    reg, meta, *_ = champion_from(trained, selected_eval_fit(trained))
+    reg.versions[1].pop("eval_model_uri")
+    r = evaluate(trained, registry=reg, meta=meta).report
+    assert (
+        r.champion.version == 1 and r.champion.eval_model_uri == "" and r.champion_eval is not None
+    )
 
 
 def test_shuffled_labels_run_only_for_a_recipe_no_gate_judged(trained):

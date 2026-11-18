@@ -36,14 +36,14 @@ def small_config() -> MlConfig:
 
 
 class FakeRegistry:
-    """An in-memory ``evaluation.registry.Registry``: versions are numbered from 1, models kept by URI."""
+    """An in-memory ``evaluation.registry.Registry``: versions are numbered from 1. It holds no models: packages
+    are loaded from GCS, verified (``load_verified_package``)."""
 
-    def __init__(self, models=None):
+    def __init__(self):
         self._rv = RegisteredVersion
         self.versions: dict[int, dict[str, str]] = {}
         self.sources: dict[int, str] = {}
         self.aliases: dict[str, int] = {}
-        self.models = dict(models or {})  # model URI -> PrecursorModel
 
     def by_alias(self, alias):
         v = self.aliases.get(alias)
@@ -70,6 +70,3 @@ class FakeRegistry:
 
     def delete_alias(self, alias):
         self.aliases.pop(alias, None)
-
-    def load_model(self, model_uri):
-        return self.models[model_uri]

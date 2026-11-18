@@ -1,7 +1,5 @@
 """evaluation/registry.py on a throwaway MLflow store (docs/ML_PIPELINE_SPEC.md §9.2)."""
 
-import numpy as np
-
 from precursorintelligence.evaluation.registry import MlflowRegistry, default_registry
 from precursorintelligence.training import mlflow_log
 from precursorintelligence.training.contracts import RunPaths
@@ -38,9 +36,7 @@ def test_register_find_alias_tag_and_load(trained, tracking):
     reg.delete_alias("champion")
     reg.delete_alias("champion")  # not set: no error
     assert reg.by_alias("champion") is None
-
-    loaded = reg.load_model(uri)
-    assert np.allclose(loaded.predict_frame(sample)["p"], model.predict_frame(sample)["p"])
+    assert not hasattr(reg, "load_model")  # MLflow's copy of a package is never unpickled (§9.4)
 
 
 class _Client:
