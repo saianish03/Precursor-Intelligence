@@ -2,7 +2,9 @@
 
 No model is trained at chain level: every number is arithmetic on the facilities' calibrated ``p``. Facilities
 without a chain get no chain row. ``expected_facilities_with_event`` (sum of p) is exact in expectation; the spread
-of a chain's outcomes is wider than independence suggests (§21).
+of a chain's outcomes is wider than independence suggests (§21). ``p_any_event``, the probability that at least one
+of the chain's facilities has an event, is ``1 - prod(1 - p)``: it assumes the facilities are independent, so it
+overstates that probability when their outcomes move together (§21).
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ CHAIN_COLUMNS = (
     "n_facilities",
     "beds",
     "expected_facilities_with_event",
+    "p_any_event",
     "bed_weighted_mean_p",
     "max_p",
     "worst_ccn",
@@ -47,6 +50,7 @@ def chain_scores(scores: pl.DataFrame, p_col: str) -> pl.DataFrame:
             pl.len().cast(pl.Int64).alias("n_facilities"),
             beds.fill_null(0.0).sum().alias("beds"),
             p.sum().alias("expected_facilities_with_event"),
+            (1 - (1 - p).product()).alias("p_any_event"),
             (
                 pl.when(bed_sum > 0)
                 .then(pl.when(has_beds).then(beds * p).otherwise(0.0).sum() / bed_sum)

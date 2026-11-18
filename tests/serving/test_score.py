@@ -313,11 +313,14 @@ def test_chain_rollup_arithmetic():
     a = out.row(0, named=True)
     assert a["n_facilities"] == 3 and a["beds"] == 150.0
     assert a["expected_facilities_with_event"] == pytest.approx(1.2)
+    # #75 B18: 1 - prod(1 - p), which assumes the homes are independent
+    assert a["p_any_event"] == pytest.approx(1 - 0.8 * 0.4 * 0.6)
     assert a["bed_weighted_mean_p"] == pytest.approx((100 * 0.2 + 50 * 0.6) / 150)
     assert (a["max_p"], a["worst_ccn"]) == (0.6, "000002")
     assert a["share_top_decile"] == pytest.approx(1 / 3)
     b = out.row(1, named=True)
     assert (b["n_facilities"], b["max_p"], b["share_top_decile"]) == (1, 0.3, 0.0)
+    assert b["p_any_event"] == pytest.approx(0.3)
     assert out.select("model_version", "gold_run_id", "ml_run_id").unique().rows() == [
         (7, "g1", "r1")
     ]
