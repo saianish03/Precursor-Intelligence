@@ -61,6 +61,8 @@ jobs:
         if: steps.scope.outputs.scope != 'none'
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
+          # pinned: uv export's marker format changes between releases, and requirements.txt is checked against it
+          version: "0.13.9"
           python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-dependency-glob: "uv.lock"
