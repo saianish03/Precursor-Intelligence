@@ -748,7 +748,7 @@ Label windows overlap, so every split leaves a **purge gap of H months** between
 - every row after `last_labeled_t` has `split = score`.
 
 - **Shared windows (open, §14 #15):** guide v1 had `y_g12` and `y_pen12` share train and calib months, for a fair comparison. With `B_pen = 12` that would shrink `y_g12`'s window to `y_pen12`'s. The sample run computes the windows per label.
-- **Calibration months (open, §14 #16):** calib sits directly after train, with no purge gap. On the sample, 29 of 33 calib positives share their qualifying G+ event with a train row of the same facility, so the calibrator sees nearly in-sample rows. Options: an H-month gap before calib (costs training months), or out-of-fold calibration inside train (time-ordered, facility-grouped folds; ML layer).
+- **Calibration months (resolved in the ML layer, §14 #16):** calib sits directly after train, with no purge gap. On the sample, 29 of 33 calib positives share their qualifying G+ event with a train row of the same facility, so the calibrator sees nearly in-sample rows. Options were an H-month gap before calib (costs training months) or out-of-fold calibration inside train; the ML pipeline calibrates out of fold (ML spec ML-24, §5), so gold needs no gap.
 
 **Measured consequence (decision needed, §14 #10–12).** With the measured buffers, training months at V = 2026-08 (published months; calib = 3) are:
 
@@ -872,6 +872,7 @@ The dataset counts as **frozen** only after a human approves this checkpoint. Th
 | 10 | Spine start | **Decided 2026-11-10: 2022-01** (it was 2023-01, decided 2026-10-15). With the measured buffers, 2023-01 left 3 training months for `y_g12` and 0 for `y_pen12` (§9.5), and the ML pipeline's 20-month evaluation gap needs 2022-01 (`ML_PIPELINE_SPEC.md` ML-20). `configs/splits.yaml` changed in #53, with the first full ML backfill (ML spec work package P0). | §7, §9.5; `configs/splits.yaml: spine_start` |
 | 13 | Storage, metadata, warehouse, run lock, manifests | **Decided 2026-10-08** (D1–D11). **Metadata store amended 2026-10-16:** Postgres `precursor_meta` plus a BigQuery `meta` mirror and `status/latest.json`, no BigQuery adapter (D4, D8 and O2 in `STEP1_DATA_INGESTION_PIPELINE.md` §0 are superseded where they assume one) | §0.6, §15.3 |
 | 23 | Lock release in the DAG | **Decided 2026-10-21:** `release_lock` is an Airflow teardown of `acquire_lock`, not `trigger_rule="all_done"` and not `on_failure_fail_dagrun=True` (both made failed runs show `success`, measured); it retries twice | §15.1, §15.3, §15.5 |
+| 16 | Purge before calibration | **Resolved 2026-11-10 in the ML layer:** no gap in gold; the ML pipeline fits Platt on the out-of-fold predictions of its training window's newest 3 months, so the calibrator never sees a facility's own fit (ML spec ML-24, §5) | §9.5 |
 
 **Decided by the team on 2026-10-29** (VM deployment review):
 
@@ -899,7 +900,6 @@ The dataset counts as **frozen** only after a human approves this checkpoint. Th
 | 9 | `y_pen12` role | Built as a label (model B) | Decide whether it stays a model or only feeds features |
 | 11 | `test_months` | 3 | 6 only if training starts in 2022-01 (#10) |
 | 15 | Shared train window for `y_g12` / `y_pen12` | Not shared | Sharing would shrink `y_g12`'s window to `y_pen12`'s |
-| 16 | Purge before calibration | None | Out-of-fold calibration inside train (ML layer) |
 | 18 | Republished history | The latest version replaces history; `revised_after_publication` is flagged | Keep it, unless strict "as first published" backtests are needed |
 | 3 | Keep-list extras | `inspection_cycle`, IDR/IIDR, `survey_cycle` included | Add MDS quarterly scores and the case-mix index only for ablations |
 | 4 | "Not corrected" values for `n_uncorrected` | The two "Deficient, Provider has (no) plan of correction" values | Decide on `Past Non-Compliance` and `No revisit needed` (2025-10+) |
@@ -948,7 +948,7 @@ cms_nh_pipeline (on cms_nh_release, or manual):
   - **Not `trigger_rule="all_done"`:** Airflow sets a run's state from its leaf tasks, so an always-successful `all_done` release at the end would make every failed run show `success` (measured on the local stack: a run with an exit-3 failure showed `success`).
   - **Not `on_failure_fail_dagrun=True`** on the teardown either: that makes Airflow count it as a leaf again, with the same effect.
   - Other end-of-run tasks that must run after a failure (e.g. `mirror_metadata`) are teardowns of `acquire_lock` too, placed before `release_lock`.
-- The ML DAGs (`train_evaluate`, `batch_score`, `monitor`) are scheduled on the `cms_nh_gold` asset, which is emitted only when gold publishes.
+- The ML pipeline is one DAG, `cms_nh_ml` (ML spec §15), scheduled on the `cms_nh_gold` asset, which is emitted only when gold publishes.
 
 ### 15.2 Every step belongs to exactly one node
 | Node | Spec steps | Metadata tables written | Outputs |
