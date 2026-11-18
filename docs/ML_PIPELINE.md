@@ -334,7 +334,7 @@ difference excludes zero.
 | Gate | Passes when |
 |---|---|
 | G1 Data | the input checks passed; gold verified or `allow_unverified` |
-| G2 Sanity | no uncleared single-feature leakage flag; SHAP additive; a model trained on shuffled labels scores ROC-AUC 0.48 to 0.52 |
+| G2 Sanity | no uncleared single-feature leakage flag; SHAP additive; the mean ROC-AUC of 10 models trained on shuffled labels is 0.44 to 0.56 |
 | G3 Beats the rule | PR-AUC better than the prior-G+ rule (paired CI above 0) |
 | G4 Calibration | test ECE ≤ 0.05 and calibration slope in 0.7 to 1.3 |
 | G5 Not worse than the champion | PR-AUC not worse by more than 0.01, Brier not worse by more than 0.005 (skipped without a champion) |

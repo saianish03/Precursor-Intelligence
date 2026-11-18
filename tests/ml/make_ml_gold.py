@@ -49,9 +49,7 @@ TOY_ML = {  # merged over configs/ml.yaml
     "folds": {"k": 2},
     "members": {"lgbm": {"n_estimators": 50}},
     "checks": {"min_score_facilities": 100},
-    # G2's [0.48, 0.52] assumes real gold: on 2,000 toy homes the shuffled-label ROC-AUC fell outside it for 9 of 30
-    # seeds, so an unrelated change could fail every PR. Real runs keep ml.yaml's range.
-    "evaluation": {"bootstrap": {"replicates": 200}, "shuffled_label": {"roc_range": [0.44, 0.56]}},
+    "evaluation": {"bootstrap": {"replicates": 200}},
     # G6's 0.9 assumes real gold: the toy eval fit and refit (4 months, 50 trees) rank 2,000 homes at about 0.84.
     "gates": {"first_run": "promote", "refit": {"spearman_min": 0.7}},
 }

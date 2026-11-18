@@ -63,6 +63,17 @@ def shuffled_label_roc(
     return float(roc_auc_score(test[label].to_numpy(), score))
 
 
+def shuffled_label_rocs(
+    train: pl.DataFrame, test: pl.DataFrame, features: Sequence[FeatureSpec], cfg: MlConfig
+) -> list[float]:
+    """``shuffled_label_roc`` for ``evaluation.shuffled_label.shuffles`` seeds (0, 1, ...). G2 judges their mean:
+    a single shuffle's ROC-AUC varies more than ``roc_range`` allows (#74 B20)."""
+    return [
+        shuffled_label_roc(train, test, features, cfg, seed=s)
+        for s in range(cfg.evaluation.shuffled_label.shuffles)
+    ]
+
+
 @dataclass(frozen=True)
 class Additivity:
     rows: int
