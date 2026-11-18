@@ -144,6 +144,28 @@ def test_a_manual_tune_without_a_decision_is_tagged_retune(store, meta, prepare,
     assert (tags["decision"], tags["mode"]) == ("RETUNE", "retune")
 
 
+def test_without_matplotlib_tune_skips_the_plots_and_writes_the_rest(
+    store, meta, prepare, monkeypatch, caplog
+):
+    # #76 B10: matplotlib comes only through mlflow today; its absence must not fail the task
+    monkeypatch.setitem(sys.modules, "matplotlib", None)  # `import matplotlib` raises ImportError
+    cfg = small_config()
+    prepare(store, meta, run_id="manual__tune", cfg=cfg)
+    res = run_tune(
+        store,
+        ml_run_id="manual__tune",
+        cfg=cfg,
+        registry=load_feature_registry(),
+        n_trials=1,
+        max_rounds=20,
+    )
+    paths = RunPaths.of(cfg, "manual__tune")
+    assert res.plots == {}
+    assert store.exists(paths.tuning_proposal) and store.exists(f"{paths.tuning_dir}trials.csv")
+    assert not any(store.exists(f"{paths.tuning_dir}{name}") for name in PLOT_NAMES)
+    assert "matplotlib is not installed" in caplog.text
+
+
 def test_the_test_frame_is_refused(store, meta, prepare):
     cfg = small_config()
     res = prepare(store, meta, run_id="manual__tt", cfg=cfg)

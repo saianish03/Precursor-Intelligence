@@ -242,11 +242,15 @@ def _importances(study: optuna.Study, seed: int) -> dict[str, float]:
 
 
 def _plots(study: optuna.Study, seed: int) -> dict[str, bytes]:
-    import matplotlib
+    try:
+        import matplotlib
 
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from optuna.visualization import matplotlib as ovm
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from optuna.visualization import matplotlib as ovm
+    except ImportError:
+        log.warning("matplotlib is not installed: no tuning plots")
+        return {}
 
     makers: dict[str, Callable[[], Any]] = {
         "optimization_history.png": lambda: ovm.plot_optimization_history(study),
