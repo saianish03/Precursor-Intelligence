@@ -1,0 +1,253 @@
+feature,step,decision,reason
+no_std_on_record,filter,drop,near-constant (>99.5% one value)
+sprinkler_status,filter,drop,near-constant (>99.5% one value)
+avg_residents_per_day_fn,filter,drop,near-constant (>99.5% one value)
+qm_def_post_2025_02,filter,drop,near-constant (>99.5% one value)
+qm_def_post_2026_02,filter,drop,near-constant (>99.5% one value)
+era,filter,drop,near-constant (>99.5% one value)
+penalty_regime_2025_10,filter,drop,near-constant (>99.5% one value)
+sprinkler_status_v,filter,drop,near-constant (>99.5% one value)
+avg_residents_per_day_fn_v,filter,drop,near-constant (>99.5% one value)
+era_v,filter,drop,near-constant (>99.5% one value)
+lag3_diff_hprd_total,filter,drop,"all/most missing in DEV months (needs earlier history, e.g. t-6/t-12)"
+lag3_diff_n_cit_12m,filter,drop,"all/most missing in DEV months (needs earlier history, e.g. t-6/t-12)"
+lag3_diff_n_complaint_surveys_cited_12m,filter,drop,"all/most missing in DEV months (needs earlier history, e.g. t-6/t-12)"
+lag3_diff_turnover_total,filter,drop,"all/most missing in DEV months (needs earlier history, e.g. t-6/t-12)"
+days_to_std_due,filter,drop,|ρ|≥.95 with days_since_last_std (lower single-feature PR-AUC)
+n_complaint_surveys_cited_12m,filter,drop,|ρ|≥.95 with n_complaint_cit_12m (lower single-feature PR-AUC)
+n_complaint_surveys_cited_24m_clip,filter,drop,|ρ|≥.95 with n_complaint_surveys_cited_24m (lower single-feature PR-AUC)
+n_ic_surveys_12m_clip,filter,drop,|ρ|≥.95 with n_ic_surveys_12m (lower single-feature PR-AUC)
+n_cit_12m,filter,drop,|ρ|≥.95 with sev_points_12m (lower single-feature PR-AUC)
+n_cit_DF_24m,filter,drop,|ρ|≥.95 with n_cit_24m (lower single-feature PR-AUC)
+n_cit_24m_clip,filter,drop,|ρ|≥.95 with n_cit_24m (lower single-feature PR-AUC)
+n_cit_DF_24m_clip,filter,drop,|ρ|≥.95 with n_cit_24m (lower single-feature PR-AUC)
+log_n_cit_24m,filter,drop,|ρ|≥.95 with n_cit_24m (lower single-feature PR-AUC)
+log_n_cit_DF_24m,filter,drop,|ρ|≥.95 with n_cit_24m (lower single-feature PR-AUC)
+n_cit_AC_24m_clip,filter,drop,|ρ|≥.95 with n_cit_AC_24m (lower single-feature PR-AUC)
+n_cit_GI_24m_clip,filter,drop,|ρ|≥.95 with n_cit_GI_24m (lower single-feature PR-AUC)
+n_cit_JL_24m_clip,filter,drop,|ρ|≥.95 with n_cit_JL_24m (lower single-feature PR-AUC)
+n_cit_12m_clip,filter,drop,|ρ|≥.95 with sev_points_12m (lower single-feature PR-AUC)
+sev_points_12m_clip,filter,drop,|ρ|≥.95 with sev_points_12m (lower single-feature PR-AUC)
+log_sev_points_12m,filter,drop,|ρ|≥.95 with sev_points_12m (lower single-feature PR-AUC)
+log_n_cit_12m,filter,drop,|ρ|≥.95 with sev_points_12m (lower single-feature PR-AUC)
+sev_points_24m_clip,filter,drop,|ρ|≥.95 with sev_points_24m (lower single-feature PR-AUC)
+log_sev_points_24m,filter,drop,|ρ|≥.95 with sev_points_24m (lower single-feature PR-AUC)
+sev_points_per_bed_24m_clip,filter,drop,|ρ|≥.95 with sev_points_per_bed_24m (lower single-feature PR-AUC)
+n_gplus_surveys_36m_clip,filter,drop,|ρ|≥.95 with n_gplus_surveys_36m (lower single-feature PR-AUC)
+days_since_last_gplus,filter,drop,|ρ|≥.95 with days_since_last_gplus_clip (lower single-feature PR-AUC)
+n_complaint_surveys_cited_12m_clip,filter,drop,|ρ|≥.95 with n_complaint_cit_12m (lower single-feature PR-AUC)
+n_complaint_cit_12m_clip,filter,drop,|ρ|≥.95 with n_complaint_cit_12m (lower single-feature PR-AUC)
+log_n_complaint_cit_12m,filter,drop,|ρ|≥.95 with n_complaint_cit_12m (lower single-feature PR-AUC)
+n_complaint_gplus_24m_clip,filter,drop,|ρ|≥.95 with n_complaint_gplus_24m (lower single-feature PR-AUC)
+n_ic_cit_24m_clip,filter,drop,|ρ|≥.95 with n_ic_cit_24m (lower single-feature PR-AUC)
+n_cat_abuse_24m_clip,filter,drop,|ρ|≥.95 with n_cat_abuse_24m (lower single-feature PR-AUC)
+n_cat_qol_care_24m_clip,filter,drop,|ρ|≥.95 with n_cat_qol_care_24m (lower single-feature PR-AUC)
+n_cat_assessment_24m_clip,filter,drop,|ρ|≥.95 with n_cat_assessment_24m (lower single-feature PR-AUC)
+n_cat_nursing_physician_24m_clip,filter,drop,|ρ|≥.95 with n_cat_nursing_physician_24m (lower single-feature PR-AUC)
+n_cat_resident_rights_24m_clip,filter,drop,|ρ|≥.95 with n_cat_resident_rights_24m (lower single-feature PR-AUC)
+n_cat_administration_24m_clip,filter,drop,|ρ|≥.95 with n_cat_administration_24m (lower single-feature PR-AUC)
+n_repeat_tags_last_std,filter,drop,|ρ|≥.95 with n_repeat_tags_last_std_clip (lower single-feature PR-AUC)
+n_uncorrected_clip,filter,drop,|ρ|≥.95 with n_uncorrected (lower single-feature PR-AUC)
+n_fines_24m,filter,drop,|ρ|≥.95 with n_fines_24m_clip (lower single-feature PR-AUC)
+max_fine_24m,filter,drop,|ρ|≥.95 with fine_dollars_24m (lower single-feature PR-AUC)
+max_fine_24m_clip,filter,drop,|ρ|≥.95 with fine_dollars_24m (lower single-feature PR-AUC)
+log_max_fine_24m,filter,drop,|ρ|≥.95 with fine_dollars_24m (lower single-feature PR-AUC)
+fine_dollars_per_bed_24m,filter,drop,|ρ|≥.95 with fine_dollars_24m (lower single-feature PR-AUC)
+n_denials_24m,filter,drop,|ρ|≥.95 with denial_days_24m (lower single-feature PR-AUC)
+denial_days_24m,filter,drop,|ρ|≥.95 with denial_days_24m_clip (lower single-feature PR-AUC)
+isna_days_since_last_penalty,filter,drop,|ρ|≥.95 with any_penalty_36m (lower single-feature PR-AUC)
+days_since_last_penalty_clip,filter,drop,|ρ|≥.95 with days_since_last_penalty (lower single-feature PR-AUC)
+log_days_since_last_penalty,filter,drop,|ρ|≥.95 with days_since_last_penalty (lower single-feature PR-AUC)
+certified_beds,filter,drop,|ρ|≥.95 with certified_beds_clip (lower single-feature PR-AUC)
+hprd_rn,filter,drop,|ρ|≥.95 with hprd_rn_clip (lower single-feature PR-AUC)
+hprd_weekend_total,filter,drop,|ρ|≥.95 with hprd_total (lower single-feature PR-AUC)
+hprd_weekend_rn,filter,drop,|ρ|≥.95 with hprd_weekend_rn_clip (lower single-feature PR-AUC)
+hprd_pt_clip,filter,drop,|ρ|≥.95 with hprd_pt (lower single-feature PR-AUC)
+adj_hprd_rn,filter,drop,|ρ|≥.95 with adj_hprd_rn_clip (lower single-feature PR-AUC)
+qm_ls_antipsychotic,filter,drop,|ρ|≥.95 with qm_ls_antipsychotic_clip (lower single-feature PR-AUC)
+qm_ls_catheter,filter,drop,|ρ|≥.95 with qm_ls_catheter_clip (lower single-feature PR-AUC)
+qm_ls_depressive_clip,filter,drop,|ρ|≥.95 with qm_ls_depressive (lower single-feature PR-AUC)
+qm_ls_restraints,filter,drop,|ρ|≥.95 with qm_ls_restraints_clip (lower single-feature PR-AUC)
+qm_ls_uti_clip,filter,drop,|ρ|≥.95 with qm_ls_uti (lower single-feature PR-AUC)
+qm_ss_new_antipsychotic_clip,filter,drop,|ρ|≥.95 with qm_ss_new_antipsychotic (lower single-feature PR-AUC)
+qm_missing_count_clip,filter,drop,|ρ|≥.95 with qm_missing_count (lower single-feature PR-AUC)
+state_median_hprd_total_clip,filter,drop,|ρ|≥.95 with state_median_hprd_total (lower single-feature PR-AUC)
+pct_state_hprd_total,filter,drop,|ρ|≥.95 with rel_hprd_total (lower single-feature PR-AUC)
+rel_sev_points_24m_clip,filter,drop,|ρ|≥.95 with rel_sev_points_24m (lower single-feature PR-AUC)
+pct_state_sev_points_24m,filter,drop,|ρ|≥.95 with rel_sev_points_24m (lower single-feature PR-AUC)
+log_days_since_last_gplus,filter,drop,|ρ|≥.95 with days_since_last_gplus_clip (lower single-feature PR-AUC)
+log_denial_days_24m,filter,drop,|ρ|≥.95 with denial_days_24m_clip (lower single-feature PR-AUC)
+log_certified_beds,filter,drop,|ρ|≥.95 with certified_beds_clip (lower single-feature PR-AUC)
+std_overdue,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+n_std_36m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+n_cit_JL_24m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0004)
+sev_points_per_bed_24m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0011)
+gplus_last_std,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+gplus_prev_std,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+n_cat_abuse_24m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0001)
+n_cat_nursing_physician_24m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0003)
+fine_dollars_24m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0002)
+any_penalty_36m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+provider_type,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0003)
+resident_family_council,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0004)
+facility_age_years,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0014)
+sff_status,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+abuse_icon,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0001)
+most_recent_inspection_over_2y,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+weekend_gap,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0008)
+turnover_total,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0003)
+turnover_total_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+turnover_rn_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+admin_departures_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0001)
+reported_staffing_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+pt_staffing_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+staffing_rating_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0001)
+qm_rating_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+staffing_rating,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0001)
+d12_hprd_total,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0003)
+qm_ls_adl_decline_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+qm_ls_antianxiety,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0005)
+qm_ls_antianxiety_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_antipsychotic_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+d6_qm_ls_antipsychotic,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+qm_ls_catheter_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_depressive_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_ed_per_1000,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0003)
+qm_ls_falls_major_injury_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+d6_qm_ls_falls_major_injury,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0009)
+qm_ls_hosp_per_1000,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0010)
+qm_ls_hosp_per_1000_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_incontinence_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_mobility_decline,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0014)
+qm_ls_mobility_decline_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+qm_ls_pressure_ulcer_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_restraints_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_uti_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_weight_loss,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0006)
+qm_ls_weight_loss_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+qm_ss_ed_visit,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0009)
+qm_ss_ed_visit_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ss_new_antipsychotic,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0006)
+qm_ss_new_antipsychotic_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+qm_ss_rehosp_fn,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+d6_qm_ss_rehosp,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0004)
+qm_missing_count,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+qm_age_months_claims,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+rel_sev_points_24m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0010)
+days_since_last_gplus_clip,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0002)
+n_repeat_tags_last_std_clip,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0002)
+hprd_rn_clip,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0004)
+hprd_weekend_rn_clip,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0007)
+adj_hprd_rn_clip,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0002)
+qm_ls_antipsychotic_clip,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0006)
+cit_per_bed_24m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0002)
+complaints_per_100beds_12m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0009)
+bed_band,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+std_recency_band,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+ownership_group_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+provider_type_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0001)
+resident_family_council_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+sff_status_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+turnover_total_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+turnover_rn_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+admin_departures_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+reported_staffing_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+pt_staffing_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+staffing_rating_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_rating_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_adl_decline_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_antianxiety_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_antipsychotic_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_catheter_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+qm_ls_depressive_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_ed_per_1000_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_falls_major_injury_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_hosp_per_1000_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_incontinence_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_mobility_decline_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_pressure_ulcer_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_restraints_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_uti_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ls_weight_loss_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ss_ed_visit_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ss_new_antipsychotic_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_ss_rehosp_fn_v,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+x_harm_last_std_x_overdue,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0001)
+x_chain_x_turnover,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0001)
+pct_state_n_complaint_surveys_cited_12m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0001)
+pct_state_qm_ls_falls_major_injury,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0003)
+cit_momentum_12m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0005)
+vol4_n_cit_12m,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0005)
+vol4_turnover_total,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0000)
+isna_hprd_total,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+isna_turnover_total,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+isna_qm_ls_falls_major_injury,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+qm_pca_1,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0007)
+qm_pca_2,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC -0.0005)
+qm_pca_3,permutation,drop,not useful in ≥2 of 3 folds (mean Δ PR-AUC 0.0000)
+state_te,final,keep,"mean Δ PR-AUC 0.0699, positive in 3/3 folds"
+certified_beds_clip,final,keep,"mean Δ PR-AUC 0.0105, positive in 3/3 folds"
+state_gplus_rate_12m,final,keep,"mean Δ PR-AUC 0.0095, positive in 3/3 folds"
+n_complaint_surveys_cited_24m,final,keep,"mean Δ PR-AUC 0.0091, positive in 3/3 folds"
+n_cat_qol_care_24m,final,keep,"mean Δ PR-AUC 0.0044, positive in 3/3 folds"
+n_cit_24m,final,keep,"mean Δ PR-AUC 0.0030, positive in 3/3 folds"
+days_since_last_complaint_survey_cited,final,keep,"mean Δ PR-AUC 0.0028, positive in 3/3 folds"
+days_since_last_std,final,keep,"mean Δ PR-AUC 0.0027, positive in 3/3 folds"
+n_complaint_cit_12m,final,keep,"mean Δ PR-AUC 0.0025, positive in 3/3 folds"
+sev_points_24m,final,keep,"mean Δ PR-AUC 0.0020, positive in 3/3 folds"
+n_gplus_surveys_36m,final,keep,"mean Δ PR-AUC 0.0020, positive in 3/3 folds"
+hprd_lpn,final,keep,"mean Δ PR-AUC 0.0018, positive in 3/3 folds"
+sev_points_12m,final,keep,"mean Δ PR-AUC 0.0016, positive in 3/3 folds"
+d12_turnover_total,final,keep,"mean Δ PR-AUC 0.0014, positive in 3/3 folds"
+pct_state_hprd_rn,final,keep,"mean Δ PR-AUC 0.0014, positive in 3/3 folds"
+qm_ls_catheter_clip,final,keep,"mean Δ PR-AUC 0.0012, positive in 3/3 folds"
+n_cat_assessment_24m,final,keep,"mean Δ PR-AUC 0.0011, positive in 3/3 folds"
+pct_state_turnover_total,final,keep,"mean Δ PR-AUC 0.0011, positive in 3/3 folds"
+qm_ls_uti,final,keep,"mean Δ PR-AUC 0.0011, positive in 3/3 folds"
+hprd_pt,final,keep,"mean Δ PR-AUC 0.0011, positive in 3/3 folds"
+state_median_hprd_total,final,keep,"mean Δ PR-AUC 0.0010, positive in 3/3 folds"
+qm_ls_falls_major_injury,final,keep,"mean Δ PR-AUC 0.0010, positive in 3/3 folds"
+pct_state_n_cit_24m,final,keep,"mean Δ PR-AUC 0.0010, positive in 3/3 folds"
+qm_ls_incontinence,final,keep,"mean Δ PR-AUC 0.0010, positive in 2/3 folds"
+x_size_ownership,final,keep,"mean Δ PR-AUC 0.0009, positive in 2/3 folds"
+qm_ls_depressive,final,keep,"mean Δ PR-AUC 0.0009, positive in 2/3 folds"
+n_cat_resident_rights_24m,final,keep,"mean Δ PR-AUC 0.0009, positive in 3/3 folds"
+n_uncorrected,final,keep,"mean Δ PR-AUC 0.0008, positive in 3/3 folds"
+n_ic_cit_24m,final,keep,"mean Δ PR-AUC 0.0008, positive in 3/3 folds"
+qm_ls_pressure_ulcer,final,keep,"mean Δ PR-AUC 0.0008, positive in 3/3 folds"
+adj_hprd_total,final,keep,"mean Δ PR-AUC 0.0007, positive in 2/3 folds"
+days_since_last_penalty,final,keep,"mean Δ PR-AUC 0.0007, positive in 2/3 folds"
+n_cit_AC_24m,final,keep,"mean Δ PR-AUC 0.0007, positive in 3/3 folds"
+x_complaints_x_low_rn,final,keep,"mean Δ PR-AUC 0.0006, positive in 3/3 folds"
+hprd_total,final,keep,"mean Δ PR-AUC 0.0005, positive in 3/3 folds"
+rel_hprd_total,final,keep,"mean Δ PR-AUC 0.0005, positive in 2/3 folds"
+n_cit_GI_24m,final,keep,"mean Δ PR-AUC 0.0005, positive in 2/3 folds"
+turnover_rn,final,keep,"mean Δ PR-AUC 0.0005, positive in 3/3 folds"
+qm_ls_adl_decline,final,keep,"mean Δ PR-AUC 0.0005, positive in 2/3 folds"
+max_sev_prev_std,final,keep,"mean Δ PR-AUC 0.0004, positive in 3/3 folds"
+d6_hprd_rn,final,keep,"mean Δ PR-AUC 0.0003, positive in 2/3 folds"
+admin_departures,final,keep,"mean Δ PR-AUC 0.0003, positive in 2/3 folds"
+denial_days_24m_clip,final,keep,"mean Δ PR-AUC 0.0003, positive in 3/3 folds"
+qm_rating,final,keep,"mean Δ PR-AUC 0.0003, positive in 2/3 folds"
+n_cat_administration_24m,final,keep,"mean Δ PR-AUC 0.0002, positive in 2/3 folds"
+max_sev_last_std,final,keep,"mean Δ PR-AUC 0.0002, positive in 2/3 folds"
+complaint_momentum_12m,final,keep,"mean Δ PR-AUC 0.0002, positive in 2/3 folds"
+qm_ss_rehosp,final,keep,"mean Δ PR-AUC 0.0002, positive in 2/3 folds"
+occupancy,final,keep,"mean Δ PR-AUC 0.0002, positive in 2/3 folds"
+n_fines_24m_clip,final,keep,"mean Δ PR-AUC 0.0002, positive in 2/3 folds"
+ownership_group,final,keep,"mean Δ PR-AUC 0.0001, positive in 3/3 folds"
+hprd_aide,final,keep,"mean Δ PR-AUC 0.0001, positive in 2/3 folds"
+changed_ownership_12m,final,keep,"mean Δ PR-AUC 0.0001, positive in 2/3 folds"
+n_ic_surveys_12m,final,keep,"mean Δ PR-AUC 0.0001, positive in 2/3 folds"
+rn_share,final,keep,"mean Δ PR-AUC 0.0001, positive in 2/3 folds"
+vol4_hprd_total,final,keep,"mean Δ PR-AUC 0.0001, positive in 2/3 folds"
+isna_days_since_last_gplus,final,keep,"mean Δ PR-AUC 0.0001, positive in 2/3 folds"
+d6_qm_ls_pressure_ulcer,final,keep,"mean Δ PR-AUC 0.0001, positive in 2/3 folds"
+n_complaint_gplus_24m,final,keep,"mean Δ PR-AUC 0.0000, positive in 2/3 folds"
+qm_ls_restraints_clip,final,keep,"mean Δ PR-AUC 0.0000, positive in 2/3 folds"
+qm_ls_ed_per_1000_fn,final,keep,"mean Δ PR-AUC 0.0000, positive in 2/3 folds"
+provider_in_hospital,final,keep,"mean Δ PR-AUC 0.0000, positive in 2/3 folds"
+vol4_n_complaint_surveys_cited_12m,final,keep,"mean Δ PR-AUC 0.0000, positive in 2/3 folds"
+d6_hprd_total,final,keep,"mean Δ PR-AUC 0.0000, positive in 2/3 folds"
+ccrc,final,keep,"mean Δ PR-AUC 0.0000, positive in 2/3 folds"
+qm_age_months_mds,final,keep,"mean Δ PR-AUC 0.0000, positive in 2/3 folds"
