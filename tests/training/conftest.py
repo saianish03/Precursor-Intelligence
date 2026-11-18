@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 
+import mlflow
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "ml"))  # the synthetic gold lives in tests/ml
@@ -52,3 +53,17 @@ def prepare():
         )
 
     return _prepare
+
+
+@pytest.fixture
+def tracking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A throwaway SQLite MLflow store; tracking is on while the test runs."""
+    uri = f"sqlite:///{(tmp_path / 'mlruns.db').as_posix()}"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
+    monkeypatch.setenv("MLFLOW_DISABLE_AGENT_HINT", "1")
+    monkeypatch.chdir(tmp_path)  # a default ./mlruns artifact root lands in tmp_path
+    mlflow.set_tracking_uri(uri)
+    yield uri
+    while mlflow.active_run() is not None:
+        mlflow.end_run()
+    mlflow.set_tracking_uri(None)  # type: ignore[arg-type]

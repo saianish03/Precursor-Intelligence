@@ -7,14 +7,15 @@ import sys
 import pytest
 import yaml
 from make_ml_gold import ml_config
+from mlflow.tracking import MlflowClient
 
-from precursorintelligence.common.config import TuningParamCfg, load_feature_registry
+from precursorintelligence.common.config import TuningParamCfg, load_feature_registry, project_root
 from precursorintelligence.harmonize.cli import main
 from precursorintelligence.ingestion.pipeline import EXIT_CONFIG, EXIT_OK, EXIT_VALIDATION
-from precursorintelligence.training import MlInputError
+from precursorintelligence.training import MlInputError, mlflow_log
 from precursorintelligence.training import tune as tune_mod
-from precursorintelligence.training.contracts import RunPaths
-from precursorintelligence.training.data import feature_list, read_frame
+from precursorintelligence.training.contracts import Decision, RunPaths
+from precursorintelligence.training.data import feature_list, read_frame, read_input_manifest
 from precursorintelligence.training.tune import (
     LR_C,
     PLOT_NAMES,
@@ -80,6 +81,67 @@ def test_the_proposal_is_in_the_space_and_written(store, meta, prepare):
     )
     assert again.best_params == res.best_params and again.best_lr_C == res.best_lr_C
     assert again.best_value == res.best_value
+
+
+def _tune_run(cfg):
+    client = MlflowClient()
+    [run] = client.search_runs(
+        [client.get_experiment_by_name(cfg.registry.experiment).experiment_id]
+    )
+    return run
+
+
+def test_tunes_mlflow_run_has_its_configs_recipe_the_runs_decision_and_the_gold_input(
+    store, meta, prepare, tracking, tmp_path
+):
+    # #76 B9: tagged like train's run, not with the committed recipe and a hard-coded RETUNE
+    cfg = small_config()
+    prepare(store, meta, run_id="manual__tune", cfg=cfg)
+    paths = RunPaths.of(cfg, "manual__tune")
+    decision = Decision(
+        decision="RETRAIN", proceed=True, reason="re-tune beside a retrain", mode="auto"
+    )
+    store.put_bytes(paths.decision, decision.model_dump_json().encode(), overwrite=True)
+    copy = tmp_path / "ml_copy.yaml"
+    copy.write_bytes((project_root() / "configs" / "ml.yaml").read_bytes() + b"# a copy\n")
+    registry = load_feature_registry()
+    run_tune(
+        store,
+        ml_run_id="manual__tune",
+        cfg=cfg,
+        registry=registry,
+        n_trials=1,
+        max_rounds=20,
+        ml_config_path=copy,
+    )
+
+    run = _tune_run(cfg)
+    features = feature_list(registry, cfg)
+    committed = mlflow_log.recipe_hash(features)
+    assert (
+        run.data.tags["recipe_hash"]
+        == mlflow_log.recipe_hash(features, ml_config_path=copy)
+        != committed
+    )
+    assert (run.data.tags["decision"], run.data.tags["mode"]) == ("RETRAIN", "auto")
+    [gold_input] = run.inputs.dataset_inputs
+    assert gold_input.dataset.name == "gold"
+    assert gold_input.dataset.digest == read_input_manifest(store, paths).dataset_version
+
+
+def test_a_manual_tune_without_a_decision_is_tagged_retune(store, meta, prepare, tracking):
+    cfg = small_config()
+    prepare(store, meta, run_id="manual__tune", cfg=cfg)
+    run_tune(
+        store,
+        ml_run_id="manual__tune",
+        cfg=cfg,
+        registry=load_feature_registry(),
+        n_trials=1,
+        max_rounds=20,
+    )
+    tags = _tune_run(cfg).data.tags
+    assert (tags["decision"], tags["mode"]) == ("RETUNE", "retune")
 
 
 def test_the_test_frame_is_refused(store, meta, prepare):

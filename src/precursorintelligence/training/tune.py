@@ -49,7 +49,7 @@ from ..common.config import (
 )
 from ..common.io.object_store import ObjectStore
 from . import MlInputError
-from .contracts import RunPaths
+from .contracts import Decision, RunPaths
 from .data import (
     average_precision,
     feature_list,
@@ -60,6 +60,7 @@ from .data import (
 )
 from .ensemble import combine
 from .members import LgbmMember, LrMember
+from .train import read_decision_file
 
 log = logging.getLogger(__name__)
 
@@ -381,11 +382,15 @@ def run_tune(
     registry: FeatureRegistry,
     n_trials: int | None = None,
     max_rounds: int | None = None,
+    ml_config_path: Path | None = None,
 ) -> TuneResult:
     """The ``tune`` task on a prepared run folder: reads ``eval_train`` (hash-checked), writes ``tuning/`` and logs
-    one MLflow run ``tune`` when tracking is on."""
+    one MLflow run ``tune`` when tracking is on. ``ml_config_path`` is the ml.yaml that ``cfg`` came from (it goes
+    into the ``recipe_hash``, §14.3)."""
     paths = RunPaths.of(cfg, ml_run_id)
     manifest = read_input_manifest(store, paths)
+    # before tuning: a corrupt decision.json refuses early
+    decision = read_decision_file(store, paths)
     if manifest.label != cfg.label:
         raise MlInputError(f"prepare ran for label {manifest.label}, ml.yaml says {cfg.label}")
     features = feature_list(registry, cfg)
@@ -423,7 +428,19 @@ def run_tune(
         key = paths.tuning_proposal if name == PROPOSAL_NAME else f"{paths.tuning_dir}{name}"
         store.put_bytes(key, data, overwrite=True)
 
-    _log_mlflow(cfg, manifest, ml_run_id, features, result, files, n_trials)
+    gold_uri = store.uri_for(paths.input_file("facility_month_dataset.parquet"))
+    _log_mlflow(
+        cfg,
+        manifest,
+        ml_run_id,
+        features,
+        result,
+        files,
+        n_trials,
+        decision,
+        ml_config_path,
+        gold_uri,
+    )
     return result
 
 
@@ -435,6 +452,9 @@ def _log_mlflow(
     result: TuneResult,
     files: Mapping[str, bytes],
     n_trials: int | None,
+    decision: Decision | None,
+    ml_config_path: Path | None,
+    gold_uri: str,
 ) -> None:
     from . import mlflow_log
 
@@ -445,13 +465,15 @@ def _log_mlflow(
     tags = mlflow_log.base_tags(
         manifest,
         ml_run_id=ml_run_id,
-        recipe_hash=mlflow_log.recipe_hash(features),
-        decision="RETUNE",
-        mode="retune",
+        recipe_hash=mlflow_log.recipe_hash(features, ml_config_path=ml_config_path),
+        # a manual `ml tune` (no decision.json) is a re-tune
+        decision=decision.decision if decision else "RETUNE",
+        mode=decision.mode if decision else "retune",
     )
     with mlflow_log.task_run(cfg, "tune", tags) as run_id:
         if run_id is None:
             return
+        mlflow_log.log_gold_input(manifest, gold_uri)
         params: dict[str, Any] = {f"space.{k}": p.describe() for k, p in search_space(cfg).items()}
         params.update(
             {

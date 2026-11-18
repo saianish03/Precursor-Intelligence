@@ -495,13 +495,20 @@ def run_train(
 
 def read_decision(store: ObjectStore, paths: RunPaths) -> DecisionName:
     """The run's decision for the §14.2 tag: ``decision.json`` when ``decide`` (W6) wrote one, else RETRAIN (a
-    manual ``ml train`` is a retrain). A file that is there but unreadable is a data refusal, not a silent RETRAIN."""
+    manual ``ml train`` is a retrain)."""
+    decision = read_decision_file(store, paths)
+    return decision.decision if decision else "RETRAIN"
+
+
+def read_decision_file(store: ObjectStore, paths: RunPaths) -> Decision | None:
+    """``decision.json``, or None when ``decide`` wrote none (a manual run). A file that is there but unreadable is
+    a data refusal, not a silent default."""
     if not store.exists(paths.decision):
-        return "RETRAIN"
+        return None
     with store.open_read(paths.decision) as f:
         data = f.read()
     try:
-        return Decision.model_validate_json(data).decision
+        return Decision.model_validate_json(data)
     except ValidationError as exc:
         raise MlInputError(
             f"{paths.decision} is not a valid decision file: {exc.error_count()} error(s)"

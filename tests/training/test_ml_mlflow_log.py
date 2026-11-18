@@ -60,19 +60,6 @@ def _manifest() -> InputManifest:
     )
 
 
-@pytest.fixture
-def tracking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
-    uri = f"sqlite:///{(tmp_path / 'mlruns.db').as_posix()}"
-    monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
-    monkeypatch.setenv("MLFLOW_DISABLE_AGENT_HINT", "1")
-    monkeypatch.chdir(tmp_path)  # a default ./mlruns artifact root lands in tmp_path
-    mlflow.set_tracking_uri(uri)
-    yield uri
-    while mlflow.active_run() is not None:
-        mlflow.end_run()
-    mlflow.set_tracking_uri(None)  # type: ignore[arg-type]
-
-
 # --------------------------------------------------------------------------- recipe hash
 
 
