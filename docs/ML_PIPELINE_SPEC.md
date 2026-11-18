@@ -425,11 +425,11 @@ Every decision, promotion, hold, manual promotion and rollback is a row in `prec
 - At a stale refresh (`V ≠ V_L`), event-based features are copied from `V_L`; scores are produced and stamped `stale_refresh = true` (also in `status/latest.json`).
 
 ### 10.2 Reasons and SHAP
-- **`facility_reasons.parquet`** (long): `ccn, t, score_month (date), model_version, direction (raises | lowers), rank, feature, feature_value (text), contribution_logodds, label`; up to 8 rows per facility (only a positive contribution raises and only a negative one lowers, so a facility can have fewer).
-- **`shap_values.parquet`** (wide): `ccn, t, model_version, base_value`, one column per feature.
+- **`facility_reasons.parquet`** (long): `ccn, t, score_month (date), model_version, gold_run_id, direction (raises | lowers), rank, feature, feature_value (text), contribution_logodds, label`; up to 8 rows per facility (only a positive contribution raises and only a negative one lowers, so a facility can have fewer).
+- **`shap_values.parquet`** (wide): `ccn, t, model_version, gold_run_id, base_value`, one column per feature.
 
 ### 10.3 Chain roll-up (ML-11)
-Per `chain_id` (facilities without a chain get no chain row), in **`chain_scores.parquet`**: `n_facilities`, `beds` (Σ `certified_beds`), `expected_facilities_with_event` (Σ p), `bed_weighted_mean_p`, `max_p` and `worst_ccn`, `share_top_decile`, and the write's `model_version`, `gold_run_id` and `ml_run_id` (§20). No model is trained at chain level. A score-band → action mapping, if any, is a fixed rule table outside ML.
+Per `chain_id` (facilities without a chain get no chain row), in **`chain_scores.parquet`**: `n_facilities`, `beds` (Σ `certified_beds`), `expected_facilities_with_event` (Σ p), `p_any_event` (1 − Π(1 − p), the probability that at least one facility has an event, assuming independence, §21), `bed_weighted_mean_p`, `max_p` and `worst_ccn`, `share_top_decile`, and the write's `model_version`, `gold_run_id` and `ml_run_id` (§20). No model is trained at chain level. A score-band → action mapping, if any, is a fixed rule table outside ML.
 
 ### 10.4 Layout and idempotency
 All four files go to `<prefix>scores/v=YYYY-MM/` with `scores_manifest.json` (model version, gold run, rows, sha256 per file, `ml_run_id`). A rescoring of the same month overwrites the folder; bucket versioning keeps the previous files. The old manifest is moved to `<prefix>tmp/scores/v=YYYY-MM/` before the first file is rewritten and the new one is written last, so a rescore that dies midway leaves a month that reads as not scored. The version's `key_features` tag (§8.2) is set by its first score and kept for its life.
@@ -828,7 +828,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 - **Within-state ranking is weak:** PR #49 found only 3.6 % of AUC pairs within states, and `state` 24.8 % of LightGBM gain; within-state metrics are reported.
 - **Per-state miscalibration** (18 of 34 states in PR #49) is reported every month and gated against regression only.
 - **Complaint-driven outcomes:** 68 % of positives come from complaint surveys only (PR #49 research) and are hard to predict from public data; an oracle with future complaint counts reached ROC 0.82.
-- **Chain expected counts** (Σ p) are exact in expectation; the spread of a chain's outcomes is wider than independence suggests when problems are chain-wide.
+- **Chain expected counts** (Σ p) are exact in expectation; the spread of a chain's outcomes is wider than independence suggests when problems are chain-wide, so `p_any_event` (1 − Π(1 − p)) overstates the chance of at least one event in such a chain.
 - **Realized performance** of published scores is first measurable ~20 months after the first scores (an early decile-lift read after 3–6 months is Phase 2).
 
 ---
@@ -848,7 +848,7 @@ The settings live in `configs/ml.yaml` (W0, #54), one commented file, validated 
 |---|---|---|
 | `facility_scores` | `ccn, score_month` | §10.1 |
 | `facility_reasons` | `ccn, score_month, direction, rank` | §10.2 |
-| `shap_values` (GCS only) | `ccn, t` | `model_version, base_value`, one float per feature |
+| `shap_values` (GCS only) | `ccn, t` | `model_version, gold_run_id, base_value`, one float per feature |
 | `chain_scores` | `chain_id, score_month` | §10.3 |
 | `ml_runs` (Postgres) | `ml_run_id` + one row per promotion action | §15.2 |
 | `status/latest.json` | — | §12.3 |
