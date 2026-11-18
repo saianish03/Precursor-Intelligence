@@ -382,7 +382,8 @@ behind the numbers: [`docs/ML_PIPELINE.md`](docs/ML_PIPELINE.md). Stage numbers 
 - **What drives the score:** the home's state and the state's recent G+ rate, its size, and its own complaint and
   citation history; staffing and quality measures add the rest.
 - **Caveat:** labels mature 20 months after `t`, so 2025-02 is the newest test month, and PR #49 chose its settings on
-  it. It is reported, not used for decisions; the first honest month, 2025-03, comes with the late-November release.
+  it. Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far; it is re-read on 2025-03, the first honest
+  month, when the late-November release brings it in.
 
 <table>
 <tr>
@@ -702,7 +703,8 @@ The course's example structure maps onto this repository as follows:
   already in `gold/`; validating `gold/_staging/` first is the top follow-up (`docs/VALIDATION.md`).
 - **Training window:** training rows start in 2022-01 (PR #53), so the ML evaluation window has its 11 months with
   the 20-month production lag. Labels mature 20 months after `t`: the newest test month is 2025-02, a development
-  month (PR #49 chose its settings on it); Checkpoint ML-A reads 2025-03 or later from the late-November release.
+  month (PR #49 chose its settings on it). Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far; it is
+  re-read on 2025-03 when the late-November release brings it in.
 - **Gold memory:** a full-archive build is estimated at about 5.8 GB with the merged gold file. The VM is an e2-standard-4
   (16 GB, 10 GB task limit), so it fits; the streaming fix in `docs/AIRFLOW_PIPELINE.md` §9.1 is needed only on an 8 GB VM.
 - **Team decisions in #27:** which slices are fairness groups, whether state effects are risk or bias, whether

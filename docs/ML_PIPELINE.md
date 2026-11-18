@@ -216,8 +216,9 @@ features):
 
 - The three candidates are within each other's CIs; selection on OOF picked lgbm (by 0.0013 over the ensemble).
 - Within a state, PR-AUC is 0.397 and precision@10 % is 0.425: the model ranks homes inside a state, not only states.
-- **2025-02 is a development month** (PR #49 chose its window and parameters on it). It is reported, never used for
-  a decision; Checkpoint ML-A reads 2025-03 or later once the late-November release brings it into the test window.
+- **2025-02 is a development month** (PR #49 chose its window and parameters on it). Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far (spec §17.3 asks for non-development months
+  *where available*); it is re-read on 2025-03 when the late-November release brings it in. G5 on v2 and v3 was also
+  decided on 2025-02.
 - PR #49's window is 7 months more recent than the production window (its data ends 15 months before 2025-02
   instead of 22), hence its slightly higher PR-AUC (0.481 against 0.470): the cost of evaluating with the same lag
   that production has.
@@ -249,14 +250,14 @@ in-hospital (`state` joins with the Benjamini-Hochberg correction in Phase 2, ML
 and 50 events: (a) against the champion, no group's |O−E| grows by more than 0.03 or its PR-AUC
 drops by more than 0.05; (b) no group's O−E CI lies entirely outside ±0.05. A failure holds the model and emails.
 
-**Result (champion v1, test 2025-02):** 0 calibration failures. Across all reported non-geographic values, the largest
-gaps are SFF candidates (−0.051, 433 homes, CI −0.096 to −0.007; reported, not gated), homes with 200+ beds (+0.044,
+**Result (champion v1, test 2025-02):** 0 calibration failures. Among the reported non-geographic groups of 400+ homes,
+the largest gaps are SFF candidates (−0.051, 433 homes, CI −0.096 to −0.007; reported, not gated), homes with 200+ beds (+0.044,
 CI +0.014 to +0.073), homes under 50 beds (−0.031) and 1-star homes (−0.029); the model over-predicts overall by 1.5
 points (mean p 0.271 vs 0.256), which explains most of the negative gaps. States differ most (Oregon −0.185, Hawaii
 −0.176, South Dakota +0.168, Mississippi +0.162): reported, not gated (below).
 
 **Result (reproduction run, lgbm):** 0 calibration failures: no gated group's O−E 95 % CI lies wholly
-outside ±0.05. Across all reported non-geographic values, gated or not, the largest gaps are SFF candidates (−0.050,
+outside ±0.05. Among the reported non-geographic groups of 400+ homes, gated or not, the largest gaps are SFF candidates (−0.050,
 433 homes, CI −0.094 to −0.006; SFF status is reported, not gated), homes under 50 beds (−0.045) and homes with 200+
 beds (+0.040). Most of each group's gap is one overall shift: on 2025-02 the model over-predicts by
 2.6 points (mean p 0.282 vs an observed 0.256; in-hospital = false, 14,182 of the 14,643 homes, is −0.026), as an
@@ -473,7 +474,8 @@ All on the laptop integration stack `ml_dev` (Airflow 3 + MLflow + Postgres in D
 `20261112T020010Z-543cdc` (`dataset_version` `3f9bac9367ae18ec`). Each task ran in a container capped at 7 GB; the
 largest step peaked at 3.1 GB.
 
-**The DAG runs** (`cms_nh_ml`, pipeline image from `dev` at `5153046`, 119 features, 2026-11-17 and 18). Together they
+**The acceptance runs** (8 DAG runs of `cms_nh_ml` and one CLI run, pipeline image from `dev` at `5153046`, 119 features,
+2026-11-17 and 18). Together they
 are spec §17.2's acceptance list:
 
 | Run | Mode | Result |
@@ -511,7 +513,7 @@ recipients are redacted. Click a screenshot for the full size.
 </tr>
 <tr>
 <td width="50%"><a href="img/ml/screens/mlflow-evaluate-artifacts.png"><img src="img/ml/screens/mlflow-evaluate-artifacts.png" alt="MLflow: the <code>evaluate</code> run's artifacts (the plots, <code>slices.csv</code>, <code>evaluation.json</code>), the bias chart open" width="420"></a><br><sub>MLflow: the <code>evaluate</code> run's artifacts (the plots, <code>slices.csv</code>, <code>evaluation.json</code>), the bias chart open</sub></td>
-<td width="50%"><a href="img/ml/screens/mlflow-gate-model-card.png"><img src="img/ml/screens/mlflow-gate-model-card.png" alt="MLflow: the <code>gate</code> run's model card for v1 (data, recipe and selection, test metrics with CIs, calibration)" width="420"></a><br><sub>MLflow: the <code>gate</code> run's model card for v1 (data, recipe and selection, test metrics with CIs, calibration)</sub></td>
+<td width="50%"><a href="img/ml/screens/mlflow-gate-model-card.png"><img src="img/ml/screens/mlflow-gate-model-card.png" alt="MLflow: the gate run's model card for v1" width="420"></a><br><sub>MLflow: the <code>gate</code> run's model card for v1 (data, recipe and selection, test metrics with CIs, calibration). "Gate outcome: HOLD" because it is the first version: it waits as <code>@challenger</code> for Checkpoint ML-A</sub></td>
 </tr>
 <tr>
 <td width="50%"><a href="img/ml/screens/mlflow-registry.png"><img src="img/ml/screens/mlflow-registry.png" alt="MLflow registry: v1 <code>@champion</code> (after the rollback), v2 (promoted automatically, then rolled back), v3 <code>@challenger</code> (held: failed G2, G5)" width="420"></a><br><sub>MLflow registry: v1 <code>@champion</code> (after the rollback), v2 (promoted automatically, then rolled back), v3 <code>@challenger</code> (held: failed G2, G5)</sub></td>
@@ -536,15 +538,17 @@ recipients are redacted. Click a screenshot for the full size.
 ## 15. Known limitations and Phase 2
 
 - **Labels lag 20 months**, so the newest test month is 2025-02 at `V_L` = 2026-10, and it is a development month.
-  Checkpoint ML-A and threshold reviews use 2025-03 or later, from the late-November release.
+  Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far (spec §17.3 asks for non-development months
+  *where available*); it is re-read on 2025-03 when the late-November release brings it in. G5 on v2 and v3 was also
+  decided on 2025-02. The threshold review (spec O2) also waits for 2025-03.
 - **Unverified gold is allowed** (`allow_unverified: true`, tagged on every run) until the data spec's §11
   verification gate exists.
 - **Phase 2:** MLflow and the ML DAG on the GCP VM (the registry starts fresh there); BigQuery publish; the tuned
   challenger and an automatic re-tune; the performance trend and score drift in monitoring; per-state empirical-Bayes
   shrinkage; MLflow authentication (the UI is local only today); the API, the four agents and the dashboard.
 - **States differ most** in calibration; they are reported, not gated, until per-state shrinkage lands.
-- **Known issues found on the stack**, each with the work package's owner:
-  - **#73:** `monitor` is skipped on a run without scores (the first version), so no status file is written. And PSI on a feature with one value per state (`state_gplus_rate_12m`) reads 0.96 for a 0.003 change, which emailed a **false re-tune request** after the promotion.
-  - **#74:** `ml promote` doesn't verify the target's packages before moving the alias. And G2's single shuffled-label model is noisy: 0.4835, 0.4987 and 0.5253 on real data; the last failed the [0.48, 0.52] band.
-  - **#75:** provenance (`gold_run_id`) and robustness gaps in `score`.
-  - **#76:** gaps in `recipe_hash` and in tune's MLflow run.
+- **Known issues found on the stack**, each assigned to its work package's owner:
+  - **#73** (nishanth3112): `monitor` is skipped on a run without scores (the first version), so no status file is written. And PSI on a feature with one value per state (`state_gplus_rate_12m`) reads 0.96 for a 0.003 change, which emailed a **false re-tune request** after the promotion.
+  - **#74** (tanoj22): G2's single shuffled-label model is noisy: 0.4835, 0.4987 and 0.5253 on real data; the last failed the [0.48, 0.52] band (#79 judges the mean of 10 shuffles). Promote's package check is fixed (#77).
+  - **#75** (RiyaNTaori): provenance (`gold_run_id`) and robustness gaps in `score`.
+  - **#76** (Aakash-2904): gaps in `recipe_hash` and in tune's MLflow run.
