@@ -11,6 +11,7 @@ from ml_eval_fixtures import FakeRegistry
 
 from precursorintelligence.common.config import ConfigError
 from precursorintelligence.harmonize.cli import main
+from precursorintelligence.serving import explain
 from precursorintelligence.serving.publish import run_publish
 from precursorintelligence.serving.rollup import CHAIN_COLUMNS, chain_scores
 from precursorintelligence.serving.score import (
@@ -152,9 +153,41 @@ def test_score_writes_every_facility_at_v_with_its_provenance(trained):
 def test_the_shap_file_adds_up_to_the_scores(trained):
     score(trained, setup_champion(trained, 1))
     s, shap = table(trained, "facility_scores"), table(trained, "shap_values")
-    features = shap.columns[4:]
+    features = shap.columns[5:]
     total = shap["base_value"].to_numpy() + shap.select(features).to_numpy().sum(axis=1)
     np.testing.assert_allclose(total, s["logit"].to_numpy(), atol=1e-6)
+
+
+def test_every_score_table_has_a_stable_schema_and_its_provenance(trained):
+    # BigQuery loads these by column order, and every row says which model and gold produced it (§20, #75 B7)
+    score(trained, setup_champion(trained, 1))
+    gold_run_id = read_input_manifest(
+        trained.store(), RunPaths.of(trained.cfg, trained.run_id)
+    ).gold_run_id
+    reasons, shap = table(trained, "facility_reasons"), table(trained, "shap_values")
+    assert reasons.columns == list(explain.REASON_COLUMNS)
+    assert shap.columns[:5] == ["ccn", "t", "model_version", "gold_run_id", "base_value"]
+    assert table(trained, "chain_scores").columns == list(CHAIN_COLUMNS)
+    for name in SCORE_FILES:
+        t = table(trained, name)
+        assert set(t["model_version"]) == {1} and set(t["gold_run_id"]) == {gold_run_id}, name
+
+
+def test_a_plot_that_fails_never_stops_the_scores(trained, monkeypatch, caplog):
+    # the plots are report extras (#75 B6): any error, not only a missing library, is logged and skipped
+    def broken(*args, **kwargs):
+        raise RuntimeError("shap could not draw")
+
+    monkeypatch.setattr(explain, "beeswarm", broken)
+    out = score(trained, setup_champion(trained, 1))
+    assert not out.skipped
+    for name in SCORE_FILES:
+        assert table(trained, name).height > 0
+    assert trained.store().exists(f"{scores_dir(trained.cfg, out.v)}{SCORES_MANIFEST}")
+    report = score_report_dir(RunPaths.of(trained.cfg, trained.run_id))
+    assert trained.store().exists(f"{report}shap_bar.png")  # the other plot is still drawn
+    assert not trained.store().exists(f"{report}shap_beeswarm.png")
+    assert "shap_beeswarm.png skipped" in caplog.text and "shap could not draw" in caplog.text
 
 
 def test_reasons_are_the_top_raising_and_lowering_contributions(trained):
@@ -168,7 +201,7 @@ def test_reasons_are_the_top_raising_and_lowering_contributions(trained):
     assert (r.filter(pl.col("direction") == "lowers")["contribution_logodds"] < 0).all()
     one = shap.row(0, named=True)
     first = r.filter((pl.col("ccn") == one["ccn"]) & (pl.col("direction") == "raises")).sort("rank")
-    contribs = sorted((one[f] for f in shap.columns[4:] if one[f] > 0), reverse=True)
+    contribs = sorted((one[f] for f in shap.columns[5:] if one[f] > 0), reverse=True)
     assert first["contribution_logodds"].to_list() == pytest.approx(contribs[: first.height])
     assert r["label"].null_count() == 0 and (r["label"] != "").all()
 
@@ -280,11 +313,14 @@ def test_chain_rollup_arithmetic():
     a = out.row(0, named=True)
     assert a["n_facilities"] == 3 and a["beds"] == 150.0
     assert a["expected_facilities_with_event"] == pytest.approx(1.2)
+    # #75 B18: 1 - prod(1 - p), which assumes the homes are independent
+    assert a["p_any_event"] == pytest.approx(1 - 0.8 * 0.4 * 0.6)
     assert a["bed_weighted_mean_p"] == pytest.approx((100 * 0.2 + 50 * 0.6) / 150)
     assert (a["max_p"], a["worst_ccn"]) == (0.6, "000002")
     assert a["share_top_decile"] == pytest.approx(1 / 3)
     b = out.row(1, named=True)
     assert (b["n_facilities"], b["max_p"], b["share_top_decile"]) == (1, 0.3, 0.0)
+    assert b["p_any_event"] == pytest.approx(0.3)
     assert out.select("model_version", "gold_run_id", "ml_run_id").unique().rows() == [
         (7, "g1", "r1")
     ]

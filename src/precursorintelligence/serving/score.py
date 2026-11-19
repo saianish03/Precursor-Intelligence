@@ -24,6 +24,7 @@ import io
 import json
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any, Literal
@@ -324,11 +325,14 @@ def run_score(
         frame,
         score_month=_month_start(manifest.v),
         model_version=version,
+        gold_run_id=manifest.gold_run_id,
         labels=explain.load_reason_labels(project_root() / cfg.explain.labels),
         top_raise=cfg.explain.top_raise,
         top_lower=cfg.explain.top_lower,
     )
-    shap = explain.shap_table(base, contrib, frame, model_version=version)
+    shap = explain.shap_table(
+        base, contrib, frame, model_version=version, gold_run_id=manifest.gold_run_id
+    )
     beds = (
         frame["certified_beds"]
         if "certified_beds" in frame.columns
@@ -355,11 +359,16 @@ def run_score(
         "shap_families.csv": _csv(families),
         "key_features.json": json.dumps(watch, indent=2).encode(),
     }
-    try:
-        report_files["shap_bar.png"] = explain.bar_chart(mean_abs, title="Champion, score month")
-        report_files["shap_beeswarm.png"] = explain.beeswarm(contrib, model.model_frame(frame))
-    except ImportError as exc:  # matplotlib/shap missing: the plots are skipped, never the scores
-        log.warning("score %s: SHAP plots skipped (%s)", ml_run_id, exc)
+    plots: dict[str, Callable[[], bytes]] = {
+        "shap_bar.png": lambda: explain.bar_chart(mean_abs, title="Champion, score month"),
+        "shap_beeswarm.png": lambda: explain.beeswarm(contrib, model.model_frame(frame)),
+    }
+    # report extras: a missing library or a drawing error skips that plot, never the scores
+    for name, draw in plots.items():
+        try:
+            report_files[name] = draw()
+        except Exception as exc:
+            log.warning("score %s: %s skipped (%s: %s)", ml_run_id, name, type(exc).__name__, exc)
 
     # The old manifest goes first: a rescore that dies between the tables reads as "not scored", never as a
     # valid month mixing two writes. It moves to the prefix's tmp/ (the store deletes only under scratch
