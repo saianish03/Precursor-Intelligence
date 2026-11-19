@@ -11,7 +11,7 @@
 | `BRONZE_CONTRACT.md` | What the bronze node guarantees and what silver may assume: layout, columns, metadata tables, flags, exit codes, measured numbers |
 | `ALERTS_HANDOFF.md` | Ticket 2 (pipeline alerts): the signals the pipeline already records, what to alert on, how to force each case, and every problem found while wiring gold into the DAG |
 | `GOLD_HANDOFF.md` | Gold so far (spine, labels, `precursor-pipeline gold`) and what the features and assembly work must build: outputs, runs, toy world, leakage and join rules, open questions |
-| `ML_PHASE2_HANDOFF.md` | ML Phase 2 → its owner: where Phase 1 left the code, the VM and MLflow; the work in order (VM smoke test, MLflow on the VM, backfill, champion on the VM, BigQuery, then monitoring, fairness, tuning); decisions made and open; traps |
+| `ML_PHASE2_HANDOFF.md` | ML Phase 2 → its owner: where Phase 1 left the code, the VM and MLflow; the VM tasks the lead's team does first; the ML work in order (MLflow on the VM, champion on the VM, BigQuery, then monitoring, fairness, tuning); decisions made and open; traps |
 | `ML_W2_HANDOFF.md` | ML W2 → W3: what `ml evaluate`, `ml gate` and `ml promote` give scoring: `champion.json`, the registry version and its tags, the `ml_runs` integrity check, the `serving/explain.py` contract (G2 additivity), and how to get a champion locally |
 | `VALIDATION.md` | `precursor-pipeline validate`: schema (Pandera) and month-over-month drift checks of silver and gold, outputs, exit codes, baselines, DAG wiring, follow-ups |
 | `STEP2_HANDOFF.md` | Step 2 profiling facts and reference drafts (`data/step2_reference/`) |
