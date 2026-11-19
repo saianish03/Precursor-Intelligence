@@ -245,6 +245,7 @@ Every key is relative to one root, the local folder or `gs://precursor-intel-mlo
 | `PI_BUCKET_URI` | — | empty (the bucket root) or `gs://precursor-intel-mlops-data/trial-<date>` | `gs://precursor-intel-mlops-data` |
 | `PI_GCP_CREDENTIALS_FILE` | — | host path of your gcloud ADC file, mounted read-only into task containers. **Short trials only:** it puts your personal login into containers that open untrusted zips (runbook §2.2) | empty |
 | `PI_MLFLOW_ARTIFACTS` | empty (the `mlflow-artifacts` volume) | `gs://precursor-intel-mlops-mlflow/ml-dev` (runbook §2.1) | — (MLflow is off until Phase 2) |
+| `PI_PACKAGES_URI` | — (configs/dev.yaml: `data/packages/`) | `gs://precursor-intel-mlops-mlflow/packages/ml-dev` (ML spec §9.4) | empty (`…-mlflow/packages`) |
 | `PI_TASK_MEM_LIMIT`, `PI_AUTO_REMOVE` | empty, `success` | empty, `success` | `10g` (e2-standard-4, 16 GB; spec §14 #26), `force` |
 | credentials | none | you (`gcloud auth application-default login`) | the VM's service account `sa-pipeline` (no key files) |
 
