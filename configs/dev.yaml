@@ -5,6 +5,10 @@ env: dev
 object_store:
   kind: local
   root: ./data
+# Registered model versions' packages (ML spec §9.4): write-once copies that outlive the run folders.
+package_store:
+  kind: local
+  root: ./data/packages
 metadata_store:
   url: ${PI_DATABASE_URL:-sqlite:///./data/ops/metadata.db}
 table_sink:

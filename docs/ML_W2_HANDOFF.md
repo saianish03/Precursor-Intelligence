@@ -34,16 +34,16 @@ held as `challenger`, so **nothing is scored until someone runs `ml promote`** (
 
 ### Loading the version
 ```python
-from precursorintelligence.evaluation.registry import load_verified_package
+from precursorintelligence.evaluation.packages import load_verified_package
 
-model = load_verified_package(store, meta, cfg, champion.version, "refit")   # a PrecursorModel
+model = load_verified_package(packages, meta, cfg, champion.version, "refit")   # a PrecursorModel
 scores = model.predict_frame(score_frame)      # p, logit, logit_raw, logit_<member>
 ```
 MLflow gives only the alias: its server has no login, so its copy of a package is never unpickled (spec §9.4, #66).
 `load_verified_package` finds the run that registered the version from its `ml_runs` gate row, reads that run's
-`train.json` from GCS, checks every file of the package against the sha256 recorded there (`refit_package_sha256`,
-or `eval_package_sha256` for `"eval"`) and only then loads it; any mismatch, missing file or path outside the run
-folder is exit 2. The **refit** package (trained on the refit window) is the model that ships; `evaluate` loads the
+copied `train.json` from the package store (`gate` copies it there with the packages, #75), checks every file of the
+package against the sha256 recorded there (`refit_package_sha256`, or `eval_package_sha256` for `"eval"`) and only
+then loads it; a missing copy, any mismatch or a missing file is exit 2. The **refit** package (trained on the refit window) is the model that ships; `evaluate` loads the
 champion's **eval** fit the same way, and `promote` verifies the target's refit package before moving the alias.
 
 ### Version tags (`evaluation/gate.py: version_tags`)

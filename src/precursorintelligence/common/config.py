@@ -254,10 +254,22 @@ class RunLockCfg(BaseModel):
 class EnvConfig(BaseModel):
     env: str
     object_store: ObjectStoreCfg
+    # registered model versions' packages, outside the run folders (ML spec §9.4); only the ML tasks need it
+    package_store: ObjectStoreCfg | None = None
     metadata_store: MetadataStoreCfg
     table_sink: TableSinkCfg = Field(default_factory=TableSinkCfg)
     logging: LoggingCfg = Field(default_factory=LoggingCfg)
     run_lock: RunLockCfg = Field(default_factory=RunLockCfg)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unset_package_store(cls, data: Any) -> Any:
+        # prod.yaml's root is ${PI_PACKAGES_URI:-}: unset means no package store (build_package_store refuses),
+        # never another environment's, and the nodes that don't need one load as before
+        store = data.get("package_store") if isinstance(data, dict) else None
+        if isinstance(store, dict) and not str(store.get("root") or "").strip():
+            data = {**data, "package_store": None}
+        return data
 
 
 class Settings(BaseModel):
@@ -856,8 +868,9 @@ def _load_model(model: type[_M], path: str | Path) -> _M:
 
 def _absolutize(env: EnvConfig, root: Path) -> EnvConfig:
     """Make relative local paths independent of the current working directory."""
-    if env.object_store.kind == "local" and not Path(env.object_store.root).is_absolute():
-        env.object_store.root = str((root / env.object_store.root).resolve())
+    for store in (env.object_store, env.package_store):
+        if store is not None and store.kind == "local" and not Path(store.root).is_absolute():
+            store.root = str((root / store.root).resolve())
     url = env.metadata_store.url
     prefix = "sqlite:///"
     if url.startswith(prefix) and ":memory:" not in url:

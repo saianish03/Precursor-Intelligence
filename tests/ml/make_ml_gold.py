@@ -235,6 +235,7 @@ def make_ml_gold(
     env = {
         "env": "fixture",
         "object_store": {"kind": "local", "root": root.as_posix()},
+        "package_store": {"kind": "local", "root": (root / "packages").as_posix()},
         "metadata_store": {"url": f"sqlite:///{db.as_posix()}"},
         "logging": {"log_dir": (root / "logs").as_posix()},
     }

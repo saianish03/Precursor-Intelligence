@@ -23,6 +23,7 @@ from ..common.config import (
     load_splits_config,
 )
 from ..common.io.object_store import ObjectStoreError
+from ..common.io.registry import build_package_store
 from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init
 from ..ingestion.context import build_context
 from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR, EXIT_VALIDATION
@@ -265,6 +266,7 @@ def evaluate(
             cfg=cfg,
             registry=default_registry(cfg),
             meta=ctx.metadata,
+            packages=build_package_store(ctx.settings),
             shuffled_label=shuffled_label,
             mitigation=mitigation,
             mode=mode.value,
@@ -309,6 +311,7 @@ def gate(
         out = run_gate(
             ctx.object_store,
             ctx.metadata,
+            packages=build_package_store(ctx.settings),
             ml_run_id=rid,
             cfg=cfg,
             registry=default_registry(cfg),
@@ -351,6 +354,7 @@ def promote(
             out = run_promote(
                 ctx.object_store,
                 ctx.metadata,
+                packages=build_package_store(ctx.settings),
                 ml_run_id=rid,
                 cfg=cfg,
                 registry=default_registry(cfg),
@@ -392,6 +396,7 @@ def score(
         out = run_score(
             ctx.object_store,
             ctx.metadata,
+            packages=build_package_store(ctx.settings),
             ml_run_id=rid,
             cfg=cfg,
             registry=default_registry(cfg),
@@ -407,6 +412,31 @@ def score(
         return out.summary(rid)
 
     _run_task("ml_score", env, env_file, log_level, run_id, body)
+
+
+@ml_app.command("backfill-packages")
+def backfill_packages(
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+) -> None:
+    """Copy the packages of versions registered before #75 to the package store, as gate does since (§9.4): every
+    run whose gate registered a version, each file checked against its train.json, never overwritten. Safe to rerun.
+    Last stdout line: a JSON summary (files copied per run)."""
+
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from ..evaluation.packages import backfill_packages as backfill
+
+        cfg = load_ml_config(ml_config)
+        copied = backfill(ctx.object_store, build_package_store(ctx.settings), ctx.metadata, cfg)
+        for run, keys in copied.items():
+            typer.echo(
+                f"  {run}: {len(keys)} file(s) copied" if keys else f"  {run}: already copied"
+            )
+        return {"runs": {run: len(keys) for run, keys in copied.items()}}
+
+    _run_task("ml_backfill_packages", env, env_file, log_level, None, body)
 
 
 @ml_app.command()

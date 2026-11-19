@@ -1,6 +1,7 @@
 """serving/{score,rollup,publish}.py: ml score and ml publish (docs/ML_PIPELINE_SPEC.md §9.4, §10, §11, §17.1)."""
 
 import io
+import shutil
 import sys
 from datetime import UTC, date, datetime
 
@@ -10,6 +11,7 @@ import pytest
 from ml_eval_fixtures import FakeRegistry
 
 from precursorintelligence.common.config import ConfigError
+from precursorintelligence.evaluation.packages import copy_packages, stable_prefix
 from precursorintelligence.harmonize.cli import main
 from precursorintelligence.serving import explain
 from precursorintelligence.serving.publish import run_publish
@@ -34,8 +36,9 @@ def uri(run, version):
 
 
 def setup_champion(run, version=1, *, record=True, champion_json=True):
-    """Register the run's refit package as versions 1..``version`` (one gate row each), set @champion, audit it in
-    ml_runs, write champion.json."""
+    """Register the run's refit package as versions 1..``version`` (one gate row each, its packages copied to the
+    package store as gate does), set @champion, audit it in ml_runs, write champion.json."""
+    copy_packages(run.store(), run.packages(), run.cfg, run.run_id)
     reg = FakeRegistry()
     for v in range(1, version + 1):
         reg.register(uri(run, v), {"ml_run_id": run.run_id})
@@ -74,7 +77,13 @@ def write_champion(run, version):
 
 def score(run, reg):
     return run_score(
-        run.store(), run.meta(), ml_run_id=run.run_id, cfg=run.cfg, registry=reg, now=NOW
+        run.store(),
+        run.meta(),
+        packages=run.packages(),
+        ml_run_id=run.run_id,
+        cfg=run.cfg,
+        registry=reg,
+        now=NOW,
     )
 
 
@@ -414,15 +423,21 @@ def test_train_records_the_refit_package_hashes(trained):
             assert sha256_hex(f.read()) == digest
 
 
+def copied(run, name=""):
+    """The key of the run's copied train.json, or with ``name`` of a file of its copied refit package."""
+    prefix = stable_prefix(run.cfg, run.run_id)
+    return f"{prefix}refit/{run.train.result.selected}/{name}" if name else f"{prefix}train.json"
+
+
 def test_a_tampered_package_file_is_refused_before_loading(trained):
     reg = setup_champion(trained, 1)
     _, train = _train_result(trained)
     name = "lr.joblib" if "lr.joblib" in train.refit_package_sha256 else "lgbm.txt"
-    key = f"{train.refit_package}{name}"
-    with trained.store().open_read(key) as f:
+    packages, key = trained.packages(), copied(trained, name)
+    with packages.open_read(key) as f:
         data = bytearray(f.read())
     data[len(data) // 2] ^= 0xFF  # one flipped byte
-    trained.store().put_bytes(key, bytes(data), overwrite=True)
+    packages.put_bytes(key, bytes(data), overwrite=True)
     with pytest.raises(MlInputError, match="sha256"):
         score(trained, reg)
     assert trained.store().list(trained.cfg.outputs.scores_prefix) == []
@@ -430,14 +445,23 @@ def test_a_tampered_package_file_is_refused_before_loading(trained):
 
 def test_a_package_without_recorded_hashes_is_refused(trained):
     reg = setup_champion(trained, 1)
-    key, train = _train_result(trained)
-    trained.store().put_bytes(
-        key,
+    _, train = _train_result(trained)
+    trained.packages().put_bytes(
+        copied(trained),
         train.model_copy(update={"refit_package_sha256": {}}).model_dump_json().encode(),
         overwrite=True,
     )
     with pytest.raises(MlInputError, match="no refit package hashes"):
         score(trained, reg)
+
+
+def test_the_champion_scores_after_its_run_folder_packages_are_deleted(trained):
+    # §9.4 (#75 B17): score loads the copy in the package store, never the run folder
+    reg = setup_champion(trained, 1)
+    p = RunPaths.of(trained.cfg, trained.run_id)
+    shutil.rmtree(trained.gold.root / f"{p.run_dir}models")
+    (trained.gold.root / p.train_result).unlink()
+    assert not score(trained, reg).skipped
 
 
 def test_a_version_no_gate_registered_is_refused(trained):
@@ -454,7 +478,6 @@ def test_a_version_no_gate_registered_is_refused(trained):
 
 
 def test_an_eval_package_is_refused(trained):
-    reg = setup_champion(trained, 1)
     key, train = _train_result(trained)
     prefix = train.eval_packages[train.selected]
     sha = {}
@@ -469,6 +492,7 @@ def test_an_eval_package_is_refused(trained):
         .encode(),
         overwrite=True,
     )
+    reg = setup_champion(trained, 1)  # the copy now holds the eval package as the refit
     with pytest.raises(MlInputError, match="not a refit package"):
         score(trained, reg)
 
@@ -508,6 +532,7 @@ def test_a_package_feature_the_registry_does_not_mark_model_is_refused(trained):
         run_score(
             trained.store(),
             trained.meta(),
+            packages=trained.packages(),
             ml_run_id=trained.run_id,
             cfg=trained.cfg,
             registry=reg,

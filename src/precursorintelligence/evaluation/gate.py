@@ -48,6 +48,7 @@ from . import gates
 from .evaluate import CHAMPION, RULE, report_prefix
 from .gates import GateReport, GateResult, Interval
 from .model_card import render_model_card
+from .packages import copy_packages
 from .registry import REGISTERING_ACTIONS, RegisteredVersion, Registry
 from .report import EvaluationReport
 
@@ -204,11 +205,13 @@ def run_gate(
     *,
     ml_run_id: str,
     cfg: MlConfig,
+    packages: ObjectStore,
     registry: Registry | None = None,
     mode: str = "auto",
     actor: str = "cms_nh_ml",
 ) -> GateOutput:
-    """The ``gate`` task on an evaluated run folder."""
+    """The ``gate`` task on an evaluated run folder. Before it registers a version it copies the run's packages
+    to ``packages`` (§9.4), where ``score``, ``evaluate`` and ``promote`` load them from."""
     from ..training import mlflow_log
     from .plots import log_files
 
@@ -253,6 +256,8 @@ def run_gate(
     )
     alias: str | None = None
     if registry is not None:
+        # first, so no version exists without its copy; a retried gate finds the copy and writes nothing
+        copy_packages(store, packages, cfg, ml_run_id)
         tags = version_tags(report, train, manifest, outcome)
         if version is None:
             version = registry.register(train.refit_model_uri, tags)

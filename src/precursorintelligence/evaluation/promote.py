@@ -3,9 +3,10 @@
 This is both the manual promotion after Checkpoint ML-A and the rollback (any earlier version). The version and
 the reason come from the DAG params through the environment (``PI_ML_VERSION``, ``PI_ML_REASON``), never the
 command line. Only a version that passed G1 and G2 can be promoted: a hand-picked model still needs clean data and
-a sane evaluation. Both checks come from ``ml_runs`` and GCS, never from MLflow, which has no login (§9.4): G1 and G2
-from the gate row that registered the version, and the version's refit package verified against its registering
-run's ``train.json`` (``load_verified_package``), so the alias never moves to a version that cannot score. Every
+a sane evaluation. Both checks come from ``ml_runs`` and the package store, never from MLflow, which has no login
+(§9.4): G1 and G2 from the gate row that registered the version, and the version's copied refit package verified
+against the copied ``train.json`` (``load_verified_package``), so the alias never moves to a version that cannot
+score. Every
 promotion is an ``ml_runs`` row (``manual_promote`` or ``rollback``), which ``score``'s
 integrity check matches against ``@champion``.
 """
@@ -25,7 +26,8 @@ from ..training import MlInputError
 from ..training.contracts import Champion, RunPaths
 from ..training.data import gold_config_sha, read_input_manifest
 from .gates import GateReport
-from .registry import Registry, load_verified_package, registering_gate_row
+from .packages import load_verified_package
+from .registry import Registry, registering_gate_row
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +68,7 @@ def run_promote(
     store: ObjectStore,
     meta: MetadataStore,
     *,
+    packages: ObjectStore,
     ml_run_id: str,
     cfg: MlConfig,
     registry: Registry | None,
@@ -82,7 +85,7 @@ def run_promote(
         raise MlInputError(f"{cfg.registry.model_name} has no version {version}")
     check_sanity_gates(meta, version)
     load_verified_package(
-        store, meta, cfg, version, "refit"
+        packages, meta, cfg, version, "refit"
     )  # refuses (exit 2) before the alias moves
     paths = RunPaths.of(cfg, ml_run_id)
     done = meta.read("ml_runs", {"ml_run_id": ml_run_id, "action": list(PROMOTE_ACTIONS)})

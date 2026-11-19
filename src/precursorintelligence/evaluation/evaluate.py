@@ -38,7 +38,8 @@ from . import baselines, metrics, sanity, slices
 from .bootstrap import facility_bootstrap
 from .gates import Interval
 from .mitigation import tradeoff as mitigation_tradeoff
-from .registry import Registry, check_champion_integrity, load_verified_package
+from .packages import load_verified_package
+from .registry import Registry, check_champion_integrity
 from .report import (
     ChampionRef,
     EvaluationReport,
@@ -116,7 +117,7 @@ def recipe_evaluated(meta: MetadataStore | None, recipe_hash: str) -> bool:
 
 def champion_ref(registry: Registry | None, cfg: MlConfig) -> ChampionRef | None:
     """The champion version and its eval-fit model URI (the tag ``gate`` wrote, reported only: the package compared
-    is the one ``load_verified_package`` checks in GCS), or None without one."""
+    is the one ``load_verified_package`` checks in the package store), or None without one."""
     if registry is None:
         return None
     v = registry.by_alias(cfg.registry.champion_alias)
@@ -208,6 +209,7 @@ def evaluate_run(
     registry: Registry | None = None,
     feature_registry: FeatureRegistry | None = None,
     meta: MetadataStore | None = None,
+    packages: ObjectStore | None = None,
     shuffled_label: bool | None = None,
     mitigation: bool = True,
 ) -> EvaluateOutput:
@@ -251,13 +253,15 @@ def evaluate_run(
     champ = champion_ref(registry, cfg)
     if champ is not None and registry is not None:
         # §9.4: MLflow gives only the alias. The alias must be what ml_runs recorded, and the eval fit is read from
-        # the registering run's GCS folder, checked against its train.json sha256; MLflow's copy is never unpickled.
-        if meta is None:
+        # the version's copy in the package store, checked against its train.json sha256; MLflow's copy is never
+        # unpickled.
+        if meta is None or packages is None:
             raise MlInputError(
-                f"champion version {champ.version} can't be verified without ml_runs: refusing to compare"
+                f"champion version {champ.version} can't be verified without ml_runs and the package store: "
+                "refusing to compare"
             )
         check_champion_integrity(meta, champ.version)
-        champ_model = load_verified_package(store, meta, cfg, champ.version, "eval")
+        champ_model = load_verified_package(packages, meta, cfg, champ.version, "eval")
         check_training_months(champ_model, "champion", windows, first_test)
         probs[CHAMPION] = champ_model.predict_frame(test)["p"].to_numpy()
 
@@ -447,6 +451,7 @@ def run_evaluate(
     registry: Registry | None = None,
     feature_registry: FeatureRegistry | None = None,
     meta: MetadataStore | None = None,
+    packages: ObjectStore | None = None,
     shuffled_label: bool | None = None,
     mitigation: bool = True,
     mode: Mode = "auto",
@@ -464,6 +469,7 @@ def run_evaluate(
         registry=registry,
         feature_registry=feature_registry,
         meta=meta,
+        packages=packages,
         shuffled_label=shuffled_label,
         mitigation=mitigation,
     )
