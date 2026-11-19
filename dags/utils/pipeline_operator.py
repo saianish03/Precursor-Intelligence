@@ -100,8 +100,10 @@ def docker_kwargs() -> dict[str, Any]:
     }
     if env.get("PI_MLFLOW_TRACKING_URI"):  # the compose stack's server, http://mlflow:5000
         environment["MLFLOW_TRACKING_URI"] = env["PI_MLFLOW_TRACKING_URI"]
-    if env.get("PI_BUCKET_URI"):  # unset, not empty: prod.yaml falls back to its default bucket
-        environment["PI_BUCKET_URI"] = env["PI_BUCKET_URI"]
+    # unset, not empty: prod.yaml falls back to its default bucket and package store
+    for name in ("PI_BUCKET_URI", "PI_PACKAGES_URI"):
+        if env.get(name):
+            environment[name] = env[name]
     mounts = []
     if env.get("PI_HOST_DATA_DIR"):  # local only: a host folder plays the bucket
         mounts.append(Mount(source=env["PI_HOST_DATA_DIR"], target="/app/data", type="bind"))

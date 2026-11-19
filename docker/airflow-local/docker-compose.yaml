@@ -48,6 +48,8 @@ x-airflow-common: &airflow-common
     PI_PIPELINE_ENV: ${PI_PIPELINE_ENV:-prod}
     PI_HOST_DATA_DIR: ${PI_HOST_DATA_DIR:-}
     PI_BUCKET_URI: ${PI_BUCKET_URI:-}
+    # Registered models' packages (ML spec §9.4). Laptop against GCS: gs://precursor-intel-mlops-mlflow/packages/ml-dev.
+    PI_PACKAGES_URI: ${PI_PACKAGES_URI:-}
     # Laptop against GCS: the host path of your gcloud ADC file, mounted read-only into task containers.
     # Leave empty on the VM (the metadata server's identity) and for local-disk runs.
     PI_GCP_CREDENTIALS_FILE: ${PI_GCP_CREDENTIALS_FILE:-}
