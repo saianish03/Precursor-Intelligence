@@ -547,8 +547,8 @@ recipients are redacted. Click a screenshot for the full size.
   challenger and an automatic re-tune; the performance trend and score drift in monitoring; per-state empirical-Bayes
   shrinkage; MLflow authentication (the UI is local only today); the API, the four agents and the dashboard.
 - **States differ most** in calibration; they are reported, not gated, until per-state shrinkage lands.
-- **Known issues found on the stack**, each assigned to its work package's owner:
-  - **#73** (nishanth3112): `monitor` is skipped on a run without scores (the first version), so no status file is written. And PSI on a feature with one value per state (`state_gplus_rate_12m`) reads 0.96 for a 0.003 change, which emailed a **false re-tune request** after the promotion.
-  - **#74** (tanoj22): G2's single shuffled-label model is noisy: 0.4835, 0.4987 and 0.5253 on real data; the last failed the [0.48, 0.52] band (#79 judges the mean of 10 shuffles). Promote's package check is fixed (#77).
-  - **#75** (RiyaNTaori): provenance (`gold_run_id`) and robustness gaps in `score`.
-  - **#76** (Aakash-2904): gaps in `recipe_hash` and in tune's MLflow run.
+- **Issues found on the stack**, each assigned to its work package's owner:
+  - **#73** (nishanth3112), open: `monitor` is skipped on a run without scores (the first version), so no status file is written. And PSI on a feature with one value per state (`state_gplus_rate_12m`) reads 0.96 for a 0.003 change, which emailed a **false re-tune request** after the promotion.
+  - **#74** (tanoj22), fixed: G2's single shuffled-label model was noisy (0.4835, 0.4987 and 0.5253 on real data; the last failed the [0.48, 0.52] band, so v3 failed G2 too), and G2 now judges the mean of 10 shuffles (#79). Promote verifies the target's packages (#77).
+  - **#75** (RiyaNTaori): `gold_run_id` on every score table, plot errors that no longer stop `score`, and the chain's P(≥1 event) are fixed (#80). Open for a design decision: registered versions' packages live only in the data bucket's run folders.
+  - **#76** (Aakash-2904), fixed (#78): `recipe_hash` covers the bias config, and tune's MLflow run is tagged correctly.
