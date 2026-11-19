@@ -261,6 +261,16 @@ class EnvConfig(BaseModel):
     logging: LoggingCfg = Field(default_factory=LoggingCfg)
     run_lock: RunLockCfg = Field(default_factory=RunLockCfg)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _unset_package_store(cls, data: Any) -> Any:
+        # prod.yaml's root is ${PI_PACKAGES_URI:-}: unset means no package store (build_package_store refuses),
+        # never another environment's, and the nodes that don't need one load as before
+        store = data.get("package_store") if isinstance(data, dict) else None
+        if isinstance(store, dict) and not str(store.get("root") or "").strip():
+            data = {**data, "package_store": None}
+        return data
+
 
 class Settings(BaseModel):
     sources: SourcesConfig

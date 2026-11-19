@@ -84,18 +84,40 @@ def test_prod_writes_every_layer_into_the_gcs_bucket(monkeypatch):
 def test_registered_packages_go_to_the_mlflow_bucket(monkeypatch):
     # §9.4, §16.3 (#75 B17): versioned, prevent_destroy, never expired, and outside MLflow's artifact prefix
     monkeypatch.setenv("PI_DATABASE_URL", "postgresql+psycopg://u@h/db")
-    monkeypatch.delenv("PI_PACKAGES_URI", raising=False)
+    monkeypatch.setenv("PI_PACKAGES_URI", "gs://precursor-intel-mlops-mlflow/packages/ml-dev")
     pkg = load_settings("prod").env.package_store
     assert pkg is not None
-    assert (pkg.kind, pkg.root) == ("gcs", "gs://precursor-intel-mlops-mlflow/packages")
+    assert (pkg.kind, pkg.root) == ("gcs", "gs://precursor-intel-mlops-mlflow/packages/ml-dev")
     assert pkg.storage_options == {"token": "google_default"}
-    monkeypatch.setenv("PI_PACKAGES_URI", "gs://precursor-intel-mlops-mlflow/packages/ml-dev")
-    assert load_settings("prod").env.package_store.root.endswith(
-        "/packages/ml-dev"
-    )  # a laptop stack
     dev = load_settings("dev").env
     assert dev.package_store is not None and dev.package_store.kind == "local"
     assert Path(dev.package_store.root) == Path(dev.object_store.root) / "packages"
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_prod_has_no_default_package_store(monkeypatch, value):
+    # a stack that forgets PI_PACKAGES_URI must not write into another environment's store; the nodes that
+    # never build the package store (ingestion, silver, gold) load as before
+    monkeypatch.setenv("PI_DATABASE_URL", "postgresql+psycopg://u@h/db")
+    if value is None:
+        monkeypatch.delenv("PI_PACKAGES_URI", raising=False)
+    else:
+        monkeypatch.setenv("PI_PACKAGES_URI", value)
+    settings = load_settings("prod")
+    assert settings.env.package_store is None
+    with pytest.raises(ConfigError, match="PI_PACKAGES_URI"):
+        build_package_store(settings)
+
+
+def test_each_stack_has_its_own_package_prefix():
+    # like PI_MLFLOW_ARTIFACTS (§16.1): one environment's copies can be deleted without touching another's
+    compose = MODULE_ROOT / "docker" / "airflow-local"
+    vm = yaml.safe_load((compose / "docker-compose.vm.yaml").read_text())
+    assert vm["x-airflow-vm"]["environment"]["PI_PACKAGES_URI"] == (
+        "gs://precursor-intel-mlops-mlflow/packages/vm"
+    )
+    laptop = yaml.safe_load((compose / "docker-compose.yaml").read_text())
+    assert laptop["x-airflow-common"]["environment"]["PI_PACKAGES_URI"] == "${PI_PACKAGES_URI:-}"
 
 
 def test_the_package_store_must_be_configured_to_be_built(tmp_path):

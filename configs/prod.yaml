@@ -16,10 +16,12 @@ object_store:
 # Registered model versions' packages (ML spec §9.4): write-once copies, by run, in the MLflow bucket (versioned,
 # prevent_destroy, never expired), so a version scores and rolls back after its run folder is gone. Outside
 # MLflow's artifact prefix (PI_MLFLOW_ARTIFACTS), which the server, with no login, writes for anyone who reaches it.
-# A laptop stack sets PI_PACKAGES_URI=gs://precursor-intel-mlops-mlflow/packages/ml-dev.
+# One sibling prefix per stack and no default, so a stack that forgets it stops instead of writing into another's:
+# packages/vm on the VM (docker-compose.vm.yaml), packages/ml-dev on the laptop stack. Unset: no package store, and
+# the ML tasks that need one exit 3; ingestion, silver and gold never build it.
 package_store:
   kind: gcs
-  root: ${PI_PACKAGES_URI:-gs://precursor-intel-mlops-mlflow/packages}
+  root: ${PI_PACKAGES_URI:-}
   immutable: object_versioning
   storage_options:
     token: google_default

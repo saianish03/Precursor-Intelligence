@@ -61,7 +61,8 @@ def build_package_store(settings: Settings) -> ObjectStore:
     """The store of registered versions' packages (``package_store``, ML spec §9.4)."""
     if settings.env.package_store is None:
         raise ConfigError(
-            f"package_store is not configured in the {settings.env.env} env config: the ML tasks need it"
+            f"package_store is not configured in the {settings.env.env} env config (prod: set PI_PACKAGES_URI "
+            "to this stack's prefix, e.g. gs://precursor-intel-mlops-mlflow/packages/ml-dev)"
         )
     return _build_store(settings.env.package_store, settings)
 
