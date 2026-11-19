@@ -43,7 +43,15 @@ The stack runs an MLflow tracking server and model registry (ML spec §16.1): se
 - **UI:** http://localhost:5001 (`PI_MLFLOW_HOST_PORT`; 5000 is AirPlay on macOS). Task containers use `http://mlflow:5000` (`MLFLOW_TRACKING_URI`, set by `docker_kwargs`).
 - **Network:** the server has no login, so it is on the task network only: the Airflow services can't reach it, and it can't reach them.
 - **Artifacts:** in the named volume `mlflow-artifacts` by default. For the shared bucket, set `PI_MLFLOW_ARTIFACTS=gs://precursor-intel-mlops-mlflow/ml-dev` and `PI_GCP_CREDENTIALS_FILE` (§2.2); the `ml-dev/` prefix keeps laptop runs apart from the VM's, so they can be deleted on their own. A run logged against one destination keeps its artifact paths: switch before the first real run, or start with a new `mlflow` database.
-- **Registered models' packages:** with the shared bucket, also set `PI_PACKAGES_URI=gs://precursor-intel-mlops-mlflow/packages/ml-dev`. `gate` copies each registered version's packages there, and `score`, `evaluate` and `promote` load them from there (ML spec §9.4). Versions registered before #75 need one run of `uv run python scripts/ml_backfill_packages.py` with the stack's `PI_BUCKET_URI`, `PI_PACKAGES_URI` and `PI_DATABASE_URL`.
+- **Registered models' packages:** with the shared bucket, also set `PI_PACKAGES_URI=gs://precursor-intel-mlops-mlflow/packages/ml-dev`. `gate` copies each registered version's packages there, and `score`, `evaluate` and `promote` load them from there (ML spec §9.4). It has no default: a stack without it stops at `gate`, `score`, `evaluate` with a champion or `promote` (exit 3), never writing into the VM's `packages/vm`. Versions registered before #75 need one run of the backfill (idempotent), in a pipeline image that contains #75, with the stack's settings (`PI_DATABASE_URL` as in `docker/airflow-local/.env`):
+  ```bash
+  docker run --rm --network pi-airflow-tasks \
+    -e PI_DATABASE_URL=… -e PI_BUCKET_URI=gs://precursor-intel-mlops-data/ml-dev \
+    -e PI_PACKAGES_URI=gs://precursor-intel-mlops-mlflow/packages/ml-dev \
+    -v "$PI_GCP_CREDENTIALS_FILE:/var/run/gcp/adc.json:ro" -e GOOGLE_APPLICATION_CREDENTIALS=/var/run/gcp/adc.json \
+    -e GOOGLE_CLOUD_PROJECT=precursor-intel-mlops \
+    precursor-pipeline:latest precursor-pipeline ml backfill-packages --env prod
+  ```
 - **Once, on a database that has the task-network rule but no `mlflow` line** (created after the subnet was fixed and before W4): Postgres refuses the task network everything but `pi_meta` (`init-db.sh` runs only on an empty volume), so add the `mlflow` line on top and reload. Check first with the last command below: a database with no `172.16.77.0/24` lines at all is older than the rule and needs nothing.
   ```bash
   docker compose exec postgres sh -c 'sed -i "/^host all all 172\.16\.77\.0\/24 reject\$/i host mlflow mlflow 172.16.77.0/24 scram-sha-256" "$PGDATA/pg_hba.conf"'
