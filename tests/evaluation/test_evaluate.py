@@ -4,11 +4,12 @@ import copy
 import hashlib
 import io
 import json
+import shutil
 
 import numpy as np
 import polars as pl
 import pytest
-from ml_eval_fixtures import FakeRegistry
+from ml_eval_fixtures import FakeRegistry, registering_run
 
 from precursorintelligence.evaluation import metrics
 from precursorintelligence.evaluation.evaluate import (
@@ -19,6 +20,7 @@ from precursorintelligence.evaluation.evaluate import (
     report_prefix,
     run_evaluate,
 )
+from precursorintelligence.evaluation.packages import stable_prefix
 from precursorintelligence.evaluation.report import EvaluationReport, comparison_key
 from precursorintelligence.gold.splits import shift
 from precursorintelligence.training import MlInputError
@@ -28,7 +30,6 @@ from precursorintelligence.training.ensemble import (
     PACKAGE_META,
     PrecursorModel,
     read_package,
-    write_package,
 )
 
 
@@ -38,6 +39,7 @@ def paths(run):
 
 def evaluate(run, **kw):
     kw.setdefault("shuffled_label", False)
+    kw.setdefault("packages", run.packages())
     return evaluate_run(run.store(), ml_run_id=run.run_id, cfg=run.cfg, **kw)
 
 
@@ -175,20 +177,9 @@ SOURCE = "champ-run"  # the run whose gate registered the champion (version 1)
 
 def champion_from(run, model, *, record=True):
     """Version 1 is @champion, registered by SOURCE's gate (an ml_runs hold row) and, with ``record``, audited by
-    a manual_promote row. SOURCE's run folder holds ``model`` as its selected candidate's eval fit, with the sha256
-    its train.json recorded. The fake registry holds no model: MLflow's copy must never be loaded."""
-    store, train = run.store(), run.train.result
-    sp = RunPaths.of(run.cfg, SOURCE)
-    prefix = sp.package("eval", train.selected)
-    sha = write_package(store, prefix, model)
-    source_train = train.model_copy(
-        update={
-            "ml_run_id": SOURCE,
-            "eval_packages": {train.selected: prefix},
-            "eval_package_sha256": {train.selected: sha},
-        }
-    )
-    store.put_bytes(sp.train_result, source_train.model_dump_json().encode(), overwrite=True)
+    a manual_promote row. ``model`` is SOURCE's selected eval fit, copied with its train.json to the package store
+    (§9.4). The fake registry holds no model: MLflow's copy must never be loaded."""
+    _, source_train = registering_run(run, SOURCE, model)
     meta = run.meta()
     meta.append("ml_runs", [{"ml_run_id": SOURCE, "action": "hold", "candidate_version": 1}])
     if record:
@@ -198,22 +189,29 @@ def champion_from(run, model, *, record=True):
         )
     reg = FakeRegistry()
     reg.register(
-        "models:/champ-refit", {"eval_model_uri": "models:/champ-eval", "candidate": train.selected}
+        "models:/champ-refit",
+        {"eval_model_uri": "models:/champ-eval", "candidate": source_train.selected},
     )
     reg.set_alias("champion", 1)
-    return reg, meta, sp, prefix, source_train
+    return reg, meta, source_train
 
 
 def selected_eval_fit(run):
     return read_package(run.store(), run.train.result.eval_packages[run.train.result.selected])
 
 
-def rewrite_source_train(run, sp, **update):
-    store = run.store()
-    with store.open_read(sp.train_result) as f:
+def copied(run, name=""):
+    """The key of SOURCE's copied train.json, or with ``name`` of a file of its copied eval package."""
+    prefix = stable_prefix(run.cfg, SOURCE)
+    return f"{prefix}eval/{run.train.result.selected}/{name}" if name else f"{prefix}train.json"
+
+
+def rewrite_copied_train(run, **update):
+    packages = run.packages()
+    with packages.open_read(copied(run)) as f:
         train = TrainResult.model_validate_json(f.read())
-    store.put_bytes(
-        sp.train_result, train.model_copy(update=update).model_dump_json().encode(), overwrite=True
+    packages.put_bytes(
+        copied(run), train.model_copy(update=update).model_dump_json().encode(), overwrite=True
     )
 
 
@@ -251,11 +249,11 @@ def test_a_champion_alias_moved_outside_the_gates_is_refused(trained):
 
 
 def test_a_tampered_champion_file_is_refused_before_loading(trained, monkeypatch):
-    reg, meta, _, prefix, _ = champion_from(trained, selected_eval_fit(trained))
-    store = trained.store()
-    with store.open_read(f"{prefix}{PACKAGE_META}") as f:
+    reg, meta, _ = champion_from(trained, selected_eval_fit(trained))
+    packages, key = trained.packages(), copied(trained, PACKAGE_META)
+    with packages.open_read(key) as f:
         data = f.read()
-    store.put_bytes(f"{prefix}{PACKAGE_META}", data + b" ", overwrite=True)
+    packages.put_bytes(key, data + b" ", overwrite=True)
     real = PrecursorModel.from_files
 
     def guarded(files):
@@ -269,26 +267,24 @@ def test_a_tampered_champion_file_is_refused_before_loading(trained, monkeypatch
 
 
 def test_a_champion_without_recorded_hashes_is_refused(trained):
-    reg, meta, sp, _, _ = champion_from(trained, selected_eval_fit(trained))
-    rewrite_source_train(trained, sp, eval_package_sha256={})  # a train.json from before the hashes
+    reg, meta, _ = champion_from(trained, selected_eval_fit(trained))
+    rewrite_copied_train(trained, eval_package_sha256={})  # a train.json from before the hashes
     with pytest.raises(MlInputError, match="records no eval package hashes"):
         evaluate(trained, registry=reg, meta=meta)
 
 
-def test_a_champion_package_outside_its_run_folder_is_refused(trained):
-    reg, meta, sp, _, source_train = champion_from(trained, selected_eval_fit(trained))
-    chosen = source_train.selected
-    elsewhere = trained.train.result.eval_packages[chosen]  # another run's folder; its hashes match
-    rewrite_source_train(trained, sp, eval_packages={chosen: elsewhere})
-    with pytest.raises(MlInputError, match="outside its run folder"):
-        evaluate(trained, registry=reg, meta=meta)
-
-
 def test_a_missing_champion_file_is_refused(trained):
-    reg, meta, _, prefix, _ = champion_from(trained, selected_eval_fit(trained))
-    (trained.gold.root / f"{prefix}{PACKAGE_META}").unlink()
+    reg, meta, _ = champion_from(trained, selected_eval_fit(trained))
+    (trained.gold.root / "packages" / copied(trained, PACKAGE_META)).unlink()
     with pytest.raises(MlInputError, match="is missing"):
         evaluate(trained, registry=reg, meta=meta)
+
+
+def test_a_champion_still_loads_after_its_run_folder_is_deleted(trained):
+    # §9.4 (#75 B17): the copy, not the run folder, is what evaluate reads
+    reg, meta, _ = champion_from(trained, selected_eval_fit(trained))
+    shutil.rmtree(trained.gold.root / RunPaths.of(trained.cfg, SOURCE).run_dir)
+    assert evaluate(trained, registry=reg, meta=meta).report.champion_eval is not None
 
 
 def test_a_champion_without_ml_runs_is_refused(trained):

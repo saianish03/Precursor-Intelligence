@@ -1,16 +1,19 @@
 """evaluation/promote.py: manual promotion and rollback (docs/ML_PIPELINE_SPEC.md §9.4, §17.1 manual-promote rules)."""
 
+import shutil
+
 import pytest
 from ml_eval_fixtures import FakeRegistry
 
 from precursorintelligence.evaluation.gates import GateReport, GateResult
+from precursorintelligence.evaluation.packages import copy_packages, stable_prefix
 from precursorintelligence.evaluation.promote import (
     PromoteUsageError,
     request_from_env,
     run_promote,
 )
 from precursorintelligence.training import MlInputError
-from precursorintelligence.training.contracts import Champion, RunPaths, TrainResult
+from precursorintelligence.training.contracts import Champion, RunPaths
 from precursorintelligence.training.ensemble import PACKAGE_META
 
 
@@ -25,9 +28,10 @@ def gates(**failed):
 
 
 def registry(run, cls=FakeRegistry):
-    """Versions 1-3, each registered by a gate row of this run in ml_runs (its refit package is in the run folder,
-    with the sha256 train.json recorded). Version 3 failed G2 at its gate. The MLflow tags all say
-    sanity_passed=true: promote must not trust them (§9.4)."""
+    """Versions 1-3, each registered by a gate row of this run in ml_runs (its packages copied to the package
+    store, as gate does). Version 3 failed G2 at its gate. The MLflow tags all say sanity_passed=true: promote
+    must not trust them (§9.4)."""
+    copy_packages(run.store(), run.packages(), run.cfg, run.run_id)
     reg = cls()
     gate_results = {1: gates(), 2: gates(), 3: gates(G2=True, G4=True)}
     for v in gate_results:
@@ -50,16 +54,15 @@ def registry(run, cls=FakeRegistry):
     return reg
 
 
-def refit_package(run):
-    p = RunPaths.of(run.cfg, run.run_id)
-    with run.store().open_read(p.train_result) as f:
-        return TrainResult.model_validate_json(f.read()).refit_package
+def copied_refit_file(run):
+    return f"{stable_prefix(run.cfg, run.run_id)}refit/{run.train.result.selected}/{PACKAGE_META}"
 
 
 def promote(run, reg, version, reason="Checkpoint ML-A approved"):
     return run_promote(
         run.store(),
         run.meta(),
+        packages=run.packages(),
         ml_run_id=run.run_id,
         cfg=run.cfg,
         registry=reg,
@@ -136,18 +139,29 @@ def test_a_version_whose_package_fails_verification_is_refused(trained, how):
     # B4: a rollback to a version that cannot score must not move the alias
     reg = registry(trained)
     reg.set_alias("champion", 2)
-    key = f"{refit_package(trained)}{PACKAGE_META}"
+    key = copied_refit_file(trained)
     if how == "altered":
-        with trained.store().open_read(key) as f:
+        with trained.packages().open_read(key) as f:
             data = f.read()
-        trained.store().put_bytes(key, data + b" ", overwrite=True)
+        trained.packages().put_bytes(key, data + b" ", overwrite=True)
         match = "does not match the sha256"
     else:
-        (trained.gold.root / key).unlink()
+        (trained.gold.root / "packages" / key).unlink()
         match = "is missing"
     with pytest.raises(MlInputError, match=match):
         promote(trained, reg, 1)
     assert reg.by_alias("champion").version == 2 and not promote_rows(trained)
+
+
+def test_a_rollback_works_after_the_versions_run_folder_packages_are_deleted(trained):
+    # §9.4 (#75 B17): promote verifies the copy in the package store, not the run folder
+    reg = registry(trained)
+    reg.set_alias("champion", 2)
+    p = RunPaths.of(trained.cfg, trained.run_id)
+    shutil.rmtree(trained.gold.root / f"{p.run_dir}models")
+    (trained.gold.root / p.train_result).unlink()
+    assert promote(trained, reg, 1).action == "rollback"
+    assert reg.by_alias("champion").version == 1
 
 
 def test_an_unknown_version_is_refused(trained):

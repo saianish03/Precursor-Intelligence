@@ -36,6 +36,10 @@ class TrainedRun:
     def store(self) -> LocalObjectStore:
         return LocalObjectStore(self.gold.root, immutable=None)
 
+    def packages(self) -> LocalObjectStore:
+        """The package store (registered versions' copies, outside the run folders): the env file's."""
+        return LocalObjectStore(self.gold.root / "packages", immutable=None)
+
     def meta(self) -> SqlAlchemyMetadataStore:
         m = SqlAlchemyMetadataStore(
             f"sqlite:///{(self.gold.root / 'ops' / 'metadata.db').as_posix()}"

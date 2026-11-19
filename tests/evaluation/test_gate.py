@@ -3,15 +3,15 @@
 import json
 
 import pytest
-from ml_eval_fixtures import FakeRegistry
+from ml_eval_fixtures import FakeRegistry, registering_run
 
 from precursorintelligence.evaluation.evaluate import run_evaluate
 from precursorintelligence.evaluation.gate import refit_check, run_gate
+from precursorintelligence.evaluation.packages import stable_prefix
 from precursorintelligence.evaluation.report import EvaluationReport
 from precursorintelligence.training import MlInputError
 from precursorintelligence.training.contracts import Champion, RunPaths, Selection, TrainResult
 from precursorintelligence.training.data import gold_config_sha, read_input_manifest, read_windows
-from precursorintelligence.training.ensemble import write_package
 
 REFIT_URI = "models:/refit-fixture"
 EVAL_URI = "models:/eval-fixture"
@@ -52,13 +52,19 @@ def evaluate(run, cfg=None, registry=None):
         cfg=cfg or run.cfg,
         registry=registry,
         meta=run.meta(),
+        packages=run.packages(),
         shuffled_label=False,
     )
 
 
 def gate(run, cfg=None, registry=None, meta=None):
     return run_gate(
-        run.store(), meta or run.meta(), ml_run_id=run.run_id, cfg=cfg or run.cfg, registry=registry
+        run.store(),
+        meta or run.meta(),
+        ml_run_id=run.run_id,
+        cfg=cfg or run.cfg,
+        registry=registry,
+        packages=run.packages(),
     )
 
 
@@ -90,6 +96,7 @@ def test_gate_without_tracking_records_the_outcome_and_registers_nothing(trained
     assert row["gold_config_sha"] == gold_config_sha(read_input_manifest(store, p))
     assert row["recipe_hash"] == "test" and row["champion_version_after"] is None
     assert [g["gate"] for g in json.loads(row["gate_results_json"])["results"]][0] == "G1"
+    assert trained.packages().list("") == []  # nothing registered, nothing copied
 
 
 def test_the_first_run_is_a_challenger_even_when_every_gate_passes(trained):
@@ -106,6 +113,22 @@ def test_the_first_run_is_a_challenger_even_when_every_gate_passes(trained):
     assert tags["gate_outcome"] == "pass" and tags["sanity_passed"] == "true"
     assert reg.sources[1] == REFIT_URI
     assert "first run" in gate_rows(trained)[0]["reason"]
+    # §9.4: the registered version's packages outlive its run folder
+    assert trained.packages().exists(f"{stable_prefix(cfg, trained.run_id)}train.json")
+
+
+def test_a_package_that_fails_its_copy_registers_nothing(trained):
+    cfg = loose(trained.cfg)
+    train = with_logged_models(trained)
+    evaluate(trained, cfg)
+    key = f"{train.refit_package}meta.json"
+    with trained.store().open_read(key) as f:
+        data = f.read()
+    trained.store().put_bytes(key, data + b" ", overwrite=True)
+    reg = FakeRegistry()
+    with pytest.raises(MlInputError, match="does not match the sha256"):
+        gate(trained, cfg, reg)
+    assert reg.versions == {} and gate_rows(trained) == []
 
 
 def test_first_run_promote_is_for_the_toy_smoke_run(trained):
@@ -128,22 +151,10 @@ def test_a_retried_gate_reuses_its_version_and_row(trained):
 
 
 def champion_registry(run, model_uri=EVAL_URI, cls=FakeRegistry):
-    """A registry whose champion (version 1) was registered by run "older"'s gate and audited in ml_runs. Its eval
-    fit (this run's own selected one) sits in older's run folder with the sha256 older's train.json recorded:
-    evaluate loads it from there (§9.4); the registry holds no model."""
-    store, train = run.store(), run.train.result
-    chosen = train.selected
-    older = RunPaths.of(run.cfg, "older")
-    prefix = older.package("eval", chosen)
-    sha = write_package(store, prefix, run.train.eval_models[chosen])
-    older_train = train.model_copy(
-        update={
-            "ml_run_id": "older",
-            "eval_packages": {chosen: prefix},
-            "eval_package_sha256": {chosen: sha},
-        }
-    )
-    store.put_bytes(older.train_result, older_train.model_dump_json().encode(), overwrite=True)
+    """A registry whose champion (version 1) was registered by run "older"'s gate and audited in ml_runs. Its
+    packages (this run's own fits) were copied to the package store, where evaluate loads the eval fit from
+    (§9.4); the registry holds no model."""
+    registering_run(run, "older")
     run.meta().append(
         "ml_runs",
         [

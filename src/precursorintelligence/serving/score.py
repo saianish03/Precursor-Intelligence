@@ -4,9 +4,9 @@
    No champion (no file, or ``version: null``) -> skip, nothing written.
 2. Integrity check (§9.4): ``@champion`` must equal the version of the latest promote / manual_promote / rollback
    row in ``ml_runs`` (``evaluation/registry.check_champion_integrity``, exit 2 otherwise). The version loaded must
-   be that one too, and a refit package. It is read from the GCS run folder of the run that registered it and
-   checked against the sha256 in that run's ``train.json`` (``load_champion_package``); MLflow gives only the
-   alias.
+   be that one too, and a refit package. It is read from the version's copy in the package store (gate copied it
+   there, #75 B17) and checked against the sha256 in the copied ``train.json`` (``load_champion_package``); MLflow
+   gives only the alias.
 3. Score the pinned ``score`` frame (refused unless every row is ``t = V``); exact contributions (§8.1).
 4. Write ``<prefix>scores/v=YYYY-MM/``: ``facility_scores``, ``facility_reasons``, ``shap_values``,
    ``chain_scores`` and, last, ``scores_manifest.json`` (§10.4). A rescore overwrites the month.
@@ -42,7 +42,8 @@ from ..common.config import (
 )
 from ..common.io.metadata_store import MetadataStore
 from ..common.io.object_store import ObjectStore
-from ..evaluation.registry import Registry, check_champion_integrity, load_verified_package
+from ..evaluation.packages import load_verified_package
+from ..evaluation.registry import Registry, check_champion_integrity
 from ..evaluation.sanity import SHAP_TOLERANCE
 from ..training import MlInputError
 from ..training.contracts import Champion, InputManifest, Mode, RunPaths
@@ -109,11 +110,11 @@ def read_champion(store: ObjectStore, paths: RunPaths) -> Champion | None:
 
 
 def load_champion_package(
-    store: ObjectStore, meta: MetadataStore, cfg: MlConfig, version: int
+    packages: ObjectStore, meta: MetadataStore, cfg: MlConfig, version: int
 ) -> PrecursorModel:
-    """The champion's refit package, verified against its registering run's ``train.json`` (§9.4); see
-    ``evaluation.registry.load_verified_package``. Any mismatch refuses (exit 2)."""
-    return load_verified_package(store, meta, cfg, version, "refit")
+    """The champion's refit package, from its copy in the package store, verified against the copied
+    ``train.json`` (§9.4); see ``evaluation.packages.load_verified_package``. Any mismatch refuses (exit 2)."""
+    return load_verified_package(packages, meta, cfg, version, "refit")
 
 
 # --------------------------------------------------------------------------- the score table
@@ -226,6 +227,7 @@ def run_score(
     store: ObjectStore,
     meta: MetadataStore,
     *,
+    packages: ObjectStore,
     ml_run_id: str,
     cfg: MlConfig,
     registry: Registry | None,
@@ -265,7 +267,7 @@ def run_score(
             f"{alias.version if alias else None}: the champion moved after this run recorded it"
         )
     version = champion.version
-    model = load_champion_package(store, meta, cfg, version)
+    model = load_champion_package(packages, meta, cfg, version)
     if model.meta is None:
         raise MlInputError(f"version {version} has no package meta")
     if set(model.meta.training_months) != {"refit"}:

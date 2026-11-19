@@ -8,8 +8,8 @@ reasons ("20 random facilities' reasons read sensibly").
         [--env prod] [--env-file <env yaml>] [--ml-config <ml yaml>] [--n 20] [--seed 0] [--out reasons.csv]
 
 It reads the way `ml score` does, with the same checks:
-- the version's refit package, verified against its registering run's train.json (`load_verified_package`),
-  refused unless its training months are the refit window;
+- the version's refit package, from its copy in the package store, verified against the copied train.json
+  (`load_verified_package`), refused unless its training months are the refit window;
 - the run's pinned, hash-checked score frame, which must hold every model feature;
 - contributions that add up to the calibrated log-odds (`SHAP_TOLERANCE`);
 - the same reason labels and top-k settings.
@@ -28,7 +28,8 @@ import numpy as np
 import polars as pl
 
 from precursorintelligence.common.config import load_ml_config, load_settings, project_root
-from precursorintelligence.evaluation.registry import load_verified_package
+from precursorintelligence.common.io.registry import build_package_store
+from precursorintelligence.evaluation.packages import load_verified_package
 from precursorintelligence.evaluation.sanity import SHAP_TOLERANCE
 from precursorintelligence.ingestion.context import build_context
 from precursorintelligence.serving import explain
@@ -55,7 +56,8 @@ def main() -> None:
     a = p.parse_args()
 
     cfg = load_ml_config(a.ml_config)
-    ctx = build_context(load_settings(a.env, env_path=a.env_file), run_id=f"reasons-{a.run_id}")
+    settings = load_settings(a.env, env_path=a.env_file)
+    ctx = build_context(settings, run_id=f"reasons-{a.run_id}")
     paths = RunPaths.of(cfg, a.run_id)
     manifest = read_input_manifest(ctx.object_store, paths)
     frame = read_frame(ctx.object_store, paths, "score")
@@ -66,7 +68,9 @@ def main() -> None:
         )
     )
     sample = frame[rows.tolist()]
-    model = load_verified_package(ctx.object_store, ctx.metadata, cfg, a.version, "refit")
+    model = load_verified_package(
+        build_package_store(settings), ctx.metadata, cfg, a.version, "refit"
+    )
     if model.meta is None or set(model.meta.training_months) != {"refit"}:
         raise SystemExit(f"version {a.version} is not a refit package")
     missing = [f for f in model.feature_names if f not in frame.columns]

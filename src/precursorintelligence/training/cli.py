@@ -23,6 +23,7 @@ from ..common.config import (
     load_splits_config,
 )
 from ..common.io.object_store import ObjectStoreError
+from ..common.io.registry import build_package_store
 from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init
 from ..ingestion.context import build_context
 from ..ingestion.pipeline import EXIT_CONFIG, EXIT_ERROR, EXIT_VALIDATION
@@ -265,6 +266,7 @@ def evaluate(
             cfg=cfg,
             registry=default_registry(cfg),
             meta=ctx.metadata,
+            packages=build_package_store(ctx.settings),
             shuffled_label=shuffled_label,
             mitigation=mitigation,
             mode=mode.value,
@@ -309,6 +311,7 @@ def gate(
         out = run_gate(
             ctx.object_store,
             ctx.metadata,
+            packages=build_package_store(ctx.settings),
             ml_run_id=rid,
             cfg=cfg,
             registry=default_registry(cfg),
@@ -351,6 +354,7 @@ def promote(
             out = run_promote(
                 ctx.object_store,
                 ctx.metadata,
+                packages=build_package_store(ctx.settings),
                 ml_run_id=rid,
                 cfg=cfg,
                 registry=default_registry(cfg),
@@ -392,6 +396,7 @@ def score(
         out = run_score(
             ctx.object_store,
             ctx.metadata,
+            packages=build_package_store(ctx.settings),
             ml_run_id=rid,
             cfg=cfg,
             registry=default_registry(cfg),
