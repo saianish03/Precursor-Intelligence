@@ -132,7 +132,7 @@ jobs:
             echo "::warning::metrics/ changed after dvc repro; run 'uv run dvc repro' and commit them."
           fi
           if [ -n "$stale" ]; then
-            echo "::error::dvc.lock is stale for $(echo $stale): run 'uv run dvc repro' and commit dvc.lock."
+            echo "::error::dvc.lock is stale for $(echo $stale): run 'uv run dvc repro' and commit dvc.lock. If this PR didn't touch those stages' inputs, dev's lock is stale (two merged PRs changed the same inputs): the fix is the same."
             exit 1
           fi
 
