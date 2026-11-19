@@ -5,7 +5,7 @@ laptop stack against GCS. Phase 2 puts it in production on the VM: MLflow there,
 BigQuery, then monitoring, fairness and tuning (`ML_PIPELINE_SPEC.md` §18.1). **The VM itself** (its smoke test, the
 bucket clean-up, the full backfill, production start and the VM runbook) **stays with the lead's team**; your ML work
 on the VM builds on it (§5.1). The rules stay in the spec; this file gives the starting state, the order of work, the
-decisions already made and the traps. State as of `dev` `055f8fe` (2026-11-18).
+decisions already made and the traps. State as of `dev` `47879bf` (2026-11-19).
 
 ---
 
@@ -19,7 +19,7 @@ decisions already made and the traps. State as of `dev` `055f8fe` (2026-11-18).
 | **MLflow on the VM** | Off. `docker-compose.vm.yaml` keeps `mlflow` and `postgres-setup` in the profile `phase2` and sets `PI_MLFLOW_TRACKING_URI: ""`; `cd.yml` and `deploy.yml` ship two images; `pi-pg-backup`/`pi-pg-restore` skip `mlflow`. Ready: bucket `precursor-intel-mlops-mlflow`, secret `mlflow-db-password` (value set), `pi-deploy` renders it, and its `pg_hba` check knows the `mlflow` line. |
 | **BigQuery** | Nothing yet: no Terraform, no code (`serving/publish.py` verifies the GCS scores and emits the asset). |
 | **Gold** | Phase 1 gold is under `ml-dev/` (V = 2026-10, built by the laptop stack). The VM builds its own in the full backfill (T25). |
-| **Open issues** | **#73 (yours):** B1 and B2 are Phase 1 bugs, so fix them first; B13–B16 and B19 follow. **#75:** only the B17 design (registered packages live only in run folders). **#83:** a docs PR. |
+| **Open issues** | **#73 (yours):** B1 and B2 are Phase 1 bugs, so fix them first; B13–B16 and B19 follow. **#75:** only B17 (registered packages live only in run folders), implemented in your **#85** (in review). |
 
 ---
 
@@ -55,7 +55,7 @@ decisions already made and the traps. State as of `dev` `055f8fe` (2026-11-18).
 - **Deploys:** a release is one git sha; the Deploy workflow sets `pi-release`; a rollback deploys an older sha.
   `terraform apply` runs only in CI, and its guard refuses deletes.
 - **Process:** one PR per task, into `dev`. Reviews are posted as comments, and the lead approves. Bugs go to the
-  owner of the work package (B17 stays with RiyaNTaori in #75).
+  owner of the work package.
 
 ---
 
@@ -65,7 +65,7 @@ decisions already made and the traps. State as of `dev` `055f8fe` (2026-11-18).
 |---|---|---|
 | Gate thresholds (O2): G4 ECE ≤ 0.05, G6 Spearman ≥ 0.9 (v1 had 0.92), the 200+ beds slice | review on 2025-03 at ML-A | §5.2 item 5 |
 | MLflow login (O5) | none (task network, 127.0.0.1, IAP); keep it unless something outside the VM needs MLflow | before the downstream work |
-| B17: a stable copy of registered packages (#80's design note) | until then: never delete a registered version's run folder | before the run folders could be cleaned |
+| B17's design, as #85 picks it: copies in the MLflow bucket's `packages/`, hashes in the copied `train.json`, one backfill and no run-folder fallback | the lead confirms it by approving #85; until the backfill has run, never delete a registered version's run folder | #85 |
 | The Dec 1 demo's scope | the spec's MVP (ML-10): end to end on the VM, monitoring may be thin. How much of the API, agents and dashboard? | now |
 
 ---
@@ -91,7 +91,7 @@ at once, in parallel with T23.
 | # | Task | Needs | Done when |
 |---|---|---|---|
 | 1 | **#73 B1 + B2** (one PR; B13 and B19 can ride along). B1: `monitor` must run when `score` produces nothing (spec §15.1). B2: PSI bins numeric features with few distinct values by value, not quantile (issue text) | — | merged with tests; on the VM's first ML run, `monitor` runs without scores and `state_gplus_rate_12m` raises no drift |
-| 2 | **MLflow on the VM**, one infra PR:<br>- `docker-compose.vm.yaml`: drop the `phase2` profiles and the empty tracking URI; pin the mlflow image to `${PI_RELEASE_SHA}`; a VM-only `PI_MLFLOW_ARTIFACTS` prefix in the MLflow bucket; credentials from the metadata server, not the `/dev/null` mount;<br>- `cd.yml`: build, test and push `mlflow`, and count it in "already published";<br>- `pi-deploy`: pull and label-check three images; `check_running` checks the mlflow image;<br>- `deploy.yml`: `IMAGES: pipeline airflow mlflow`, and the rollback floor moves to this PR's sha (a rollback below it drops mlflow through `--remove-orphans`);<br>- `pi-pg-backup`/`pi-pg-restore`: add `mlflow` (order airflow → mlflow → precursor_meta);<br>- Artifact Registry: the DELETE rule from 30 to 7 days (KEEP 5 stays);<br>- B16: with tracking unset in prod, refuse instead of registering nothing;<br>- **by hand on the VM's data disk, before this deploy:** the `mlflow` line in `pg_hba.conf` (below);<br>- the MLflow parts of `docs/runbooks/vm.md` | T23 for the deploy | MLflow healthy on the VM; a task logs a run whose artifact lands in the VM prefix |
+| 2 | **MLflow on the VM**, one infra PR:<br>- `docker-compose.vm.yaml`: drop the `phase2` profiles and the empty tracking URI; pin the mlflow image to `${PI_RELEASE_SHA}`; a VM-only `PI_MLFLOW_ARTIFACTS` prefix in the MLflow bucket, never its root (#85's package store lives in `packages/`); the VM's own package prefix (`PI_PACKAGES_URI`), if #85's review settles on one; credentials from the metadata server, not the `/dev/null` mount;<br>- `cd.yml`: build, test and push `mlflow`, and count it in "already published";<br>- `pi-deploy`: pull and label-check three images; `check_running` checks the mlflow image;<br>- `deploy.yml`: `IMAGES: pipeline airflow mlflow`, and the rollback floor moves to this PR's sha (a rollback below it drops mlflow through `--remove-orphans`);<br>- `pi-pg-backup`/`pi-pg-restore`: add `mlflow` (order airflow → mlflow → precursor_meta);<br>- Artifact Registry: the DELETE rule from 30 to 7 days (KEEP 5 stays);<br>- B16: with tracking unset in prod, refuse instead of registering nothing;<br>- **by hand on the VM's data disk, before this deploy:** the `mlflow` line in `pg_hba.conf` (below);<br>- the MLflow parts of `docs/runbooks/vm.md` | T23 for the deploy | MLflow healthy on the VM; a task logs a run whose artifact lands in the VM prefix |
 | 3 | **ML on the VM.** Unpause `cms_nh_ml` (a paused DAG's runs never start), `mode=retrain` → v1 `@challenger`; the lead runs Checkpoint ML-A (model card, `scripts/ml_checkpoint_reasons.py`) and `mode=promote` with a reason; then `mode=auto` (SKIP) and `mode=score_only` (identical scores) | 1, 2, T25 | champion on the VM, scores and `status/latest.json` written, the summary email received |
 | 4 | **BigQuery publish**: Terraform dataset `precursorintelligence_scores` and 3 tables (schemas as JSON files, tested against the parquet writer), `sa-pipeline` roles (spec §16.3); `ml publish` loads each month with `WRITE_TRUNCATE` on its partition and records the publish after the load (spec §11). Every query sets `maximum_bytes_billed`. The code can be built on the toy chain first | 3 for real data | scores queryable in BigQuery |
 | 5 | **Threshold review** with the lead on 2025-03 | 3 | `ml.yaml` gates confirmed, or changed by PR |
@@ -99,7 +99,7 @@ at once, in parallel with T23.
 | 7 | **Fairness**: `state` in G7(a) with Benjamini–Hochberg (ML-27); per-state empirical-Bayes shrinkage | 3 | gate and model card updated |
 | 8 | **Tuned challenger and automatic re-tune**: `train` applies a tuning proposal as a challenger; `gate` compares it with no tolerance (spec §12.2, §13) | 3 | a `retune` run yields a gated challenger |
 | 9 | **Verified gold**: the data spec's §11 gate (W5 part 2), then `allow_unverified: false` | — | prod refuses unverified gold |
-| 10 | **Hardening**: the rest of #73 (B14 CI fails on a stale `dvc.lock`, B15 CI exercises `gs://` artifacts); B17 once decided (with #75) | — | one PR per area |
+| 10 | **Hardening**: #85 (B17) through review, then its backfill on the laptop stack with the lead; the rest of #73 (B14 CI fails on a stale `dvc.lock`, B15 CI exercises `gs://` artifacts) | — | one PR per area |
 | 11 | **Downstream**: the FastAPI service, the four agents and the dashboard read `scores/`, `status/latest.json` and BigQuery | 4 | as the demo scope says (§4) |
 | 12 | **Model research**: `y_g6` (O1); rolling-origin folds (O3); regime-invariant enforcement features (O8); bring back excluded features (`d12_turnover_total` once the eval window starts at 2023-01 or later, about `V_L` 2027-05; the four `qm_ls_*` after about 6 months of the new definitions; `staffing_rating_fn` when its PSI is under 0.25); a hazard model (spec §21) | — | each through a reviewed PR and the gates |
 
@@ -134,7 +134,7 @@ sudo docker exec "$pg" psql -U airflow -d airflow -c 'SELECT line_number, databa
 - **On the VM:** never run `docker compose config` without `-q` (it prints the secrets into the journal); an MLflow
   version bump runs `mlflow db upgrade`, which can't be undone, so dump first; every `gcloud compute ssh` keeps a
   connection open about 10 minutes after you leave (the idle shutdown counts it).
-- **Keep `ml-dev/`**, above all `ml-dev/ml/runs/phase1-retrain-2/` (v1's packages), until the VM has its own champion.
+- **Keep `ml-dev/`** until the VM has its own champion. `ml-dev/ml/runs/phase1-retrain-2/` holds v1's packages until #85's backfill has copied them to the package store.
 - **No secrets anywhere:** not in code, logs, docs or screenshots. The alert sender and recipients are kept in Secret
   Manager (`alert-smtp-user`, `alert-email-to`), so redact them from screenshots.
 
@@ -149,4 +149,4 @@ sudo docker exec "$pg" psql -U airflow -d airflow -c 'SELECT line_number, databa
 | The VM: deploys, up and down, backups, restore | `infra/README.md` "The VM", `infra/vm/README.md` |
 | Running the stack, MLflow, alerts | `runbooks/airflow-local.md`, `AIRFLOW_PIPELINE.md`, `ALERTS_HANDOFF.md` |
 | The data pipeline and the verified gate | `DATA_PIPELINE_SPEC.md` (§11, §15) |
-| Your bugs | #73; B17 in #75 |
+| Your bugs and PRs | #73; #85 (B17, #75) |
