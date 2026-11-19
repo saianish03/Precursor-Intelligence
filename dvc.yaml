@@ -79,6 +79,7 @@ stages:
       - src/precursorintelligence/monitoring
       - src/precursorintelligence/serving
       - src/precursorintelligence/training
+      - src/precursorintelligence/validation  # imported by the precursor-pipeline entrypoint (harmonize/cli.py)
       - configs/bias_slices.yaml
       - configs/feature_registry.yaml
       - configs/labels.yaml

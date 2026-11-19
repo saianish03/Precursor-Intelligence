@@ -1,9 +1,11 @@
 """The DVC setup is consistent: dvc.yaml is well-formed, its inputs exist, its outputs stay under data/, the
 remote is the dedicated DVC bucket, and Git can see the files DVC needs committed. Needs no dvc install."""
 
+import ast
 import configparser
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -38,6 +40,20 @@ def test_dependencies_that_are_not_stage_outputs_exist_in_the_repo(stages):
         for dep in _paths(stage.get("deps")):
             if dep not in produced:
                 assert (ROOT / dep).exists(), f"{name}: dep {dep} is missing"
+
+
+def test_toy_ml_depends_on_every_package_the_entrypoint_imports(stages):
+    # #73 B13: `precursor-pipeline` (harmonize/cli.py) imports validation.cli, so a change there must rerun toy_ml
+    code = (
+        "import sys, precursorintelligence.harmonize.cli; "
+        "print(sorted({m.split('.')[1] for m in sys.modules if m.startswith('precursorintelligence.')}))"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    imported = ast.literal_eval(out.stdout.strip().splitlines()[-1])
+    deps = set(_paths(stages["toy_ml"]["deps"]))
+    packages = [p for p in imported if (ROOT / "src" / "precursorintelligence" / p).is_dir()]
+    assert "validation" in packages
+    assert [p for p in packages if f"src/precursorintelligence/{p}" not in deps] == []
 
 
 def test_the_locked_library_versions_are_a_declared_input(stages):

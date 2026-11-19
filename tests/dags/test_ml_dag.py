@@ -87,7 +87,7 @@ def test_wiring_and_trigger_rules(dag):
         "score": {"path", "gate", "promote"},
         "scored": {"score"},
         "publish": {"scored"},
-        "monitor": {"publish", "scored"},
+        "monitor": {"publish", "score"},
         "notify": {"decide", "monitor", "tune"},
     }
     rules = {t.task_id: t.trigger_rule for t in dag.tasks}
@@ -95,6 +95,14 @@ def test_wiring_and_trigger_rules(dag):
         assert rules[task_id] == "none_failed_min_one_success"
     assert rules["notify"] == "none_failed"
     assert [a.name for a in dag.get_task("publish").outlets] == ["cms_nh_scores"]
+
+
+def test_monitor_runs_when_score_wrote_nothing(dag):
+    # #73 B1: a False short-circuit skips every task directly downstream of it, whatever its trigger rule, so
+    # `scored` may gate only `publish`. monitor hangs off `score` and `publish`: none failed and score succeeded, so
+    # it runs on the first version (no champion yet) and refreshes status/latest.json
+    assert dag.get_task("scored").downstream_task_ids == {"publish"}
+    assert dag.get_task("monitor").trigger_rule == "none_failed_min_one_success"
 
 
 @pytest.mark.parametrize(("task_id", "minutes"), [("train", 45), ("tune", 90), ("evaluate", 60)])

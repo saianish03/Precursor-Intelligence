@@ -449,7 +449,7 @@ All four files go to `<prefix>scores/v=YYYY-MM/` with `scores_manifest.json` (mo
 ### 12.1 Signals (each run)
 | Signal | How | Flag |
 |---|---|---|
-| Feature drift, month over month | PSI (10 quantile bins of the reference, nulls as their own bin; categoricals by level) of each key feature, score month vs previous month | any PSI > 0.25 |
+| Feature drift, month over month | PSI (10 quantile bins of the reference, nulls as their own bin; categoricals by level; equal-width bins over the reference's range for a group-level feature, at most 100 distinct non-integer values such as one per state, whose quantile edges sit on big states' values, #73 B2) of each key feature, score month vs previous month | any PSI > 0.25 |
 | Training vs scoring skew | PSI of key, enforcement and regime-sensitive features (§1.4), refit window vs score month; regime-coverage gaps | any PSI > 0.25 or a coverage gap |
 | Score drift | the **current** champion scores both `score` and `prev_score`; PSI of `p` and the change in mean `p` (isolates data change from model change) | PSI > 0.1, or the mean moves by > 0.03 |
 | Performance trend | the eval fit's test **lift** per test month vs the median of earlier recorded months | a drop of more than 15 % |
@@ -518,7 +518,7 @@ decide ─► branch ─┬─ SKIP ──────────────�
                                                                                   ▼
                                                      score ─► publish ─► monitor ─► notify
 ```
-Branches use `@task.branch`; `score` and `monitor` use `trigger_rule="none_failed_min_one_success"`. RETUNE is `tune` alone in Phase 1 (§12.2). `score` skips itself (and so `publish`) when there is no champion; `monitor` and `notify` still run.
+Branches use `@task.branch`; `score` and `monitor` use `trigger_rule="none_failed_min_one_success"`. RETUNE is `tune` alone in Phase 1 (§12.2). `score` skips itself (and so `publish`) when there is no champion; `monitor` and `notify` still run. `monitor` waits for `score` and `publish`, never for the `scored` short-circuit: a False short-circuit skips every task directly after it, whatever its trigger rule (#73 B1).
 
 ### 15.2 The decide step
 | Condition (first match wins) | Decision |

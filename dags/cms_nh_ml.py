@@ -10,12 +10,14 @@ prints it; the branches only read it.
        │                              ├─ PROMOTE ─► promote ───────────────────┤                       │
        │                              └─ SCORE ────────────────────────────────┤                       ▼
        │                                         score ─► scored? ─► publish ─► monitor ──────────► notify
+       │                                           └─────────────────────────────►┘
        └─ (SKIP) ───────────────────────────────────────────────────────────────────────────────────────┘
 
 - SKIP stops after `decide` (its `ml_runs` row is written) and `notify` emails decide's summary. REFUSE is exit 2
   and fails the run (alert, no retry); gold not current is exit 1 (retried).
 - `score` skips without a champion (first run, awaiting Checkpoint ML-A); then `scored?` skips `publish`, so the
-  asset `cms_nh_scores` is emitted only when scores were published. `monitor` and `notify` still run.
+  asset `cms_nh_scores` is emitted only when scores were published. `monitor` and `notify` still run: `monitor`
+  waits for `score` and `publish`, never for `scored?`, whose False skips every task directly after it.
 - RETUNE (`mode=retune` only, Phase 1) runs `tune` alone: its proposal and plots. `train` doesn't apply a proposal,
   so a re-tune trains, gates and scores nothing (§12.2); a drift flag only asks a human for one.
 - `train`, `tune` and `evaluate` take the `heavy` pool's one slot (shared with gold's `build_gold`, §15.6), each
@@ -172,7 +174,8 @@ def cms_nh_ml():
     train >> evaluate >> gate >> score
     promote >> score
     score >> is_scored >> publish
-    [publish, is_scored] >> monitor
+    # not after `scored`: a False short-circuit skips every task directly after it, monitor too (#73 B1)
+    [publish, score] >> monitor
     [decide, monitor, tune] >> notify()
 
 
