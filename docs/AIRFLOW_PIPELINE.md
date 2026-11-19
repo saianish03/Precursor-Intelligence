@@ -17,16 +17,20 @@ you / hourly -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080     
                 │ airflow-triggerer                                                        │
                 │ postgres:16             airflow         Airflow's own state              │
                 │                         precursor_meta  pipeline metadata (§5)           │
+                │                         mlflow          MLflow's runs and registry       │
+                │ mlflow                  tracking + model registry, tasks network only;   │
+                │                         UI on 127.0.0.1:5001 (ML spec §16.1)             │
                 │ docker-proxy            the only way to the Docker API (scheduler only)  │
                 └─────────────────────────────────────┬────────────────────────────────────┘
                                                       │  the scheduler asks docker-proxy to start one container per task
                                                       v
                 ┌─ precursor-pipeline container (one per task) ──────────────────────────────────────┐
                 │ runs one command:  precursor-ingest ...  or  precursor-pipeline bronze|silver|gold │
+                │                    or  precursor-pipeline ml <step>  (cms_nh_ml)                   │
                 │ files      laptop: a host folder mounted at /app/data                              │
                 │            GCP:    gs://precursor-intel-mlops-data                                 │
                 │ metadata   Postgres precursor_meta (PI_DATABASE_URL)                               │
-                │ network    pi-airflow-tasks: Postgres + internet egress only                       │
+                │ network    pi-airflow-tasks: Postgres, MLflow + internet egress only               │
                 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -291,7 +295,7 @@ It would work on a demo day. The table lists what this implementation does inste
 | `dags/cms_nh_pipeline.py` | the DAG |
 | `dags/cms_nh_ml.py` | the ML DAG (`precursor-pipeline ml decide` … `monitor`, then the `notify` email; ML spec §15) |
 | `dags/utils/pipeline_operator.py` | `PipelineDockerOperator`, `docker_kwargs()`, the JSON result parser |
-| `docker/pipeline.Dockerfile`, `docker/airflow.Dockerfile`, `.dockerignore` | the two images |
+| `docker/pipeline.Dockerfile`, `docker/airflow.Dockerfile`, `docker/mlflow.Dockerfile`, `.dockerignore` | the three images: the pipeline tasks, the Airflow services and the MLflow server (CI builds all three; CD pushes the first two, since MLflow runs only on laptop stacks until Phase 2) |
 | `docker/airflow-local/docker-compose.yaml`, `init-db.sh`, `.env.example` | the stack (the first two are also baked into the Airflow image for the VM) |
 | `docker/airflow-local/docker-compose.vm.yaml` | VM only, baked into the Airflow image: the production values, images by sha, Postgres data on the data disk |
 | `docker/airflow-local/docker-compose.override.yaml` | laptop only: mounts `dags/`, `src/precursorintelligence/` and `tests/dags/` over the image's copies |
