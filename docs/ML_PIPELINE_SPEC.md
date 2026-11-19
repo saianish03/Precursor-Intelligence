@@ -19,7 +19,7 @@
 > - Every value that can change lives in `configs/ml.yaml` (W0, #54; Appendix B) or an existing config. Never hard-code a feature list, a threshold or a window.
 > - Tuning, selection and every "keep or drop" choice use training-window data only. **The test window is looked at once per model, to report and gate, never to choose** (§3, §20).
 >
-> **Status:** v1.0, 2026-11-10. W0–W5 are merged (#54, #55, #58, #60–#64); W6 (the `cms_nh_ml` DAG, `ml decide`, `ml monitor`, `notify`) is built 2026-11-15 (§18.3). Reviewed by an outside ML-systems reviewer, the leakage reviewer and the infra reviewer; their findings are applied. **Phase 1, everything the course asks for, running on a laptop stack against GCS, is due Sun 2026-11-15; Phase 2 (VM, BigQuery, hardening) follows** (§18).
+> **Status:** v1.0, 2026-11-10. W0–W6 are merged (#54, #55, #57, #58, #60–#66, #69, #72, #77). **Phase 1 is complete** on the laptop integration stack against GCS (2026-11-18): the first champion (v1) was approved at Checkpoint ML-A on 2026-11-17 and every §17.2 acceptance run passed (evidence: `docs/ML_PIPELINE.md`). Reviewed by an outside ML-systems reviewer, the leakage reviewer and the infra reviewer; their findings are applied. **Phase 2 (VM, BigQuery, hardening) follows** (§18).
 
 ---
 
@@ -171,7 +171,7 @@ Never read: the per-family partitions (the merged file has them), `gold/spine`, 
 3. copy the merged parquet, the manifest and `_current.json` to `ml/runs/<run_id>/input/`, hashing while copying (exit 1 on a mismatch);
 4. re-read `_current.json`; exit 1 if its `run_id` changed during the copy.
 
-Every later task reads only the pinned copy, so `cms_nh_ml` needs no run lock and can run while `cms_nh_pipeline` builds the next gold. The input of a run that registers a model version is kept for good (that version's training set); other run folders may be deleted after 90 days.
+Every later task reads only the pinned copy, so `cms_nh_ml` needs no run lock and can run while `cms_nh_pipeline` builds the next gold. The whole run folder of a run that registers a model version is kept for good: its `input/` (that version's training set), `train.json` and `models/`, the packages `score` and rollback verify and load (§9.4); a registered version's packages live only there until they are also copied elsewhere (#75, B17). Other run folders may be deleted after 90 days.
 
 ### 1.3 The `verified` flag (ML-9)
 Gold writes `verified: false` until the data spec's §11 gate and Checkpoint 5 exist (`gold/build.py: VERIFIED = False`). With `allow_unverified: true` (the default until then) the pipeline trains and scores; every MLflow run, model version, score row and `status/latest.json` carries `gold_verified = false`. Once the gate exists, prod sets `allow_unverified: false` and an unverified gold is refused (exit 2, alert).
@@ -371,10 +371,10 @@ Facility block bootstrap, 1,000 replicates, seed 0 (`evaluation/bootstrap.py`, f
 - **Reason codes:** the 5 largest positive ("raises risk") and 3 largest negative ("lowers risk") contributions per facility (ML-14), each with the feature value, the contribution and a plain-language label from **`configs/reason_labels.yaml`**: `feature → {label, value_format, null_text}`, for example `n_cit_GI_24m: {label: "actual-harm (G–I) citations in the last 24 months", value_format: "{:.0f}"}`. The registry schema forbids extra fields (`FeatureSpec`, `extra="forbid"`), so the labels live beside it. A test lists model features without a label; they fall back to the feature name.
 
 ### 8.2 Global importance (per model version)
-Mean |contribution| per feature on the test frame (eval fit) and on the score frame (champion), as a CSV and a bar chart, plus a SHAP summary (beeswarm) plot; the top 20 go into the model card. The champion's top-15 features are its **key features** for drift monitoring (a model-version tag).
+Mean |contribution| per feature on the test frame (eval fit: `evaluate` writes `report/shap_mean_abs.csv`, and its top 20 go into the model card) and on the score frame (champion: `score` writes `score/shap_mean_abs.csv`, `score/shap_families.csv` with the sum per feature family, a bar chart and a SHAP summary (beeswarm) plot). The champion's top-15 features are its **key features** for drift monitoring (a model-version tag).
 
 ### 8.3 Sensitivity analysis (course §5)
-- **Features:** the global SHAP ranking; contributions per feature family (sum of |contribution| per family) in the model card.
+- **Features:** the global SHAP ranking (top 20 in the model card); contributions per feature family (sum of |contribution| per family, `score/shap_families.csv`).
 - **Hyperparameters:** every tune (§13) logs Optuna's parameter importances (fANOVA), the optimization history and a parallel-coordinate plot.
 
 ---
@@ -467,7 +467,7 @@ A feature-drift, score-drift or performance flag sets `retune_requested = true` 
 
 ## 13. Step M13: tuning (task `tune`; decision RETUNE; ML-19)
 - **When:** `mode=retune` (a human answering a re-tune request, §12.2), and once in Phase 1 to document the search space and sensitivity (course §3, §5). In Phase 1 the run is `tune` alone: no tuned challenger is fitted.
-- **Search:** Optuna TPE, seed 42, `n_trials` 30, timeout 60 minutes, `n_jobs` 1; objective = mean PR-AUC over 3 facility-grouped folds of `eval_train`, with early stopping (100 rounds) on each validation fold; the final `n_estimators` = the median best iteration. Never the test frame. Space (from PR #49 `boost_models.py`):
+- **Search:** Optuna TPE, seed 42, `n_trials` 30, timeout 60 minutes, `n_jobs` 1; objective = mean held-out PR-AUC of the ensemble (the log-odds mean of the two members, so the search also chooses LR's `C`) over 3 facility-grouped folds of `eval_train`, with early stopping (100 rounds) on each validation fold; the final `n_estimators` = the median best iteration. Never the test frame. Space (from PR #49 `boost_models.py`):
   | Param | Range | Param | Range |
   |---|---|---|---|
   | learning_rate | 0.005–0.1, log | subsample | 0.5–1.0 |
@@ -640,16 +640,19 @@ Tests never call paid services or a shared MLflow server; fixtures are synthetic
 
 ### 17.2 Acceptance on real gold
 Phase 1 (laptop integration stack, gold under `ml-dev/`); repeated in Phase 2 on the VM after T25.
-- [ ] `mode=retrain` completes: MLflow shows the `train`, `evaluate` and `gate` runs, a registered version (challenger), the model card.
-- [ ] With `eval_gap: purge` and the window 2023-01..2023-11, the eval fit lands within PR #49's CI (0.465–0.499) on 2025-02, or the gap is explained (121 features vs PR #49's 133). The production setting (`production_lag`) is then used for everything else.
-- [ ] Selection, calibration (OOF diagnostics, `a`, `b`, ECE before/after) and G1–G7 results are in `evaluation.json`.
-- [ ] Checkpoint ML-A done, `mode=promote` run: scores, reasons, SHAP and chain files in `scores/v=2026-10/`; `status/latest.json`; the summary email.
-- [ ] `mode=auto` on the same gold gives SKIP; `mode=score_only` rewrites the same partition with identical scores.
-- [ ] A forced bad candidate (a broken feature) is held and the champion keeps scoring; `mode=promote` with an earlier version rolls back.
-- [ ] One `mode=retune` run: `tuning_proposal.yaml`, trials and sensitivity plots (the tuned challenger is Phase 2).
+Phase 1 passed on 2026-11-18 (gold `3f9bac9367ae18ec`; runs and evidence in `docs/ML_PIPELINE.md` §11 and §14):
+- [x] `mode=retrain` completes: MLflow shows the `train`, `evaluate` and `gate` runs, a registered version (challenger), the model card (`phase1-retrain-2`: v1).
+- [x] With `eval_gap: purge` and the window 2023-01..2023-11, the eval fit lands within PR #49's CI (0.465–0.499) on 2025-02, or the gap is explained (120 features vs PR #49's 133). The production setting (`production_lag`) is then used for everything else (`repro-purge-1`: the ensemble 0.481, CI 0.465–0.498, with 120 features).
+- [x] Selection (`selection.json`), calibration (OOF diagnostics, `a`, `b`, ECE before/after, in `train.json` and `evaluation.json`) and G1–G7 results (`report/gates.json`) are recorded.
+- [x] Checkpoint ML-A done, `mode=promote` run: scores, reasons, SHAP and chain files in `scores/v=2026-10/`; `status/latest.json`; the summary email (`phase1-promote-1`).
+- [x] `mode=auto` on the same gold gives SKIP; `mode=score_only` rewrites the same partition with identical scores (`p1-auto-1`; `p1-score-only-1`: only `ml_run_id` and `scored_at` differ).
+- [x] A forced bad candidate (a broken feature) is held and the champion keeps scoring; `mode=promote` with an earlier version rolls back (`p1-bad-candidate-1`: its 5 strongest features excluded, held on G5; `p1-rollback-v1`). Also passed: an automatic promotion through all seven gates (`p1-retrain-2`: v2).
+- [x] One `mode=retune` run: `tuning_proposal.yaml`, trials and sensitivity plots (the tuned challenger is Phase 2) (`p1-retune-1`).
 
 ### 17.3 🛑 Checkpoint ML-A: the first champion
 Before the first promotion (and after any change to the gates or mitigation), a human reads `model_card.md` and the bias report and checks: metrics vs PR #49 and the baselines, on non-development months where available; calibration; the slice table and state list; the top-20 features are plausible (nothing leakage-like); 20 random facilities' reasons read sensibly; the regime and skew flags (§1.4). Then promotes with `mode=promote`, recording the approval in `reason`.
+
+**Done 2026-11-17 (Phase 1, `ml_dev`):** v1 (`lgbm`, run `phase1-retrain-2`; test 2025-02 PR-AUC 0.470, 0.454–0.486; all gates passed, G5 skipped) was approved by the project lead and promoted with `mode=promote` (run `phase1-promote-1`); the reason is in its `ml_runs` row. 2025-02 is a development month, so ML-A is repeated on 2025-03 or later (Phase 2, on the VM's fresh registry).
 
 ---
 
@@ -731,11 +734,11 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 |---|---|---|---|---|---|
 | **P0 Data** ✅ done 2026-11-11 (§18.0) | 1 | `spine_start: "2022-01"` (data spec §14 #10, recorded); full `cms_nh_pipeline` backfill on a laptop stack into `ml-dev/`, including the 2026-10-28 release | `configs/splits.yaml` | — | `ml-dev/gold/` current, spine 2022-01, V = 2026-10 |
 | **W0 Foundation** ✅ done (#54) | 1 | `configs/ml.yaml` + `MlConfig`/`load_ml_config`; the `ml` typer sub-app with stubs (exit 3 "not built"); `training/data.py` (pin, checks, `to_model_frame`, windows, frames, folds); `ml_runs` in `common/io/schemas.py`; run-folder JSON contracts; `configs/reason_labels.yaml` skeleton; the synthetic fixture `tests/ml/make_ml_gold.py` | `common/config.py`, `training/{cli,data}.py`, `harmonize/cli.py` | — | window, fold and pin tests (incl. leakage tests 2, 4, 5, 12) pass on the fixture |
-| **W1 Training** | 1 | LR pipeline, LightGBM member, log-odds ensemble, OOF + Platt, selection, `PrecursorModel` pyfunc, MLflow logging helper, `ml train`; `ml tune` with the proposal and plots; the PR #49 reproduction check; the PSI check of the two sub-ratings (§1.4); the `d12_turnover_total` decision (§1.4, O9) | `training/{members,ensemble,calibration,select,train,tune,mlflow_log}.py` | W0 | model tests pass; a real eval fit and refit are logged |
-| **W2 Evaluation, bias, gates** | 1 | metrics, paired bootstrap, baselines, sanity checks, Fairlearn slices + per-state EB, reweighting (with the `fit_rows` parameter), plots, `model_card.md`, `gates.py`, `ml evaluate`, `ml gate` (registration, aliases, `ml_runs`), `ml promote` | `evaluation/{metrics,bootstrap,baselines,sanity,slices,gates,report}.py`, `bias/mitigation.py` | W0, W1's fit interface | gate tests pass; a real model card exists |
-| **W3 Explain and score** (PR open 2026-11-14) | 1 | `serving/explain.py` (§8.1), reason codes and all model-feature labels, global SHAP helpers for W2, `ml score`, roll-up, the scores layout and manifest, `ml publish` (Phase 1: verify + asset) | `serving/{explain,score,rollup,publish}.py`, `configs/reason_labels.yaml` | W0, W1's pyfunc | additivity tests pass; real scores and reasons written |
-| **W4 Platform** | 1 | §16.1 service + Dockerfile + `postgres-setup` + `pg_hba` line; MLflow bucket (Terraform PR); extras split + image; `docker_kwargs` (`MLFLOW_TRACKING_URI`, `PI_PIPELINE_IMAGE`); pool `heavy` in `airflow-init` + `build_gold`; CI smoke stage `toy_ml` and image jobs; runbook | `docker/`, `infra/terraform/`, `.github/workflows/ci.yml`, `dags/utils/pipeline_operator.py`, `dvc.yaml`, docs | W0 (names) | a task container on the laptop stack logs a run (`curl` from the tasks network to `mlflow:5000` returns 200); CI green |
-| **W6 DAG + monitor** (built 2026-11-15; score drift moved to Phase 2, and the performance trend as an agreed exception) | 1 | `dags/cms_nh_ml.py`, `ml decide`, branches, params, `notify`; `ml monitor` (PSI signals, re-tune request, status file) | `dags/`, `training/cli.py`, `monitoring/{drift,status}.py` | W1–W4; PR #48 | DAG tests pass; the acceptance list (§17.2) is ticked on the laptop stack |
+| **W1 Training** ✅ done (#60) | 1 | LR pipeline, LightGBM member, log-odds ensemble, OOF + Platt, selection, `PrecursorModel` pyfunc, MLflow logging helper, `ml train`; `ml tune` with the proposal and plots; the PR #49 reproduction check; the PSI check of the two sub-ratings (§1.4); the `d12_turnover_total` decision (§1.4, O9) | `training/{members,ensemble,calibration,select,train,tune,mlflow_log}.py` | W0 | model tests pass; a real eval fit and refit are logged |
+| **W2 Evaluation, bias, gates** ✅ done (#62, #66, #77) | 1 | metrics, paired bootstrap, baselines, sanity checks, Fairlearn slices + per-state EB, reweighting (with the `fit_rows` parameter), plots, `model_card.md`, `gates.py`, `ml evaluate`, `ml gate` (registration, aliases, `ml_runs`), `ml promote` | `evaluation/{metrics,bootstrap,baselines,sanity,slices,gates,report}.py`, `bias/mitigation.py` | W0, W1's fit interface | gate tests pass; a real model card exists |
+| **W3 Explain and score** ✅ done (#63) | 1 | `serving/explain.py` (§8.1), reason codes and all model-feature labels, global SHAP helpers for W2, `ml score`, roll-up, the scores layout and manifest, `ml publish` (Phase 1: verify + asset) | `serving/{explain,score,rollup,publish}.py`, `configs/reason_labels.yaml` | W0, W1's pyfunc | additivity tests pass; real scores and reasons written |
+| **W4 Platform** ✅ done (#57, #61) | 1 | §16.1 service + Dockerfile + `postgres-setup` + `pg_hba` line; MLflow bucket (Terraform PR); extras split + image; `docker_kwargs` (`MLFLOW_TRACKING_URI`, `PI_PIPELINE_IMAGE`); pool `heavy` in `airflow-init` + `build_gold`; CI smoke stage `toy_ml` and image jobs; runbook | `docker/`, `infra/terraform/`, `.github/workflows/ci.yml`, `dags/utils/pipeline_operator.py`, `dvc.yaml`, docs | W0 (names) | a task container on the laptop stack logs a run (`curl` from the tasks network to `mlflow:5000` returns 200); CI green |
+| **W6 DAG + monitor** ✅ done (#65; built 2026-11-15; score drift moved to Phase 2, and the performance trend as an agreed exception) | 1 | `dags/cms_nh_ml.py`, `ml decide`, branches, params, `notify`; `ml monitor` (PSI signals, re-tune request, status file) | `dags/`, `training/cli.py`, `monitoring/{drift,status}.py` | W1–W4; PR #48 | DAG tests pass; the acceptance list (§17.2) is ticked on the laptop stack |
 | W5 Quality family (quality ✅ #55, gold rebuilt 2026-11-12) | 2 | port `quality.py` with `configs/qm_measures.yaml` into gold (data spec Checkpoint 4), registry entries, labels, tests; then the §11 verified gate | `gold/features/quality.py`, `configs/` | — | gold carries the quality features; later `verified: true` |
 | W7 Production | 2 | VM (§16.5), BigQuery (§11, §16.3), CD + AR rule, realized and early-read performance, Evidently | | Phase 1, VM plan | acceptance repeated on the VM |
 
@@ -767,7 +770,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | ML-18 | Quality family | in gold since #55; 33 of its 41 columns are model input, the rest excluded in `ml.yaml` (the two month keys, the two definition flags and the four measures whose scale changed) | §1.4, W5 |
 | ML-19 | Re-tuning | a re-tune produces a parameter proposal (and, in Phase 2, a challenger); parameters change only through a human PR to `ml.yaml` | §12.2, §13 |
 | ML-20 | Evaluation gap | the production lag (H + B = 20 months); gold starts in 2022-01 (`spine_start`, data open #10) | §3 |
-| ML-21 | 2025-07 / 2025-10 regimes | `era` and `penalty_regime_2025_10` excluded until training covers both values; the two sub-ratings measured and excluded if their training-vs-scoring PSI > 0.25 | §1.4, §12.1 |
+| ML-21 | 2025-07 / 2025-10 regimes | `era` and `penalty_regime_2025_10` excluded until training covers both values; the two sub-ratings measured and excluded if their training-vs-scoring PSI > 0.25 | §1.4, §12.1. Measured on the ml-dev gold (V 2026-10): `staffing_rating` 0.044 and `qm_rating` 0.034 stay; `staffing_rating_fn` 0.405, excluded 2026-11-16 (#69), and still measured |
 | ML-22 | Phases and goal | Phase 1 (course-complete, laptop stack + GCS) by Nov 15; production after; a working system with decent performance, no model optimization push | §18 |
 | ML-23 | Phase 1 gold | full backfill with spine 2022-01 into `gs://…-data/ml-dev/` | §16.4 |
 
@@ -792,14 +795,14 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | # | Topic | Default | Recommendation |
 |---|---|---|---|
 | O1 | Second label (`y_g6` matures 6 months sooner) | not in v1 | add by config after Phase 1 |
-| O2 | Gate and bias thresholds | §9.1 starting values | review at Checkpoint ML-A on a non-development month. G4 (ECE ≤ 0.05) may be the binding gate: PR #49's out-of-time ECE ranged from 0.022 (the strictest split) to 0.055 (an uncalibrated LightGBM on a time split with no purge gap), 0.027 for the base ensemble at 15 months, and the eval fit is 20–23 months out of time. W2 checks its first real values before anyone relies on automatic promotion |
+| O2 | Gate and bias thresholds | §9.1 starting values | review at Checkpoint ML-A on a non-development month. G4 (ECE ≤ 0.05) may be the binding gate: PR #49's out-of-time ECE ranged from 0.022 (the strictest split) to 0.055 (an uncalibrated LightGBM on a time split with no purge gap), 0.027 for the base ensemble at 15 months, and the eval fit is 20–23 months out of time. W2 checks its first real values before anyone relies on automatic promotion. **First values** (v1, test 2025-02, a development month): G4 ECE 0.028 and slope 0.83; G6 Spearman 0.920 (limit 0.9) and lift ratio 0.94; G7 no failures; G2's single shuffled-label model proved too noisy for [0.48, 0.52] (#79). Review again on 2025-03 |
 | O3 | Rolling-origin folds | facility-grouped | try after spine 2022-01 is live |
-| O4 | Reweighting | off | decide at Checkpoint ML-A from the OOF trade-off table |
+| O4 | Reweighting | off | ✅ **decided at Checkpoint ML-A (2026-11-17): stays off.** No gated group is miscalibrated; on v1's window reweighting costs OOF PR-AUC 0.511 → 0.505 and widens the largest gated gap 0.016 → 0.022. Wired since #69 (`bias.mitigation: reweight`), recomputed in every model card |
 | O5 | MLflow authentication | none (tasks network + 127.0.0.1 + IAP) | revisit if anything outside the VM needs MLflow |
 | O6 | `CLAUDE.md` star-rating wording | changed 2026-11-10 in the maintainer's local copy | teammates update their local `CLAUDE.md` (it is not in git): "overall and health-inspection star ratings are never features" (ML-17) |
-| O7 | Data spec edits | §14 #10 recorded (2022-01) on 2026-11-10 | still to do when the team agrees: §9.5 open #16 → resolved by ML-24; §15.1's three ML DAGs → one `cms_nh_ml` |
+| O7 | Data spec edits | §14 #10 recorded (2022-01) on 2026-11-10 | ✅ done (#82): §9.5 and §14 #16 resolved by ML-24 (out-of-fold Platt in the ML layer); the data spec now names one ML DAG, `cms_nh_ml` |
 | O8 | Regime-invariant enforcement features | — | a data-side idea (counts per revision group or per survey) so the 2025-10 fine-count jump doesn't skew scores |
-| O9 | `d12_turnover_total` is empty for all of 2022 (§1.4) | in the feature list | W1: exclude it for Phase 1 (`features.exclude`); take it back once the eval window starts in 2023-01 or later (about `V_L` = 2027-05) |
+| O9 | `d12_turnover_total` is empty for all of 2022 (§1.4) | in the feature list | ✅ decided (W1, #60): excluded for Phase 1 (`features.exclude`); take it back once the eval window starts in 2023-01 or later (about `V_L` = 2027-05) |
 
 ---
 
