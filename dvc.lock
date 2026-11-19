@@ -235,8 +235,8 @@ stages:
       nfiles: 19
     - path: src/precursorintelligence/monitoring
       hash: md5
-      md5: 72ef10402403a7ad17b0cce5a3f4d5c7.dir
-      size: 18801
+      md5: 3ef118e57944d2805d5706085e9ebd58.dir
+      size: 19947
       nfiles: 4
     - path: src/precursorintelligence/serving
       hash: md5
@@ -248,6 +248,11 @@ stages:
       md5: 1a4fd944b2b353a45266a3d7661cc5fc.dir
       size: 150982
       nfiles: 11
+    - path: src/precursorintelligence/validation
+      hash: md5
+      md5: 3de210db410ce32eeee4b864182c326b.dir
+      size: 38511
+      nfiles: 7
     - path: tests/ml/make_ml_gold.py
       hash: md5
       md5: bd79ed99793a3efe8086acb6dd5b4a4e
