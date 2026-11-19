@@ -116,16 +116,24 @@ jobs:
       # pushed or pulled). toy_ml is the ML smoke run: train, validate, bias-check, gate, register (a SQLite
       # MLflow store on the runner), score and publish on every PR; a failed step, or a gate that holds the
       # model (validation or bias), fails this step. It is forced: its only output is committed, so a plain
-      # repro skips it whenever dvc.lock is current. A stale dvc.lock is a warning, not a failure: it depends on
-      # all of src/ and configs/, so most PRs would otherwise have to regenerate it. Once, on 3.12 (the images'
-      # Python): the toy run is the same on both.
+      # repro skips it whenever dvc.lock is current. A PR that changed a toy stage's inputs (its deps: the code and
+      # configs it imports and loads) or command without committing the refreshed dvc.lock fails (#73 B14), after
+      # the toy run, so the log shows both; metrics that differ after the repro stay a warning. Once, on 3.12 (the
+      # images' Python): the toy run is the same on both.
       - name: DVC pipeline reproduces (toy world)
         if: steps.scope.outputs.scope != 'none' && matrix.python-version == '3.12'
         run: |
+          uv run dvc status --json > "$RUNNER_TEMP/dvc-status.json"
+          # exit 1 with stage names = stale (reported after the toy run); a crash prints nothing and fails here
+          stale=$(uv run python scripts/dvc_stale_deps.py < "$RUNNER_TEMP/dvc-status.json") || [ -n "$stale" ]
           uv run dvc repro --force --single-item toy_ml
           uv run dvc repro
-          if ! git diff --exit-code --quiet dvc.lock metrics; then
-            echo "::warning::dvc.lock or metrics/ changed after dvc repro; run 'uv run dvc repro' and commit them."
+          if ! git diff --exit-code --quiet metrics; then
+            echo "::warning::metrics/ changed after dvc repro; run 'uv run dvc repro' and commit them."
+          fi
+          if [ -n "$stale" ]; then
+            echo "::error::dvc.lock is stale for $(echo $stale): run 'uv run dvc repro' and commit dvc.lock."
+            exit 1
           fi
 
   # cd.yml repeats this job's checks on the images it pushes: change both together.
