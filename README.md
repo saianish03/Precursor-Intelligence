@@ -11,9 +11,14 @@ scores.
 > **Status (branch `dev`, November 2026):** the **data pipeline runs end to end**, locally and against the GCS
 > bucket: ingestion → bronze → silver → gold, with schema and drift validation, data bias slicing, alerts, DVC and
 > CI. **The ML pipeline (Phase 1) is built** (work packages W0 to W6): one Airflow DAG, `cms_nh_ml`, trains, evaluates,
-> bias-checks, gates, registers, scores, explains and monitors, with MLflow tracking and a model registry; its
-> training, evaluation and tuning have run on the real gold on the laptop compose stack against GCS (section 8). Phase 2 moves the ML pipeline to the GCP VM and adds BigQuery, the
-> agents, the API and the dashboard.
+> bias-checks, gates, registers, scores, explains and monitors, with MLflow tracking and a model registry. It runs end
+> to end on the real gold on the laptop compose stack against GCS: the first champion was approved on 2026-11-17 and
+> scores every home monthly (section 8). Phase 2 moves the ML pipeline to the GCP VM and adds BigQuery, the agents,
+> the API and the dashboard.
+>
+> **Model pipeline:** the architecture in [section 2](#2-architecture), the course requirements and results in
+> [section 8](#8-ml-model-development-and-results), how to run it in [section 10.4](#104-run-the-ml-pipeline); the full write-up and
+> screenshots in [`docs/ML_PIPELINE.md`](docs/ML_PIPELINE.md).
 
 ---
 
@@ -34,8 +39,7 @@ scores.
 13. [Repository layout](#13-repository-layout)
 14. [Documentation map](#14-documentation-map)
 15. [Known limitations and next steps](#15-known-limitations-and-next-steps)
-16. [Branching](#16-branching)
-17. [Rules before making a PR to `dev`](#17-rules-before-making-a-pr-to-dev)
+16. [Contributing](#16-contributing)
 
 ---
 
@@ -64,9 +68,10 @@ scores.
 (t = 2023-01 → 2026-08). A full backfill through Airflow into the GCS bucket ran 37/37 tasks green in 26.5 min and
 gave gold byte-identical to the local-disk run of the same zips (PR #30).
 
-**ML gold and model (`ml-dev/`, V = 2026-10, rows from 2022-01):** 775,400 home-months × 148 columns, 52 months. On
-the held-out month 2025-02 the model reaches PR-AUC 0.481 (95 % CI 0.465 to 0.498), 1.9 times the base rate,
-reproducing the team's best exploration model (PR #49); section 8.
+**ML gold and model (`ml-dev/`, V = 2026-10, rows from 2022-01):** 775,400 home-months × 148 columns, 52 months. The
+champion (v1, LightGBM) scores PR-AUC 0.470 (95 % CI 0.454 to 0.486) on the held-out month 2025-02, 1.8 times the base
+rate, and scores all 14,686 homes for 2026-10; in PR #49's training window the recipe reproduces the team's best
+exploration model (0.481); section 8.
 
 ---
 
@@ -347,26 +352,38 @@ behind the numbers: [`docs/ML_PIPELINE.md`](docs/ML_PIPELINE.md). Stage numbers 
 | CI/CD, alerts, rollback | the whole chain on a synthetic gold on every pull request (a held gate fails CI); an email for every run; rollback = promote an earlier version | 5, 7 |
 | Docker | every step is `precursor-pipeline ml <command>` in the `precursor-pipeline` image | all |
 
-**Results on the real gold** (held-out month 2025-02: 14,643 homes, 25.6 % with a G to L citation within 12 months;
-PR #49's training window):
+**Results on the real gold** (held-out month 2025-02: 14,643 homes, 25.6 % with a G to L citation within 12 months):
 
-| Model | PR-AUC (95 % CI) | ROC-AUC | Brier | ECE | Precision@5 % |
-|---|---|---|---|---|---|
-| PR #49's ensemble (133 features) | 0.481 (0.465-0.499) | 0.709 | 0.169 | 0.027 | 0.682 |
-| **Ensemble** (120 features) | **0.481 (0.465-0.498)** | 0.710 | 0.169 | 0.026 | 0.676 |
-| LightGBM (selected on out-of-fold PR-AUC 0.523) | 0.478 (0.461-0.494) | 0.709 | 0.170 | 0.034 | 0.660 |
-| Best baseline: 24-month citation severity | 0.395 (0.380-0.410) | | | | |
+| Model | Training window | PR-AUC (95 % CI) | ROC-AUC | Brier | ECE | Precision@5 % |
+|---|---|---|---|---|---|---|
+| **Champion v1: LightGBM, 119 features** (in production on the stack) | production: 2022-05 to 2023-04, the same 20-month lag as live scoring | **0.470 (0.454-0.486)** | 0.706 | 0.171 | 0.028 | 0.643 |
+| Ensemble, 120 features (reproduction) | PR #49's: 2023-01 to 2023-11 | 0.481 (0.465-0.498) | 0.710 | 0.169 | 0.026 | 0.676 |
+| PR #49's ensemble, 133 features | PR #49's | 0.481 (0.465-0.499) | 0.709 | 0.169 | 0.027 | 0.682 |
+| Best baseline: 24-month citation severity | | 0.395 (0.380-0.410) | 0.657 | | | |
 
-- **The baseline model is reproduced** within its CI, with fewer features; every candidate beats every baseline.
-- **Bias:** no gated group is clearly miscalibrated (no O−E 95 % CI wholly outside ±0.05). Reweighting by ownership would cost 0.006 out-of-fold
-  PR-AUC to shrink the largest gap from 0.018 to 0.013, so it stays off; the trade-off is in every model card.
-- **Tuning:** 30 trials all score between 0.509 and 0.511; LR's `C` and the tree depth matter most, so the base
+- **The champion** beats every baseline (by +0.159 PR-AUC over the prior-G+ rule) and passed every gate. It was
+  approved at Checkpoint ML-A on 2026-11-17 and scores all 14,686 homes for 2026-10, with reasons and chain roll-ups.
+- **The baseline model is reproduced** in its own window, with fewer features. The production window scores a little
+  lower because its data is 7 months older, as live scoring's is.
+- **End to end on the stack** (spec §17.2, all passed):
+  - a run with nothing new skips;
+  - a rescore is identical;
+  - a re-tune runs alone;
+  - a second version was promoted automatically through all seven gates;
+  - a deliberately weak candidate was held;
+  - a rollback moved the champion back.
+
+  Every run emails its summary.
+- **Bias:** no gated group is clearly miscalibrated (no O−E 95 % CI wholly outside ±0.05). Reweighting by ownership
+  would cost 0.006 out-of-fold PR-AUC and widen the largest gap (0.016 to 0.022), so it stays off; the trade-off is
+  in every model card.
+- **Tuning:** two runs of 30 trials, all between 0.509 and 0.511; tree depth and LR's `C` matter most, so the base
   parameters stay (a proposal is applied only through a reviewed PR).
 - **What drives the score:** the home's state and the state's recent G+ rate, its size, and its own complaint and
   citation history; staffing and quality measures add the rest.
 - **Caveat:** labels mature 20 months after `t`, so 2025-02 is the newest test month, and PR #49 chose its settings on
-  it. It is reported, not used for decisions; the production window (a 20-month gap) scored 0.470 (0.454-0.486) in
-  W2's first full run (PR #62).
+  it. Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far; it is re-read on 2025-03, the first honest
+  month, when the late-November release brings it in.
 
 <table>
 <tr>
@@ -379,10 +396,11 @@ PR #49's training window):
 </tr>
 </table>
 
-*Candidates and baselines on the test month; the top 20 features by mean |SHAP|; bias by slice (calibration gap
-with its CI against ±0.05, PR-AUC, false-negative rate at the top 10 %); hyperparameter importances from tuning.*
+*From the champion's runs: candidates and baselines on the test month; the top 20 features by mean |SHAP|; bias by
+slice (calibration gap with its CI against ±0.05, PR-AUC, false-negative rate at the top 10 %); hyperparameter
+importances from the DAG's re-tune.*
 
-To run it: section 10.4.
+Screenshots of MLflow (runs, model card, registry), Airflow (the DAG runs) and the run emails: [`docs/ML_PIPELINE.md` §14.1](docs/ML_PIPELINE.md#141-screenshots-from-the-stack). To run it: section 10.4.
 
 ---
 
@@ -532,13 +550,15 @@ On the real gold step by step (`precursor-pipeline ml prepare | train | evaluate
 ```bash
 uv run ruff check src tests && uv run mypy src
 uv run pytest                          # 1,500+ offline tests; live CMS tests are skipped
+uv run pytest -n auto --dist loadfile  # the same on all cores (CI runs 4 workers)
 uv run pytest tests/leakage            # the leakage suite
 ```
 
-- **CI (GitHub Actions, `.github/workflows/ci.yml`):** ruff, the full offline suite and `dvc repro` of the test
-  pipelines, on Python 3.11 and 3.12. The `toy_ml` stage trains, validates, bias-checks, gates, registers (a SQLite
-  MLflow store), scores and publishes on a synthetic gold on every PR; a held gate fails it. The `ci-ok` check is
-  required to merge.
+- **CI (GitHub Actions, `.github/workflows/ci.yml`):** ruff, the offline suite on 4 workers and `dvc repro` of the
+  test pipelines, on Python 3.11 and 3.12, running only the tests a PR needs: none for docs or infra changes, the ML
+  tests for ML-only changes, everything otherwise (about 7 to 8 minutes). The `toy_ml` stage (on 3.12) trains,
+  validates, bias-checks, gates, registers (a SQLite MLflow store), scores and publishes on a synthetic gold on every
+  PR; a held gate fails it. The `ci-ok` check is required to merge.
 - **DAG tests** (`tests/dags`) run inside the official Airflow 3 image: the chain, the only leaf, asset outlets
   and the commands each task runs.
 - **Terraform** (`.github/workflows/terraform.yml`): `plan` on PRs, `apply` only in CI.
@@ -683,7 +703,8 @@ The course's example structure maps onto this repository as follows:
   already in `gold/`; validating `gold/_staging/` first is the top follow-up (`docs/VALIDATION.md`).
 - **Training window:** training rows start in 2022-01 (PR #53), so the ML evaluation window has its 11 months with
   the 20-month production lag. Labels mature 20 months after `t`: the newest test month is 2025-02, a development
-  month (PR #49 chose its settings on it); Checkpoint ML-A reads 2025-03 or later from the late-November release.
+  month (PR #49 chose its settings on it). Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far; it is
+  re-read on 2025-03 when the late-November release brings it in.
 - **Gold memory:** a full-archive build is estimated at about 5.8 GB with the merged gold file. The VM is an e2-standard-4
   (16 GB, 10 GB task limit), so it fits; the streaming fix in `docs/AIRFLOW_PIPELINE.md` §9.1 is needed only on an 8 GB VM.
 - **Team decisions in #27:** which slices are fairness groups, whether state effects are risk or bias, whether
@@ -696,67 +717,6 @@ The course's example structure maps onto this repository as follows:
 
 ---
 
-## 16. Branching
+## 16. Contributing
 
-| Branch | Purpose | Who pushes |
-|---|---|---|
-| `main` | Stable, production-ready | Merges from `dev` only (admins) |
-| `dev` | Integration branch, most active | Merges from feature branches via pull request |
-| `feat/<name>` | One feature or fix, branched from `dev` | The teammate working on it |
-
-**Workflow:**
-
-1. Create `feat/<name>` from the latest `dev`.
-2. Open a pull request into `dev`.
-3. Merge after review and green CI.
-4. Merge `dev` into `main` for each release.
-
----
-
-## 17. Rules before making a PR to `dev`
-
-### 1. Branch
-- **Branch from the latest `dev`:** `git checkout dev && git pull && git checkout -b <type>/<short-name>`.
-- **Prefixes:** `feat/` (new feature), `fix/` (bug fix), `docs/`, `test/`, `refactor/`, `ci/`, `chore/`.
-- **Names:** short, lowercase, hyphenated or underscored, e.g. `feat/silver-column-map`, `fix/penalty-dup-seq`, `docs/data_pipeline_steps.md`, etc.
-- **One focused change per branch and PR.** Aim for under ~400 changed lines. Split bigger work into several PRs.
-
-### 2. Before you push, check locally (CI runs the same commands)
-```bash
-uv sync --all-extras                      # exact versions from uv.lock, plus dev tools (uv only, never pip)
-uv run ruff check src tests               # lint must pass
-uv run pytest                             # offline tests must pass (live CMS tests are skipped)
-```
-- **macOS only:** LightGBM needs OpenMP: `brew install libomp` once per laptop.
-- **Bring in the latest `dev`** (`git pull origin dev`, or rebase) and resolve conflicts locally before opening the PR.
-- **Changed `pyproject.toml` or `uv.lock`?** Re-export `requirements.txt` (CI fails when it is stale):
-  `uv export --frozen --no-hashes --no-header --extra pipeline --extra ml --extra bias --extra dvc -o requirements.txt`.
-- **Changed anything listed under `deps:` in `dvc.yaml`** (the gold, harmonize, common and ingestion code, the ML code under training, evaluation, bias and serving, the configs they load, or `uv.lock`)? Run `uv run dvc repro` (about a minute for `toy_ml`), commit `dvc.lock`, `metrics/toy_gold.json` and `metrics/toy_ml.json` in the same PR, and run `uv run dvc push` (a new output must be in the remote, or teammates' `dvc pull` fails).
-
-### 3. Code and tests
-- **New or changed code comes with tests** in `tests/<stage>/`, mirroring `src/precursorintelligence/<stage>/`.
-- **Unit tests must not call the network or cloud services.** Mark live tests with `@pytest.mark.network`.
-- **Add only required code for the feature, or only tiny fixes** (a few rows). Never put real downloaded data in the repo.
-- **No hard-coded paths, buckets or credentials.** Read them from `configs/` and environment variables.
-- **New dependencies go into the right extra with `uv add --optional <extra> <package>`** (`pipeline`, `ml`, `ml-extra`, `agents`, `api`, `ui`, `mlflow-server`, `dvc`, `bias`; tools: `uv add --group dev <package>`). Never type versions by hand; commit the updated `uv.lock`. Say why in the PR.
-
-### 4. Never commit
-- data files (`data/`, CSV / Parquet / zip downloads), logs, model artefacts;
-- secrets: `.env`, service-account keys, passwords, tokens;
-- notebook outputs (clear them before committing).
-
-### 5. Commits and PR description
-- **Commit messages follow Conventional Commits:** `feat(ingestion): …`, `fix(features): …`, `docs: …`, `test: …`, `ci: …`.
-- **The PR description says:**
-  - **what** changed and **why**;
-  - **how it was tested;**
-  - **config or schema changes** (`configs/`, column maps, data contracts) and any **breaking changes**;
-  - the linked issue, if there is one.
-- **Docs:** update the relevant README or `docs/` page when behaviour, configuration or commands change.
-
-### 6. Review and merge
-- **CI must be green.** The `ci-ok` check (ruff + tests on Python 3.11 and 3.12) is required. When a PR touches `docker/`, `dags/`, `tests/dags/`, `src/`, `configs/`, `.dockerignore`, `pyproject.toml`, `uv.lock` or `.github/workflows/ci.yml`, it also covers building both images and the DAG tests inside the Airflow image (job `images`).
-- **At least 1 approval from a teammate.** Don't merge your own PR without one.
-- **Resolve every review conversation** before merging.
-- **Merge with "Squash and merge"** so `dev` keeps one commit per PR, and delete the branch after merging.
-- **Only admins push to `dev` directly,** and only for repository setup or emergencies.
+Branching and the rules before making a pull request to `dev`: [`CONTRIBUTING.md`](CONTRIBUTING.md).
