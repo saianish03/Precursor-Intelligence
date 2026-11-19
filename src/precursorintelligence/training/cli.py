@@ -414,6 +414,31 @@ def score(
     _run_task("ml_score", env, env_file, log_level, run_id, body)
 
 
+@ml_app.command("backfill-packages")
+def backfill_packages(
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = LOG_LEVEL_OPT,
+    ml_config: Path | None = ML_CONFIG_OPT,
+) -> None:
+    """Copy the packages of versions registered before #75 to the package store, as gate does since (§9.4): every
+    run whose gate registered a version, each file checked against its train.json, never overwritten. Safe to rerun.
+    Last stdout line: a JSON summary (files copied per run)."""
+
+    def body(ctx: Any, rid: str) -> dict[str, Any]:
+        from ..evaluation.packages import backfill_packages as backfill
+
+        cfg = load_ml_config(ml_config)
+        copied = backfill(ctx.object_store, build_package_store(ctx.settings), ctx.metadata, cfg)
+        for run, keys in copied.items():
+            typer.echo(
+                f"  {run}: {len(keys)} file(s) copied" if keys else f"  {run}: already copied"
+            )
+        return {"runs": {run: len(keys) for run, keys in copied.items()}}
+
+    _run_task("ml_backfill_packages", env, env_file, log_level, None, body)
+
+
 @ml_app.command()
 def publish(
     run_id: str | None = RUN_ID_OPT,

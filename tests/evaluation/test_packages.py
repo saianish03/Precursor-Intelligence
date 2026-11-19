@@ -1,7 +1,9 @@
 """evaluation/packages.py: write-once copies of registered versions' packages, outside the run folders
 (docs/ML_PIPELINE_SPEC.md §9.4; #75 B17)."""
 
+import json
 import shutil
+import sys
 
 import pytest
 
@@ -11,6 +13,7 @@ from precursorintelligence.evaluation.packages import (
     load_verified_package,
     stable_prefix,
 )
+from precursorintelligence.harmonize.cli import main
 from precursorintelligence.training import MlInputError
 from precursorintelligence.training.contracts import RunPaths, TrainResult
 from precursorintelligence.training.ensemble import PACKAGE_META, PrecursorModel
@@ -131,7 +134,7 @@ def test_a_tampered_copy_is_refused_before_loading(trained, monkeypatch):
 def test_a_version_without_a_copy_is_refused_and_names_the_backfill(trained):
     # no fallback to the run folder, although its packages are all there
     register(trained, 1)
-    with pytest.raises(MlInputError, match="no package copy.*ml_backfill_packages"):
+    with pytest.raises(MlInputError, match="no package copy.*ml backfill-packages"):
         load(trained)
 
 
@@ -157,3 +160,23 @@ def test_the_backfill_copies_every_registering_run_once(trained):
     assert load(trained, 2).meta is not None
     again = backfill_packages(trained.store(), trained.packages(), trained.meta(), trained.cfg)
     assert again == {trained.run_id: []}
+
+
+def test_ml_backfill_packages_runs_in_the_pipeline_image(trained, monkeypatch, capsys):
+    # a CLI command, not a script: the pipeline image holds src and configs, never scripts/
+    register(trained, 1)
+    argv = [
+        "precursor-pipeline",
+        "ml",
+        "backfill-packages",
+        "--env-file",
+        str(trained.gold.env_file),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    for expected in ("file(s) copied", "already copied"):
+        with pytest.raises(SystemExit) as exc:
+            main()
+        out = capsys.readouterr().out
+        assert (exc.value.code or 0) == 0 and f"{trained.run_id}: " in out and expected in out
+    assert json.loads(out.splitlines()[-1]) == {"runs": {trained.run_id: 0}}
+    assert load(trained).meta is not None

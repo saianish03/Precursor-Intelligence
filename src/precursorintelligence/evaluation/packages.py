@@ -26,7 +26,7 @@ from .registry import REGISTERING_ACTIONS, registering_gate_row
 Fit = Literal["refit", "eval"]
 FITS: tuple[Fit, ...] = ("refit", "eval")
 TRAIN_JSON = "train.json"
-BACKFILL = "scripts/ml_backfill_packages.py"
+BACKFILL = "precursor-pipeline ml backfill-packages"
 
 
 def stable_prefix(cfg: MlConfig, ml_run_id: str) -> str:
