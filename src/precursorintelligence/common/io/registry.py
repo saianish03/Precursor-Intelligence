@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ..config import ObjectStoreCfg, Settings, TableSinkCfg
+from ..config import ConfigError, ObjectStoreCfg, Settings, TableSinkCfg
 from .metadata_store import MetadataStore, SqlAlchemyMetadataStore
 from .object_store import FsspecObjectStore, LocalObjectStore, ObjectStore
 from .table_sink import ParquetTableSink, TableSink
@@ -54,7 +54,19 @@ def _parquet(cfg: TableSinkCfg, settings: Settings, store: ObjectStore) -> Table
 
 
 def build_object_store(settings: Settings) -> ObjectStore:
-    cfg = settings.env.object_store
+    return _build_store(settings.env.object_store, settings)
+
+
+def build_package_store(settings: Settings) -> ObjectStore:
+    """The store of registered versions' packages (``package_store``, ML spec §9.4)."""
+    if settings.env.package_store is None:
+        raise ConfigError(
+            f"package_store is not configured in the {settings.env.env} env config: the ML tasks need it"
+        )
+    return _build_store(settings.env.package_store, settings)
+
+
+def _build_store(cfg: ObjectStoreCfg, settings: Settings) -> ObjectStore:
     try:
         return _OBJECT_STORES[cfg.kind](cfg, settings)
     except KeyError:

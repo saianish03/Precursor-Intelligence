@@ -11,6 +11,7 @@ from precursorintelligence.common.config import (
     load_settings,
     load_splits_config,
 )
+from precursorintelligence.common.io.registry import build_package_store
 
 
 def _write(tmp: Path, name: str, data: dict) -> Path:
@@ -78,6 +79,37 @@ def test_prod_writes_every_layer_into_the_gcs_bucket(monkeypatch):
     assert store.storage_options == {"token": "google_default"}
     monkeypatch.setenv("PI_BUCKET_URI", "gs://precursor-intel-mlops-data/trial-x")  # a trial prefix
     assert load_settings("prod").env.object_store.root == "gs://precursor-intel-mlops-data/trial-x"
+
+
+def test_registered_packages_go_to_the_mlflow_bucket(monkeypatch):
+    # §9.4, §16.3 (#75 B17): versioned, prevent_destroy, never expired, and outside MLflow's artifact prefix
+    monkeypatch.setenv("PI_DATABASE_URL", "postgresql+psycopg://u@h/db")
+    monkeypatch.delenv("PI_PACKAGES_URI", raising=False)
+    pkg = load_settings("prod").env.package_store
+    assert pkg is not None
+    assert (pkg.kind, pkg.root) == ("gcs", "gs://precursor-intel-mlops-mlflow/packages")
+    assert pkg.storage_options == {"token": "google_default"}
+    monkeypatch.setenv("PI_PACKAGES_URI", "gs://precursor-intel-mlops-mlflow/packages/ml-dev")
+    assert load_settings("prod").env.package_store.root.endswith(
+        "/packages/ml-dev"
+    )  # a laptop stack
+    dev = load_settings("dev").env
+    assert dev.package_store is not None and dev.package_store.kind == "local"
+    assert Path(dev.package_store.root) == Path(dev.object_store.root) / "packages"
+
+
+def test_the_package_store_must_be_configured_to_be_built(tmp_path):
+    env = _write(
+        tmp_path,
+        "env.yaml",
+        {
+            "env": "t",
+            "object_store": {"kind": "local", "root": str(tmp_path)},
+            "metadata_store": {"url": "sqlite://"},
+        },
+    )
+    with pytest.raises(ConfigError, match="package_store"):
+        build_package_store(load_settings("dev", env_path=env))
 
 
 @pytest.mark.parametrize("bucket", ["", "precursor-intel-mlops-data", "/tmp/data"])
