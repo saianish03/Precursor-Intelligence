@@ -26,9 +26,18 @@ def test_a_changed_dependency_or_command_is_stale():
 
 
 def test_missing_outputs_alone_are_not_stale():
-    # a fresh checkout has no data/: CI rebuilds the outputs, and metrics drift stays a warning
-    status = {"toy_gold": [{"changed outs": {"data/toy/gold": "deleted"}}], "toy_summary": []}
+    # a fresh checkout has no data/: CI rebuilds the outputs, and metrics drift stays a warning. A stage that reads
+    # another's output sees it as a deleted dependency (toy_summary on toy_gold's gold, as on CI's first run)
+    status = {
+        "toy_gold": [{"changed outs": {"data/toy/gold": "not in cache"}}],
+        "toy_summary": [{"changed deps": {"data/toy/gold/spine": "deleted"}}],
+    }
     assert load_script().stale_stages(status) == []
+
+
+def test_a_modified_dependency_next_to_a_missing_one_is_stale():
+    status = {"toy_ml": [{"changed deps": {"data/toy/gold": "deleted", "uv.lock": "modified"}}]}
+    assert load_script().stale_stages(status) == ["toy_ml"]
 
 
 def test_it_exits_1_and_names_the_stale_stages():
