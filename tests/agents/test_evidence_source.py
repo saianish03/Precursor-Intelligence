@@ -49,6 +49,30 @@ def test_manifest_may_not_point_at_another_month(store):
         ParquetEvidenceSource.open(store, PREFIX)
 
 
+def test_other_files_of_the_month_are_allowed(store):
+    # build-evidence also writes the ops evidence of Agent 3 into the month's folder (E2, I1).
+    tables = toy_tables()
+    m = write_evidence(store, tables)
+    ops = f"{PREFIX}v={V}/ops_status.json"
+    files = dict(m["files"], ops_status=ops)
+    write_evidence(store, tables, manifest_overrides={"files": files})
+    assert ParquetEvidenceSource.open(store, PREFIX).manifest.files["ops_status"] == ops
+
+    files = dict(m["files"], ops_status=f"{PREFIX}v=2026-09/ops_status.json")
+    write_evidence(store, tables, manifest_overrides={"files": files})
+    with pytest.raises(EvidenceError, match="outside"):
+        ParquetEvidenceSource.open(store, PREFIX)
+
+
+def test_a_missing_table_refuses(store):
+    tables = toy_tables()
+    m = write_evidence(store, tables)
+    files = {k: v for k, v in m["files"].items() if k != "penalties"}
+    write_evidence(store, tables, manifest_overrides={"files": files})
+    with pytest.raises(EvidenceError, match="lacks the tables"):
+        ParquetEvidenceSource.open(store, PREFIX)
+
+
 def test_a_changed_file_is_refused_on_read(store):
     write_evidence(store)
     store.put_bytes(

@@ -7,8 +7,10 @@ Layout under ``prefix`` (e.g. ``agents/evidence/``)::
     _current.json                         written last: {"schema_version", "v", "scores_manifest_sha256",
                                                          "evidence_manifest_sha256"}
     v=YYYY-MM/evidence_manifest.json      what the month's files are: v, gold_run_id, model_version, built_at,
-                                          and per table its key, row count and sha256
+                                          and per file its key, row count and sha256
     v=YYYY-MM/<table>.parquet             one file per name in TABLE_COLUMNS
+    v=YYYY-MM/<other files>               e.g. the ops evidence of Agent 3 (E2, I1); listed in the manifest, not
+                                          read here
 
 The month comes only from ``_current.json``: never from ``status/latest.json`` (its ``v`` can be a month with
 nothing scored) and never from listing the prefix. The pointer must match the manifest's sha256, and each file its
@@ -196,12 +198,13 @@ class ParquetEvidenceSource:
             ) from None
         if manifest.v != pointer.v:
             raise EvidenceError(f"{manifest_key} is for {manifest.v}, the pointer for {pointer.v}")
-        if set(manifest.files) != set(TABLE_COLUMNS):
-            raise EvidenceError(
-                f"{manifest_key} lists {sorted(manifest.files)}, expected {sorted(TABLE_COLUMNS)}"
-            )
+        missing = sorted(set(TABLE_COLUMNS) - set(manifest.files))
+        if missing:
+            raise EvidenceError(f"{manifest_key} lacks the tables {missing}")
         for name, key in manifest.files.items():
-            if key != f"{directory}{name}.parquet":  # never another month's file
+            expected = f"{directory}{name}.parquet" if name in TABLE_COLUMNS else None
+            inside = key.startswith(directory) and "/" not in key[len(directory) :]
+            if (expected and key != expected) or not inside:  # never another month's file
                 raise EvidenceError(f"{manifest_key} points {name} at {key}, outside {directory}")
         return cls(store, manifest)
 
