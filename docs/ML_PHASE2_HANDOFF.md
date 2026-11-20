@@ -81,7 +81,7 @@ log sink). Its fallbacks: the laptop stack's 2026-10 scores, and GCS without Big
 | VM task | What | Your items that wait |
 |---|---|---|
 | **T23 smoke test** | the trial-prefix override (`/etc/precursor/overrides.env`, `infra/vm/README.md`); the first real Deploy run (the newest `dev` commit with images); a trial `cms_nh_pipeline` run, a forced-failure alert, a backup and restore | item 2's deploy |
-| **T24** | clear the data bucket root, all versions, **keeping `ml-dev/`**, and reset the VM's `precursor_meta` (T23's trial run left keys that exist only under its prefix) | — |
+| **T24** | clear the data bucket root, all versions, **keeping `ml-dev/`**, and reset the VM's `precursor_meta` (T23's trial run left keys that exist only under its prefix): `infra/vm/README.md`, the trial prefix's close-out step 2, which empties the `airflow` database too | — |
 | **T25 full backfill** | `mode=backfill`, node by node, then the full run; `cms_nh_ml` stays paused. If the late-November release is out, it is included and brings 2025-03 into the test window | item 3 |
 | **T26 production start** | the team's go: unpause `cms_nh_pipeline`, then `cms_nh_release_check` | — (later gold events start `cms_nh_ml` while it is unpaused) |
 | **T27 VM runbook** | `docs/runbooks/vm.md` (access, deploy, rollback, up and down, backup and restore, costs) | add the MLflow parts (item 2) |
@@ -101,7 +101,7 @@ log sink). Its fallbacks: the laptop stack's 2026-10 scores, and GCS without Big
 | 8 | **Tuned challenger and automatic re-tune**: `train` applies a tuning proposal as a challenger; `gate` compares it with no tolerance (spec §12.2, §13) | 3 | a `retune` run yields a gated challenger |
 | 9 | **Verified gold**: the data spec's §11 gate (W5 part 2), then `allow_unverified: false` | — | prod refuses unverified gold |
 | 10 | **Hardening**: anchor the package hashes in `ml_runs` when MLflow gets a login (spec O5) | — | one PR per area |
-| 11 | **Downstream, not yours:** `AGENTS_PLAN.md` gives the API, the four agents, the frontend and their GCP rollout to Tanoj, Riya and Aakash. Your part: review its infrastructure PRs (its part L), and keep stable what it reads: `scores/v=…`, `status/latest.json`, the `cms_nh_scores` asset (its `cms_nh_agents` DAG runs on it) and BigQuery (item 4) | 4 | the agents plan's definition of done (its §5) |
+| 11 | **Downstream, not yours:** `AGENTS_PLAN.md` gives the API, the four agents, the frontend and their GCP rollout to Tanoj, Riya and Aakash. Your part: review its infrastructure PRs (its part L), and keep stable what its `build-evidence` step reads (the API reads only that step's output): `scores/v=…/` with its `scores_manifest.json`, `ml_runs.gate_results_json`, the run folders' `evaluation.json`, `monitor`'s status and drift flags, and the `cms_nh_scores` asset its `cms_nh_agents` DAG runs on; plus BigQuery (item 4) for its `llm_calls` sink. A change to any of them breaks the agents' evidence build | 4 | the agents plan's definition of done (its §5) |
 | 12 | **Model research**: `y_g6` (O1); rolling-origin folds (O3); regime-invariant enforcement features (O8); bring back excluded features (`d12_turnover_total` once the eval window starts at 2023-01 or later, about `V_L` 2027-05; the four `qm_ls_*` after about 6 months of the new definitions; `staffing_rating_fn` when its PSI is under 0.25); a hazard model (spec §21) | — | each through a reviewed PR and the gates |
 
 **The `pg_hba` hand step (item 2).** The VM's data disk was initialized before MLflow existed, and `init-db.sh` never

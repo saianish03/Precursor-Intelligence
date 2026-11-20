@@ -95,9 +95,12 @@ can read its metadata.
     would later trust work that exists only under the prefix.
   - **Keep `cms_nh_ml` paused**: no ML runs on trial gold, and its packages would go to the VM's package store.
   - **When the test is done:**
-    1. pause every DAG, then `sudo rm /etc/precursor/overrides.env && sudo pi-deploy now`;
+    1. pause every DAG, then `sudo rm /etc/precursor/overrides.env && sudo pi-deploy now`. Keep the DAGs paused until
+       step 2 is done, however much later (on the GCP VM, with T24's bucket clean-up);
     2. reset `precursor_meta`: a new, empty Postgres, as in "Restore" step 3 below without the two `pi-pg-restore`
-       lines (`pi-pg-backup` first if the run history matters);
+       lines (`pi-pg-backup` first if the run history matters). That empties every database, not only
+       `precursor_meta`: `airflow` loses its run history and any asset events queued during the trial, and `mlflow`
+       (once it runs) its runs and registry. That is what a fresh start before production wants;
     3. a person deletes the prefix, from a laptop:
        `gcloud storage rm -r --all-versions gs://precursor-intel-mlops-data/trial-<date>/`.
 - **Secrets:** no value may hold a quote, a backslash or a line break; database passwords only letters, digits,
