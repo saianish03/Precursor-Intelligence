@@ -79,8 +79,8 @@ stages:
       size: 28062
     - path: uv.lock
       hash: md5
-      md5: 3424be1986b25adde7f4e57961c4bdb4
-      size: 748417
+      md5: 404373d2ffe65967d99a92eb2888f9a2
+      size: 748520
     outs:
     - path: data/toy/gold/dim_facility_latest
       hash: md5
@@ -259,8 +259,8 @@ stages:
       size: 10348
     - path: uv.lock
       hash: md5
-      md5: 3424be1986b25adde7f4e57961c4bdb4
-      size: 748417
+      md5: 404373d2ffe65967d99a92eb2888f9a2
+      size: 748520
     outs:
     - path: metrics/toy_ml.json
       hash: md5
