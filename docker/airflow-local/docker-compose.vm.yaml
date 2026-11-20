@@ -19,7 +19,7 @@ x-airflow-vm: &airflow-vm
     PI_GCP_CREDENTIALS_FILE: "" # no key file: tasks get sa-pipeline's tokens from the metadata server
     PI_MLFLOW_TRACKING_URI: "" # MLflow is off until Phase 2 (below): tasks get no tracking server
     PI_PACKAGES_URI: gs://precursor-intel-mlops-mlflow/packages/vm # this stack's registered models (ML spec §9.4)
-    PI_TASK_MEM_LIMIT: 10g # per task container (16 GB e2-standard-4, spec §14 #26): a task past it is killed alone
+    PI_TASK_MEM_LIMIT: 20g # per task container (32 GB e2-highmem-4, spec §14 #26): full-archive gold needs ~12-14 GiB (T25); a task past it is killed alone
     PI_AUTO_REMOVE: force # failed task containers hold PI_DATABASE_URL: never keep them
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?set it in the env file} # its own secret, not the JWT one
     # Nobody watches the VM: a failed run must email someone (src/precursorintelligence/alerts.py).

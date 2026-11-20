@@ -22,7 +22,7 @@
 ## 1. Where it runs in production
 
 ### What we have today
-- **One VM** (`pi-airflow`, e2-standard-4, us-central1-a) runs Airflow, Postgres and, from Phase 2, MLflow, under Docker Compose.
+- **One VM** (`pi-airflow`, e2-highmem-4, us-central1-a) runs Airflow, Postgres and, from Phase 2, MLflow, under Docker Compose.
   - It **stops itself when idle**, about 70–85 minutes after the last activity.
   - MLflow has **no login** and is reachable only from the VM's task network.
 - **GCS:** `precursor-intel-mlops-data` is meant to hold `scores/v=YYYY-MM/` and `status/latest.json` at its root, and `-mlflow` holds the package store.
