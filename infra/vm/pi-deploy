@@ -12,7 +12,8 @@
 #   2. stage: the compose bundle out of the Airflow image, its env file from Secret Manager, `docker compose config -q`;
 #   3. wait while a pipeline run is running or queued (pi-busy), unless nothing would change for running containers;
 #   4. put the staged files in place and `docker compose up -d --wait`;
-#   5. check that the Airflow containers run that image and that Postgres's task-network rule matches the network.
+#   5. check that the Airflow containers run that image, that the scheduler uses the env file's data bucket and that
+#      Postgres's task-network rule matches the network.
 # A failure in 1-3 changes nothing and is tried twice more. A failure from 4 on puts back the last good release's
 # files (kept from its deploy, secrets included) at once. Every failure emails (pi-alert). The watcher doesn't retry
 # a failed sha until pi-release names another one.
@@ -28,6 +29,7 @@ GCP_PROJECT=precursor-intel-mlops
 # backup scripts find Postgres by that label.
 COMPOSE_DIR=/opt/precursor/compose
 ENV_FILE=/etc/precursor/.env
+OVERRIDES=/etc/precursor/overrides.env # smoke tests only (T23): a trial prefix of the data bucket (write_overrides)
 STATE=/var/lib/precursor
 GOOD="$STATE/good" # the last good release's bundle and env file, for a rollback
 PAUSED="$STATE/deploy.paused"
@@ -101,7 +103,38 @@ write_env() { # sha, file (umask 077)
     fi
     printf "%s='%s'\n" "$var" "$value" >> "$2" || return 1
   done
+  write_overrides "$2" || return 1
   printf "PI_RELEASE_SHA='%s'\n" "$1" >> "$2"
+}
+
+# Smoke tests only (T23): $OVERRIDES may point the stack at a trial prefix of the data bucket instead of its root.
+# One setting, in one form; any other line refuses the deploy (nothing changes). Blank lines and # comments are
+# skipped. Every deploy reads it (a boot, a new pi-release, `pi-deploy now`), and each one left on a trial prefix
+# emails (warn_trial), so a forgotten file can't quietly become production.
+write_overrides() { # env file
+  local line n=0
+  [ -f "$OVERRIDES" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
+    if [[ ! "$line" =~ ^PI_BUCKET_URI=gs://precursor-intel-mlops-data/trial-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      err "$OVERRIDES allows only PI_BUCKET_URI=gs://precursor-intel-mlops-data/trial-YYYY-MM-DD"; return 1
+    fi
+    n=$((n + 1))
+    [ "$n" -eq 1 ] || { err "$OVERRIDES sets PI_BUCKET_URI more than once"; return 1; }
+    printf "PI_BUCKET_URI='%s'\n" "${line#PI_BUCKET_URI=}" >> "$1" || return 1
+    log "override: $line (a trial prefix: remove $OVERRIDES and run 'pi-deploy now' when the test is done)"
+  done < "$OVERRIDES"
+}
+
+# The trial prefix the live env file sets; empty = the data bucket's root (docker-compose.vm.yaml's default).
+live_bucket() { sed -n "s/^PI_BUCKET_URI='\(.*\)'$/\1/p" "$ENV_FILE" 2>/dev/null || true; }
+
+warn_trial() { # sha: after a deploy or rollback, email when the stack is left on a trial prefix
+  local uri
+  uri=$(live_bucket)
+  [ -n "$uri" ] || return 0
+  alert "${1:0:12} runs on a trial prefix" \
+    "The stack writes to $uri, not the data bucket's root (smoke tests only). When the test is done: remove $OVERRIDES and run 'pi-deploy now' (infra/vm/README.md, Deploys)."
 }
 
 # This sha's compose bundle (from its Airflow image) and env file, in a new folder, checked together.
@@ -142,7 +175,7 @@ promote() { # staged folder -> the stable folder and the env file (the folder ke
 # off (the phase2 profile): once it runs, a database without its line would restart-loop it, so that is a failed
 # deploy. `config --services` prints service names only, never the env. The services are docker-compose.yaml's.
 check_running() { # sha
-  local want_img svc cid vars subnet top meta ml rej
+  local want_img svc cid vars uri subnet top meta ml rej
   want_img=$(docker image inspect --format '{{.Id}}' "$REGISTRY/airflow:$1")
   for svc in airflow-apiserver airflow-scheduler airflow-dag-processor airflow-triggerer; do
     cid=$(running "$svc")
@@ -152,6 +185,9 @@ check_running() { # sha
   vars=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$(running airflow-scheduler)")
   grep -qx "PI_PIPELINE_IMAGE=$REGISTRY/pipeline:$1" <<< "$vars" \
     || { err "the scheduler points tasks at another pipeline image"; return 1; }
+  uri=$(live_bucket)
+  grep -qx "PI_BUCKET_URI=${uri:-gs://precursor-intel-mlops-data}" <<< "$vars" \
+    || { err "the scheduler doesn't use the data bucket the env file names"; return 1; }
   subnet=$(docker network inspect pi-airflow-tasks --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}')
   # shellcheck disable=SC2016 # $PGDATA is the container's
   top=$(dc exec -T postgres sh -c 'head -n 3 "$PGDATA/pg_hba.conf"')
@@ -267,6 +303,7 @@ deploy_or_roll_back() { # sha
       guest_attr deployed-sha "$sha"
       prune "$sha" "$(read_state previous-sha)"
       log "deployed $sha"
+      warn_trial "$sha"
       return 0
       ;;
     3) log "paused: $sha not deployed ('pi-deploy resume' deploys it)"; return 3 ;;
@@ -286,6 +323,7 @@ deploy_or_roll_back() { # sha
       guest_attr deployed-sha "$prev"
       alert "deploy of ${sha:0:12} failed; rolled back to ${prev:0:12}" \
         "pi-deploy started $sha, which failed (see 'journalctl -u pi-deploy' on the VM), and put back the files of $prev, which runs again."
+      warn_trial "$prev" # the saved env file may carry a trial prefix the override file no longer names
     else
       record "$prev" rollback-failed
       alert "deploy of ${sha:0:12} failed, and so did the rollback to ${prev:0:12}" \
@@ -379,6 +417,12 @@ main() {
       echo "previous:     $(read_state previous-sha)"
       echo "failed:       $(read_state failed-sha)"
       echo "paused:       $([ -f "$PAUSED" ] && echo yes || echo no)"
+      line=$(live_bucket)
+      echo "bucket:       ${line:-gs://precursor-intel-mlops-data (the root)}" # what runs, from the live env file
+      if [ ! -f "$OVERRIDES" ]; then line=none
+      elif write_overrides /dev/null > /dev/null 2>&1; then line="$OVERRIDES is set: every deploy applies it"
+      else line="$OVERRIDES is invalid: every deploy refuses it"; fi # never its lines: they might hold a secret
+      echo "overrides:    $line"
       echo "last results:"
       tail -n 5 "$STATE/history" 2>/dev/null | sed 's/^/  /' || true
       ;;
@@ -396,4 +440,5 @@ main() {
   esac
 }
 
-main "$@"
+# Sourced by infra/vm/tests (functions only); run as a command otherwise.
+[ "${BASH_SOURCE[0]}" != "$0" ] || main "$@"
