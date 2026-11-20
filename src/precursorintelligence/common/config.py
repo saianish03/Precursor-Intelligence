@@ -849,6 +849,31 @@ class MlConfig(_Strict):
     outputs: MlOutputsCfg
 
 
+class EvidenceCfg(_Strict):
+    prefix: str  # "agents/evidence/": a relative object key prefix ending with "/"
+    citation_months: int = Field(ge=1, le=120)
+    penalty_months: int = Field(ge=1, le=120)
+
+    @field_validator("prefix")
+    @classmethod
+    def _prefix(cls, v: str) -> str:
+        if not re.fullmatch(rf"({_KEY_PART}/)+", v) or ".." in v.split("/"):
+            raise ValueError(f"evidence.prefix must be like 'agents/evidence/', got {v!r}")
+        return v
+
+
+class AgentsConfig(_Strict):
+    """``configs/agents.yaml``: the agents' settings (docs/AGENTS_PLAN.md)."""
+
+    version: Literal[1]
+    evidence: EvidenceCfg
+
+
+def load_agents_config(path: str | Path | None = None) -> AgentsConfig:
+    """Load and validate ``configs/agents.yaml``."""
+    return _load_model(AgentsConfig, path or project_root() / "configs" / "agents.yaml")
+
+
 def load_ml_config(path: str | Path | None = None) -> MlConfig:
     """Load and validate ``configs/ml.yaml``."""
     return _load_model(MlConfig, path or project_root() / "configs" / "ml.yaml")
