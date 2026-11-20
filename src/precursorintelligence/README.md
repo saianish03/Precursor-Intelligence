@@ -15,3 +15,4 @@ One installable package; each stage is a subpackage. Stages talk to storage only
 | `alerts.py` | pipeline alert emails (failed run, failed `release_lock`, new error anomalies); stdlib only, imported by the Airflow DAGs |
 | `monitoring/` | drift, delayed-outcome evaluation, alerts |
 | `agents/` | Pydantic AI agents, tools, retrieval (BM25), output validation; used by `backend/` and LLM evals |
+| `evidence/` | the agents' evidence: its layout and manifest (`contract.py`, read by `agents/tools/`) and `precursor-pipeline agents build-evidence` (`build.py`, `cli.py`), kept out of `agents/` so the pipeline entrypoint never imports the agents runtime |
