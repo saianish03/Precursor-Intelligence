@@ -58,7 +58,7 @@ The stack runs an MLflow tracking server and model registry (ML spec §16.1): se
   docker compose exec postgres psql -U airflow -d airflow -c 'SELECT pg_reload_conf()'
   docker compose exec postgres psql -U airflow -d airflow -c 'SELECT line_number, database, user_name, address, auth_method FROM pg_hba_file_rules LIMIT 3'
   ```
-  The order must be `pi_meta`, `mlflow`, then the reject line, as on a new database: that is the order `pi-deploy` checks, so the VM's Phase 2 step is this same command. Without the line, `mlflow` restarts with `no pg_hba.conf entry`.
+  The order must be `pi_meta`, `mlflow`, then the reject line, as on a new database: that is the order `pi-deploy` checks. The GCP VM's database already has it: T23's restore started a fresh Postgres with a current `init-db.sh` (§8.4). Without the line, `mlflow` restarts with `no pg_hba.conf entry`.
 - **After pulling a change to the compose file or the DAGs, run `docker compose up -d --wait`** before triggering a run: the override mounts the new DAGs at once, and a task in the pool `heavy` waits forever (holding the pipeline lock) until `airflow-init` has created that pool.
 - **One compose project at a time:** projects share the network name `pi-airflow-tasks`, so `mlflow` (like `postgres`) could resolve to the other project's server.
 - **Check:** from the task network, the health URL answers and a run is logged:
@@ -206,6 +206,8 @@ docker compose exec postgres psql -U airflow -d precursor_meta -c "select status
 - **Postgres from the host:** `127.0.0.1:${PI_POSTGRES_HOST_PORT}`.
 
 ## 5. On the GCP VM
+**Verified end to end on the VM** by the smoke test (T23, 2026-11-20): §8.4.
+
 The VM `pi-airflow` and its Postgres data disk are in Terraform (T19; `infra/README.md` "The VM"). `pi-deploy` (T20) runs the stack there: the release that the instance metadata `pi-release` names, at boot and whenever it changes (`infra/vm/README.md` "Deploys"). What to set and check:
 
 - **Two compose files, from the compose bundle in the Airflow image** (`/opt/precursor/compose/`):
@@ -264,7 +266,7 @@ rm -rf "$PI_HOST_DATA_DIR"     # the local bucket (landing files are chmod 444: 
   docker run --rm --network pi-airflow-tasks -e PI_DATABASE_URL=… precursor-pipeline:latest precursor-ingest lock status
   ```
 
-## 8. Verified locally
+## 8. Verified runs (laptop stacks, then the GCP VM)
 
 ### 8.1 Ingestion → silver (2026-10-21, real CMS downloads, 18 zips, 15 vintages)
 | Run | Input | Result |
@@ -325,3 +327,22 @@ Gold's peak scales with rows; on the full archive, see `../AIRFLOW_PIPELINE.md` 
 | B clean | the row restored; 19 zips, full run | 60 s, success: gold published, 207,368 rows (as in 8.2's B); the row back to `duplicate_vintage` | **0** |
 
 Not forced in the stack: a failed `release_lock` (hard to make fail through the DAG; covered by `tests/dags/test_alerts.py`), exit 137 and the gold timeout (covered by `tests/dags`).
+
+### 8.4 On the GCP VM: the smoke test (T23, 2026-11-20)
+Release `5697619` on `pi-airflow` (e2-standard-4, 16 GB), written to the trial prefix `trial-2026-11-20` through
+`/etc/precursor/overrides.env` (`infra/vm/README.md`, "Deploys"). Everything below ran on the VM.
+
+| Step | Result |
+|---|---|
+| Deploy workflow (VM stopped) | `0f7ae6a` refused (older than the floor, L11); `ee3948d` refused (no images); `d467b7d` skipped (already the pointer); the default run set `pi-release` to `5697619` |
+| Boot | the startup script ready 45 s after the start; `5697619` deployed ~3.5 min after the start (two image pulls, `airflow db migrate`); the idle-shutdown timer active; all three DAGs paused |
+| Trial run (`mode=backfill`, zips 2023-05-30, 2024-03-28, 2026-10-08) | success in **3 min 25 s**, every task on try 1 (three `extract_inventory` ~55 s each, in parallel; `load_bronze` 31 s, `build_silver` 28 s, `build_gold` 26 s). Gold V 2026-09: 3 months, **44,614 rows**, the same as the laptop's run `t13-2` of these three zips (2026-11-06, as `sa-pipeline`; its trial prefix since deleted, so it can't be re-checked). Only the trial prefix was written; 8 anomalies, all `info` |
+| Peaks (`docker stats` every 5 s) | host: at most 3.0 GiB used, at least 12.6 GiB available; the largest task container 1.4 GiB (about 2 CPUs); scheduler 549 MiB, triggerer 428, dag-processor 355, apiserver 230, Postgres 86 |
+| Forced failure (a bogus entry id) | `discover_download` exit 3, not retried; every later task `upstream_failed`; `release_lock` success; **one** failure email |
+| `sudo pi-down` | both databases dumped within ~4 s (MD5s match the bucket's); the VM TERMINATED ~2.5 min after the command; the shutdown backstop's pair 32 s later |
+| Restore (`infra/vm/README.md`, "Restore") | **110 s**; the run history and every `precursor_meta` count back as before the dump. The fresh Postgres ran this release's `init-db.sh`, so its `pg_hba` has three lines (`pi_meta`, `mlflow`, reject) |
+| Stop from outside (`gcloud compute instances stop`) | the shutdown backstop uploaded a full pair 33 s after the request; TERMINATED after 65 s |
+
+Both emails arrived: `… runs on a trial prefix` (from `pi-deploy`) and `[cms_nh_pipeline] run failed:
+ingestion.discover_download`. Afterwards: the override removed (the stack is back on the bucket root), the DAGs left
+paused, the trial prefix deleted; `precursor_meta` still holds the trial's records until T24 resets it.
