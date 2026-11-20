@@ -5,7 +5,7 @@ laptop stack against GCS. Phase 2 puts it in production on the VM: MLflow there,
 BigQuery, then monitoring, fairness and tuning (`ML_PIPELINE_SPEC.md` §18.1). **The VM itself** (its smoke test, the
 bucket clean-up, the full backfill, production start and the VM runbook) **stays with the lead's team**; your ML work
 on the VM builds on it (§5.1). The rules stay in the spec; this file gives the starting state, the order of work, the
-decisions already made and the traps. State as of `dev` `dd214ea` (2026-11-20).
+decisions already made and the traps. State as of `dev` `b1b1d96` (2026-11-20).
 
 ---
 
@@ -15,7 +15,7 @@ decisions already made and the traps. State as of `dev` `dd214ea` (2026-11-20).
 |---|---|
 | **ML code** | W0–W6 and the follow-ups #77–#80, #85 and #86 are merged. The §17.2 acceptance passed on the laptop stack on 2026-11-18 (`ML_PIPELINE.md` §11, §14). |
 | **Phase 1 champion** | v1 (`lgbm`, test 2025-02 PR-AUC 0.470) on the lead's laptop stack `ml_dev`: registry `precursor_y_g12` with `@champion` v1 and `@challenger` v3; scores for 2026-10 in `gs://precursor-intel-mlops-data/ml-dev/scores/`; its packages (v1–v3) backfilled to `gs://precursor-intel-mlops-mlflow/packages/ml-dev/` on 2026-11-19. It does not move to the VM (§3). |
-| **VM** | `pi-airflow` (e2-standard-4, us-central1-a) is built and **stopped**: the VM in Terraform, `pi-deploy`, the idle shutdown and the Deploy workflow are done. `pi-release` is `d467b7d`, from before W4 (no MLflow, no `cms_nh_ml`). The smoke test, bucket clean-up and full backfill are next, done by the lead's team (§5.1). |
+| **VM** | `pi-airflow` (e2-standard-4, us-central1-a) is built and **stopped**: the VM in Terraform, `pi-deploy`, the idle shutdown and the Deploy workflow are done, and **the smoke test (T23) passed on 2026-11-20** (`runbooks/airflow-local.md` §8.4). It runs `5697619` on the bucket root: `cms_nh_ml` exists, paused; MLflow is off. Its database is fresh since T23's restore, with the three-line `pg_hba` (`pi_meta`, `mlflow`, reject); `precursor_meta` holds the trial's records until T24 resets it. The bucket clean-up and full backfill are next, done by the lead's team (§5.1). |
 | **MLflow on the VM** | Off. `docker-compose.vm.yaml` keeps `mlflow` and `postgres-setup` in the profile `phase2` and sets `PI_MLFLOW_TRACKING_URI: ""`; `cd.yml` and `deploy.yml` ship two images; `pi-pg-backup`/`pi-pg-restore` skip `mlflow`. Ready: bucket `precursor-intel-mlops-mlflow`, secret `mlflow-db-password` (value set), `pi-deploy` renders it, and its `pg_hba` check knows the `mlflow` line. The package store (#85) is set: `packages/vm` in `docker-compose.vm.yaml`. |
 | **BigQuery** | Nothing yet: no Terraform, no code (`serving/publish.py` verifies the GCS scores and emits the asset). |
 | **Gold** | Phase 1 gold is under `ml-dev/` (V = 2026-10, built by the laptop stack). The VM builds its own in the full backfill (T25). |
@@ -80,7 +80,7 @@ log sink). Its fallbacks: the laptop stack's 2026-10 scores, and GCS without Big
 
 | VM task | What | Your items that wait |
 |---|---|---|
-| **T23 smoke test** | the trial-prefix override (`/etc/precursor/overrides.env`, `infra/vm/README.md`); the first real Deploy run (the newest `dev` commit with images); a trial `cms_nh_pipeline` run, a forced-failure alert, a backup and restore | item 2's deploy |
+| ✅ **T23 smoke test** (2026-11-20, `runbooks/airflow-local.md` §8.4) | the trial-prefix override; the Deploy workflow's refusals and first real run (`5697619`); a trial backfill (3 min 25 s, gold 44,614 rows), a forced-failure alert, `pi-down`, a restore (110 s) and the shutdown backstop | — |
 | **T24** | clear the data bucket root, all versions, **keeping `ml-dev/`**, and reset the VM's `precursor_meta` (T23's trial run left keys that exist only under its prefix): `infra/vm/README.md`, the trial prefix's close-out step 2, which empties the `airflow` database too | — |
 | **T25 full backfill** | `mode=backfill`, node by node, then the full run; `cms_nh_ml` stays paused. If the late-November release is out, it is included and brings 2025-03 into the test window | item 3 |
 | **T26 production start** | the team's go: unpause `cms_nh_pipeline`, then `cms_nh_release_check` | — (later gold events start `cms_nh_ml` while it is unpaused) |
@@ -92,7 +92,7 @@ log sink). Its fallbacks: the laptop stack's 2026-10 scores, and GCS without Big
 | # | Task | Needs | Done when |
 |---|---|---|---|
 | 1 | ✅ **#73 B1 + B2, done in #86** (with B13, B14, B19): `monitor` waits for `score` and `publish`, never the `scored?` short-circuit; group-level features get equal-width PSI bins. Seen live on the laptop stack (2026-11-19, `b2-check-score-only-1`, `mode=score_only` with v1 loaded from the package store): `drift:state_gplus_rate_12m` is gone and no re-tune is requested, the two real skew flags stay, and every score value is unchanged | — | B1 is seen on the VM's first ML run (no champion yet): `monitor` runs and writes `status/latest.json` |
-| 2 | **MLflow on the VM**, one infra PR:<br>- `docker-compose.vm.yaml`: drop the `phase2` profiles and the empty tracking URI; pin the mlflow image to `${PI_RELEASE_SHA}`; a VM-only `PI_MLFLOW_ARTIFACTS` prefix in the MLflow bucket, never its root (#85's package store lives in `packages/`); credentials from the metadata server, not the `/dev/null` mount;<br>- `cd.yml`: build, test and push `mlflow`, and count it in "already published";<br>- `pi-deploy`: pull and label-check three images; `check_running` checks the mlflow image;<br>- `deploy.yml`: `IMAGES: pipeline airflow mlflow`, and the rollback floor moves to this PR's sha (a rollback below it drops mlflow through `--remove-orphans`);<br>- `pi-pg-backup`/`pi-pg-restore`: add `mlflow` (order airflow → mlflow → precursor_meta);<br>- Artifact Registry: `delete-after-30-days` → 7 days (KEEP 5 stays; `delete-untagged-after-7-days` is unchanged);<br>- #73's B16: with tracking unset in prod, refuse instead of registering nothing;<br>- #73's B15: CI exercises the `gs://` artifact destination (this PR is the first to use one in production);<br>- **by hand on the VM's data disk, before this deploy:** the `mlflow` line in `pg_hba.conf` (below);<br>- the MLflow parts of `docs/runbooks/vm.md` | T23 for the deploy | MLflow healthy on the VM; a task logs a run whose artifact lands in the VM prefix |
+| 2 | **MLflow on the VM**, one infra PR:<br>- `docker-compose.vm.yaml`: drop the `phase2` profiles and the empty tracking URI; pin the mlflow image to `${PI_RELEASE_SHA}`; a VM-only `PI_MLFLOW_ARTIFACTS` prefix in the MLflow bucket, never its root (#85's package store lives in `packages/`); credentials from the metadata server, not the `/dev/null` mount;<br>- `cd.yml`: build, test and push `mlflow`, and count it in "already published";<br>- `pi-deploy`: pull and label-check three images; `check_running` checks the mlflow image;<br>- `deploy.yml`: `IMAGES: pipeline airflow mlflow`, and the rollback floor moves to this PR's sha (a rollback below it drops mlflow through `--remove-orphans`);<br>- `pi-pg-backup`/`pi-pg-restore`: add `mlflow` (order airflow → mlflow → precursor_meta);<br>- Artifact Registry: `delete-after-30-days` → 7 days (KEEP 5 stays; `delete-untagged-after-7-days` is unchanged);<br>- #73's B16: with tracking unset in prod, refuse instead of registering nothing;<br>- #73's B15: CI exercises the `gs://` artifact destination (this PR is the first to use one in production);<br>- **no `pg_hba` hand step:** the VM's database already has the `mlflow` line (below);<br>- the MLflow parts of `docs/runbooks/vm.md` | — (T23 ✅) | MLflow healthy on the VM; a task logs a run whose artifact lands in the VM prefix |
 | 3 | **ML on the VM.** Unpause `cms_nh_ml` (a paused DAG's runs never start), `mode=retrain` → v1 `@challenger`; the lead runs Checkpoint ML-A (model card, `scripts/ml_checkpoint_reasons.py`) and `mode=promote` with a reason; then `mode=auto` (SKIP) and `mode=score_only` (identical scores) | 2, T25 | champion on the VM, scores and `status/latest.json` written, the summary email received |
 | 4 | **BigQuery publish**: Terraform dataset `precursorintelligence_scores` and 3 tables (schemas as JSON files, tested against the parquet writer), `sa-pipeline` roles (spec §16.3); `ml publish` loads each month with `WRITE_TRUNCATE` on its partition and records the publish after the load (spec §11). Every query sets `maximum_bytes_billed`. The code can be built on the toy chain first | 3 for real data | scores queryable in BigQuery |
 | 5 | **Threshold review** with the lead on 2025-03 | 3 | `ml.yaml` gates confirmed, or changed by PR |
@@ -104,16 +104,16 @@ log sink). Its fallbacks: the laptop stack's 2026-10 scores, and GCS without Big
 | 11 | **Downstream, not yours:** `AGENTS_PLAN.md` gives the API, the four agents, the frontend and their GCP rollout to Tanoj, Riya and Aakash. Your part: review its infrastructure PRs (its part L), and keep stable what its `build-evidence` step reads (the API reads only that step's output): `scores/v=…/` with its `scores_manifest.json`, `ml_runs.gate_results_json`, the run folders' `evaluation.json`, `monitor`'s status and drift flags, and the `cms_nh_scores` asset its `cms_nh_agents` DAG runs on; plus BigQuery (item 4) for its `llm_calls` sink. A change to any of them breaks the agents' evidence build | 4 | the agents plan's definition of done (its §5) |
 | 12 | **Model research**: `y_g6` (O1); rolling-origin folds (O3); regime-invariant enforcement features (O8); bring back excluded features (`d12_turnover_total` once the eval window starts at 2023-01 or later, about `V_L` 2027-05; the four `qm_ls_*` after about 6 months of the new definitions; `staffing_rating_fn` when its PSI is under 0.25); a hazard model (spec §21) | — | each through a reviewed PR and the gates |
 
-**The `pg_hba` hand step (item 2).** The VM's data disk was initialized before MLflow existed, and `init-db.sh` never
-reruns. Insert the line **directly above the reject line**, never with `1i`: `pi-deploy` accepts only the order
-pi_meta → mlflow → reject. It is the command in `runbooks/airflow-local.md` §2.1; on the VM (compose project
-`pi-airflow`, as `pi-pg-backup` finds it):
+**`pg_hba` (item 2): no hand step.** T23's restore (2026-11-20) started a fresh Postgres with `5697619`'s `init-db.sh`,
+which writes the `mlflow` line, and T24's reset does the same. The role and database `mlflow` don't exist yet:
+`postgres-setup` creates them once the `phase2` profile is gone. Before the deploy, check the order `pi-deploy` accepts
+(`pi_meta`, `mlflow`, reject) on the VM:
 ```bash
 pg=$(sudo docker ps -q --filter label=com.docker.compose.project=pi-airflow --filter label=com.docker.compose.service=postgres)
-sudo docker exec "$pg" sh -c 'sed -i "/^host all all 172\.16\.77\.0\/24 reject\$/i host mlflow mlflow 172.16.77.0/24 scram-sha-256" "$PGDATA/pg_hba.conf"'
-sudo docker exec "$pg" psql -U airflow -d airflow -c 'SELECT pg_reload_conf()'
 sudo docker exec "$pg" psql -U airflow -d airflow -c 'SELECT line_number, database, user_name, address, auth_method FROM pg_hba_file_rules LIMIT 3'
 ```
+If a restore ever brings back an older data directory (`data.before-restore-*`), the line may be missing again: then add
+it as in `runbooks/airflow-local.md` §2.1, directly above the reject line.
 
 ---
 
