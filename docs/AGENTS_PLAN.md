@@ -2,7 +2,9 @@
 
 **Owners:** Tanoj, Riya, Aakash, plus a frontend owner (decision 0). Nishanth reviews the infrastructure. **Target:** the Dec 1 demo.
 
-**What this covers:** the tasks in every part, how the agents and the UI run in production on our current GCP setup, and the order.
+**What this covers:** the tasks in every part, how the agents and the UI run in production on our current GCP setup, the order, and the cost (§7).
+
+**Four agents, on Pydantic AI (confirmed 2026-11-20).** A two-agent LangChain variant (the Retriever folded into Agent 1 as a tool, Portfolio as a plain report) was considered and not taken.
 
 **Where the rules come from:** the agent rules (read-only tools with evidence IDs, the five validators, retry then fallback, versioned prompts, golden sets, one log line per call) are in each person's local setup (`.claude/`, which is gitignored), so they aren't in the repo. Sections B, C, D and J restate every rule a reviewer needs, so this file is the reference. The original project proposal isn't in the repo either; where this plan differs from it, raise it in the group.
 
@@ -107,7 +109,7 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 |---|---|---|
 | D1 | **Answer cache** in a new GCS bucket `precursor-intel-mlops-agents-cache`. The key is sha256 of the agent, prompt version, model, normalized input, the **evidence manifest sha** from `_current.json`, and the **corpus version** (for Agent 2, and for Agent 1 because it calls Agent 2). A rebuilt month or a new corpus misses, even for the same scores. Only answers that passed validation are stored; a 45-day lifecycle rule deletes old entries | a repeated request makes no LLM call; a new month, evidence rebuild, corpus or prompt version misses |
 | D2 | **Tool-result cache** in memory, per instance, for the parquet reads (they don't change within a month) | a second read in the same instance takes no GCS call |
-| D3 | **Daily call cap** shared across instances: one counter object per day in the cache bucket, updated with a generation-match write (no race between the 2 instances). **Nested runs count:** Agent 2 called by Agent 1, and Agent 1 called by Agent 4, each count as calls | over the cap, the API returns 429 with a clear message; fallbacks don't count |
+| D3 | **Daily call cap** shared across instances: one counter object per day in the cache bucket, updated with a generation-match write (no race between the 2 instances). **Nested runs count:** Agent 2 called by Agent 1 counts as a call (Agent 4 reads cached Agent 1 briefs and starts none, H2). L11's pre-build has its own limit and isn't counted | over the cap, the API returns 429 with a clear message; fallbacks don't count |
 | D4 | `max_tokens` per agent, plus Pydantic AI usage limits per run: a request limit, a tool-call limit, and **at most k Agent 2 calls per Agent 1 run** (k from settings) | a runaway loop stops; a test shows the Agent 2 limit holds |
 
 ### E. Evidence data layer (Riya)
@@ -142,8 +144,8 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 
 | ID | Task | Done when |
 |---|---|---|
-| H1 | `ExecutiveBrief`: book size, the band mix, the top movers, chain concentration, and the top N facilities summarised through Agent 1; all counts come from `portfolio_stats` | every count matches the tool's output |
-| H2 | Input: a list of CCNs (the insurer's book), capped at a size limit; the top N go to Agent 1 (N from settings). With D4's limit of k Agent 2 calls per Agent 1 run, one brief is at most **1 + N x (1 + k)** agent runs, each with at most one retry | a book of 500 stays inside that bound in a test; every nested run counts toward the daily cap (D3) |
+| H1 | `ExecutiveBrief`: book size, the band mix, the top movers, chain concentration, and the top N facilities summarised from their cached Agent 1 briefs (H2); all counts come from `portfolio_stats` | every count matches the tool's output |
+| H2 | Input: a list of CCNs (the insurer's book), capped at a size limit; the top N (from settings) are summarised from **Agent 1 briefs already in the cache**, never from live Agent 1 runs. A facility with no cached brief gets Agent 1's fallback template (B9), marked `fallback=true`. Why: live, one Agent 1 brief is up to 1 + k runs (D4) and takes about 40–60 s, so a brief over N = 10 is about 31 runs and several minutes, far past the 120 s request timeout (L3). One Portfolio brief is therefore **one** agent run, with at most one retry | a book of 500 answers inside the timeout in a test; no Agent 1 run starts from a Portfolio request |
 | H3 | The prompt v1 and the agent | unit tests pass |
 | H4 | A golden set of about 10 portfolios | 100% numeric consistency |
 
@@ -190,7 +192,7 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 | L8 | **CD:** `cd.yml` builds, tests and pushes `api:<sha>`, and counts it in "already published" | the image is in Artifact Registry after a merge |
 | L9 | **Deploy:** `deploy-api.yml` deploys a sha to Cloud Run with no traffic, runs a smoke test on the new revision's URL (health plus one cached brief), then moves traffic to 100%. A rollback deploys an older sha. WIF uses a new `sa-api-deployer` (`run.developer` on this one service, `actAs sa-api`) | a bad revision never gets traffic; a rollback works |
 | L10 | **The batch step on the VM:** a new DAG `cms_nh_agents`, scheduled on the asset `cms_nh_scores` (which `publish` emits), runs `build-evidence` and then `build-corpus` (when its version changes) in the `pipeline` image. So the idle shutdown waits for it, add it to the `PI_BUSY_DAGS` default in `infra/vm/pi-busy` and to `RUN_DAGS` in `infra/vm/pi-down`. Both ship to the VM as metadata through Terraform, so this is an infra change, picked up on the VM's next boot | after a monthly publish, `agents/evidence/v=<new month>/` and the new `_current.json` appear |
-| L11 | **Pre-warming (optional):** after `build-evidence`, generate and cache briefs for the top 50 riskiest facilities, so the demo and the busiest requests are instant | the cost stays inside the daily cap |
+| L11 | **Pre-building (required by H2):** after `build-evidence`, generate and cache Agent 1 briefs for the top 50 riskiest facilities, under the same cache key a user request builds (D1). So Agent 1's input must be the CCN plus a fixed question type, not free text, or the cached briefs never match. The job has its own limit, 50 × (1 + k) runs, and doesn't count toward the users' daily cap (D3), which it would exhaust. Where it runs is decision 7 | after a monthly publish, the top 50 briefs are in the cache; it costs about $1 a month (§7) |
 | L12 | **Runbook** `docs/runbooks/agents.md`: deploy, rollback, adding a user to the allowlist, raising the cap, reading traces, cost checks | a teammate can deploy and roll back from it |
 
 ### M. Frontend, the React app (owner: decision 0)
@@ -255,8 +257,53 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 ## 6. Decisions needed now
 0. **The frontend owner.** The React app is a new workstream (M), and it needs an owner.
 1. **Demo scope.** Recommendation: Agents 1 and 2 are the must-haves; Agents 3 and 4 are stretch goals.
-2. **Vertex AI.** Who enables the gpt-oss models in Model Garden; the region (us-central1 if available); the quota; the daily call cap and the monthly LLM budget.
+2. **Vertex AI.** Who enables the gpt-oss models in Model Garden; the region (us-central1 if available); the quota; the daily call cap and the monthly LLM budget (recommended in §7: 100 runs a day, a $20 Vertex budget).
 3. **Tracing in production.** Cloud Trace for production and MLflow for evaluation runs (recommended), or opening MLflow to Cloud Run, which needs a login (spec O5) and an always-on VM.
 4. **UI hosting and auth (ADR 0001).** Recommended: one Cloud Run service with FastAPI serving the built app, and Google sign-in verified in FastAPI against an email allowlist. The alternatives are a separate nginx `precursor-ui` service with CORS, and IAP in front of Cloud Run (no auth code, but it has to work on a project with no organization). Either way, `/health` stays open and every other endpoint needs a signed-in user.
 5. **The Retriever's corpus.** Deficiency-tag descriptions only, or Appendix PP too.
 6. **The cache.** A GCS bucket (recommended) or Firestore.
+7. **Where L11's pre-build runs.** Either a step in `cms_nh_agents` on the VM, as `sa-pipeline`, which then needs `roles/aiplatform.user` and write access to the cache bucket (a change to L1 and L2, where `sa-api` is the only writer); or a Cloud Run job as `sa-api`, which the DAG can't start without a new grant either. 50 briefs take about 40 minutes one after another, and the VM's idle shutdown waits for the DAG (L10).
+
+---
+
+## 7. Cost (estimates of 2026-11-20; L4's first runs measure the real numbers)
+
+**Assumptions.**
+- A new Agent 1 run makes about 6 model calls, with about 50k input and 5k output tokens (gpt-oss bills its reasoning as output), and takes about 20 s, or 40–60 s with its Agent 2 calls. An Agent 2 run is about a third of that.
+- gpt-oss-120b on Vertex costs $0.09 input and $0.36 output per million tokens (third-party listings, October 2026), or $0.15 and $0.60 (the price at launch). Check Google's pricing page before relying on either.
+- Cloud Run uses request-based billing, with a monthly free tier of 180,000 vCPU-seconds, 360,000 GiB-seconds and 2 million requests per billing account.
+
+**Per new answer** (a cache hit costs nothing):
+
+| Request | LLM cost |
+|---|---|
+| Agent 1 brief, with up to k = 2 Agent 2 runs | $0.015–0.03 |
+| Agent 2 evidence search | $0.003–0.005 |
+| Agent 3 ops report | $0.005–0.01 |
+| Agent 4 portfolio brief, from cached Agent 1 briefs (H2) | about $0.01 |
+| A failed check, then one retry | about twice the above |
+
+**Per month:**
+
+| Scenario | LLM cost |
+|---|---|
+| Development to Dec 1: about 30 runs of the four golden sets (about 115 cases), plus hand runs | $25–55 in total |
+| Demo month: about 20 facility briefs a day, a few searches, ops reports and portfolios, and L11's top 50 | $6–15 |
+| Worst case, held by a daily cap of 100 runs (nested runs count, D3) | at most $60 |
+| An insurer's scale: every facility (about 14,700) briefed once a month | $220–440, about half with Vertex batch pricing |
+
+The cache key (D1) bounds the cost: with fixed question types, a month costs at most one brief per facility and prompt version, however many people ask.
+
+**Cloud Run (`precursor-api`, 1 vCPU, 1 GiB, 0 to 2 instances): about $0–1 a month.**
+- The free tier covers about 3,600 new Agent 1 briefs a month. Cache hits, the read-only endpoints and `/health` are a fraction of a second each.
+- Around it, all cents a month: the `api` image in Artifact Registry (keep last 5), the cache and evidence objects, Cloud Logging and Cloud Trace (inside their free tiers), and the allowlist secret.
+- Keeping one instance always on (min 1) removes the cold start but costs about $0.45 a day. Use it on demo day only.
+
+**Settings that follow:**
+- Daily cap (D3): 100 runs, raised on demo day.
+- A Vertex-only budget (L6) of $20, with alerts at 50%, 90% and 100%.
+- gpt-oss-20b for development runs (about half the price), and 120b for the golden-set runs that bump a prompt version, and for the demo.
+
+**Credits.** The team's five $50 education coupons are five separate billing accounts, not one pool, and a project uses one billing account at a time. To use one, its owner links that billing account to the project, which needs Billing Account User on it, plus a project owner. Switch before the current account runs out: an account with no credit left disables billing, which stops the VM and Cloud Run. Budget alerts belong to one billing account, so recreate them after each switch. After the first day of Vertex calls, check in the billing report that the credits cover gpt-oss.
+
+Sources: [Cloud Run pricing](https://cloud.google.com/run/pricing), [Vertex AI generative AI pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing), [education credits](https://docs.cloud.google.com/billing/docs/how-to/edu-grants), [education credits for team projects](https://services.google.com/fh/files/helpcenter/cloud_edu_billing_team_projects.pdf).
