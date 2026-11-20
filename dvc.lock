@@ -51,8 +51,8 @@ stages:
       size: 1718
     - path: src/precursorintelligence/common
       hash: md5
-      md5: 933b580f10c24239a36586f96166b9dc.dir
-      size: 79047
+      md5: 0309506eaa69024a53a007b1a1af5125.dir
+      size: 79903
       nfiles: 11
     - path: src/precursorintelligence/gold
       hash: md5
@@ -61,8 +61,8 @@ stages:
       nfiles: 17
     - path: src/precursorintelligence/harmonize
       hash: md5
-      md5: d72266e7c90cd8eb9f27bbdb34e290fe.dir
-      size: 113509
+      md5: e9bb9a1d73179291ee31a60a9fd66c44.dir
+      size: 113794
       nfiles: 18
     - path: src/precursorintelligence/ingestion
       hash: md5
@@ -210,14 +210,19 @@ stages:
       nfiles: 13
     - path: src/precursorintelligence/common
       hash: md5
-      md5: 933b580f10c24239a36586f96166b9dc.dir
-      size: 79047
+      md5: 0309506eaa69024a53a007b1a1af5125.dir
+      size: 79903
       nfiles: 11
     - path: src/precursorintelligence/evaluation
       hash: md5
       md5: 54960ddc71bcc851a7cfd89db7a3bd3d.dir
       size: 134362
       nfiles: 16
+    - path: src/precursorintelligence/evidence
+      hash: md5
+      md5: d5230685404e824df2f50309ff5bd6d9.dir
+      size: 18369
+      nfiles: 4
     - path: src/precursorintelligence/gold
       hash: md5
       md5: 53c57bb03f901d27f6559d990b4fc170.dir
@@ -225,8 +230,8 @@ stages:
       nfiles: 17
     - path: src/precursorintelligence/harmonize
       hash: md5
-      md5: d72266e7c90cd8eb9f27bbdb34e290fe.dir
-      size: 113509
+      md5: e9bb9a1d73179291ee31a60a9fd66c44.dir
+      size: 113794
       nfiles: 18
     - path: src/precursorintelligence/ingestion
       hash: md5
@@ -266,3 +271,100 @@ stages:
       hash: md5
       md5: 76bd7f5dfde4af2dcef03f5aa40688d5
       size: 2265
+  toy_evidence:
+    cmd: python scripts/dvc_toy_evidence.py data/toy_ml 
+      metrics/toy_evidence.json
+    deps:
+    - path: configs/agents.yaml
+      hash: md5
+      md5: 2f0b8820c4b9b2380b483ce7ce9a64eb
+      size: 826
+    - path: configs/logging.yaml
+      hash: md5
+      md5: 9e23c8e1b1be1a0467fe43293b667350
+      size: 1117
+    - path: configs/ml.yaml
+      hash: md5
+      md5: 48f679cb618130567a7050c524f8b2be
+      size: 6790
+    - path: metrics/toy_ml.json
+      hash: md5
+      md5: 76bd7f5dfde4af2dcef03f5aa40688d5
+      size: 2265
+    - path: scripts/dvc_toy_evidence.py
+      hash: md5
+      md5: 0ccf70a4554c35b8796888d37c508639
+      size: 3656
+    - path: src/precursorintelligence/agents
+      hash: md5
+      md5: 785f332d63425d8c2d4d8ec82a384922.dir
+      size: 18220
+      nfiles: 4
+    - path: src/precursorintelligence/bias
+      hash: md5
+      md5: 4f39f56019ddc6d2d2c66c4ac3b2700e.dir
+      size: 107517
+      nfiles: 13
+    - path: src/precursorintelligence/common
+      hash: md5
+      md5: 0309506eaa69024a53a007b1a1af5125.dir
+      size: 79903
+      nfiles: 11
+    - path: src/precursorintelligence/evaluation
+      hash: md5
+      md5: 54960ddc71bcc851a7cfd89db7a3bd3d.dir
+      size: 134362
+      nfiles: 16
+    - path: src/precursorintelligence/evidence
+      hash: md5
+      md5: d5230685404e824df2f50309ff5bd6d9.dir
+      size: 18369
+      nfiles: 4
+    - path: src/precursorintelligence/gold
+      hash: md5
+      md5: e9be42984d530ec16c12bf3a6ddeb795.dir
+      size: 89546
+      nfiles: 17
+    - path: src/precursorintelligence/harmonize
+      hash: md5
+      md5: e9bb9a1d73179291ee31a60a9fd66c44.dir
+      size: 113794
+      nfiles: 18
+    - path: src/precursorintelligence/ingestion
+      hash: md5
+      md5: c90c8bc2bf235c6188d860e523b1d244.dir
+      size: 136096
+      nfiles: 19
+    - path: src/precursorintelligence/monitoring
+      hash: md5
+      md5: 3ef118e57944d2805d5706085e9ebd58.dir
+      size: 19947
+      nfiles: 4
+    - path: src/precursorintelligence/serving
+      hash: md5
+      md5: 69f5f69d0774a8b449e7c0a2e6afdf6a.dir
+      size: 39195
+      nfiles: 5
+    - path: src/precursorintelligence/training
+      hash: md5
+      md5: 1a4fd944b2b353a45266a3d7661cc5fc.dir
+      size: 150982
+      nfiles: 11
+    - path: src/precursorintelligence/validation
+      hash: md5
+      md5: 3de210db410ce32eeee4b864182c326b.dir
+      size: 38511
+      nfiles: 7
+    - path: tests/agents/evidence_fakes.py
+      hash: md5
+      md5: 11d06b366de9bf6ade9411e35bdaadac
+      size: 7729
+    - path: uv.lock
+      hash: md5
+      md5: 404373d2ffe65967d99a92eb2888f9a2
+      size: 748520
+    outs:
+    - path: metrics/toy_evidence.json
+      hash: md5
+      md5: f0f72c41ca899411724c108beaa5bdfa
+      size: 444
