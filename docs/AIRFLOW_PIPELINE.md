@@ -320,7 +320,7 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
 - **Update 2026-10-29 (superseded):** the VM was an e2-standard-4 with 16 GB and `PI_TASK_MEM_LIMIT=10g`, for the ≈ 5.8 GB estimate below.
 - **Measured locally (runbook §8.2):** gold peaked at **1.95–2.17 GB** for 207k–237k rows (sampled every 2 s, so short spikes can be missed). Scaled linearly to the full archive's ≈ 590k rows, that is **≈ 5 GB**, above the ~4 GB comfort line of an 8 GB VM.
 - **Merged dataset file (PR #32):** writing `gold/facility_month_dataset.parquet` adds about 16% to the peak (2.55–2.57 → 2.95–2.99 GiB on the 237k-row subset, sampled every 0.1 s), so the full-archive estimate goes from ≈ 5 GB to **≈ 5.8 GB**: within the 16 GB VM's 10g limit, but close to an 8 GB VM's 6g. Writing that file by streaming the staged partitions, instead of holding a second sorted copy, is part of the fix below.
-- **Fix, only needed to run gold on an 8 GB VM (measure the peak on the first full-archive run):**
+- **Fix, only needed to go back to a 16 GB VM (T25 measured the full-archive peak above 10 GB):**
   1. In `_stage`, check each staged file right after writing it, instead of re-reading all of them at the end.
   2. Drop `silver` after the labels are built, and the feature frames after `assemble`.
   3. Write the merged file by streaming the staged partitions.
