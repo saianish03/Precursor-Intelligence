@@ -5,7 +5,7 @@ laptop stack against GCS. Phase 2 puts it in production on the VM: MLflow there,
 BigQuery, then monitoring, fairness and tuning (`ML_PIPELINE_SPEC.md` §18.1). **The VM itself** (its smoke test, the
 bucket clean-up, the full backfill, production start and the VM runbook) **stays with the lead's team**; your ML work
 on the VM builds on it (§5.1). The rules stay in the spec; this file gives the starting state, the order of work, the
-decisions already made and the traps. State as of `dev` `5697619` (2026-11-19).
+decisions already made and the traps. State as of `dev` `dd214ea` (2026-11-20).
 
 ---
 
@@ -64,22 +64,24 @@ decisions already made and the traps. State as of `dev` `5697619` (2026-11-19).
 | Question | Today / recommendation | When |
 |---|---|---|
 | Gate thresholds (O2): G4 ECE ≤ 0.05, G6 Spearman ≥ 0.9 (v1 had 0.92), the 200+ beds slice | review on 2025-03 at ML-A | §5.2 item 5 |
-| MLflow login (O5) | none (task network, 127.0.0.1, IAP); keep it unless something outside the VM needs MLflow | before the downstream work |
-| The Dec 1 demo's scope | the spec's MVP (ML-10): end to end on the VM, monitoring may be thin. How much of the API, agents and dashboard? | now |
+| MLflow login (O5) | none (task network, 127.0.0.1, IAP); keep it unless something outside the VM needs MLflow. `AGENTS_PLAN.md` decision 3 recommends Cloud Trace for production traces and MLflow only for evaluation runs, which keeps it so | with the agents plan's decision 3 |
+| The Dec 1 demo's scope | the spec's MVP (ML-10): end to end on the VM, monitoring may be thin. The agents' part is `AGENTS_PLAN.md` decision 1 (recommended: Agents 1 and 2 must-have, 3 and 4 stretch) | now |
 
 ---
 
 ## 5. The work, in order
 
 **The Dec 1 path:** the lead's team's T23–T25 (§5.1) and your items 1–4 (§5.2; item 1 is done). The code for items 2 and 4 can start
-at once, in parallel with T23.
+at once, in parallel with T23. **`AGENTS_PLAN.md` (§4) counts on them:** items 2–3 by **Nov 26–28** (MLflow on the VM for
+its evaluation traces; prod scores for its `cms_nh_agents` DAG) and item 4 by **Nov 28–30** (BigQuery, for its `llm_calls`
+log sink). Its fallbacks: the laptop stack's 2026-10 scores, and GCS without BigQuery.
 
 ### 5.1 The VM tasks the lead's team does (your items wait for them)
 
 | VM task | What | Your items that wait |
 |---|---|---|
-| **T23 smoke test** | a trial-prefix override for `pi-deploy`; the first real Deploy run (the newest `dev` commit with images); a trial `cms_nh_pipeline` run, a forced-failure alert, a backup and restore; then `precursor_meta` is reset | item 2's deploy |
-| **T24** | clear the data bucket root, all versions, **keeping `ml-dev/`** | — |
+| **T23 smoke test** | the trial-prefix override (`/etc/precursor/overrides.env`, `infra/vm/README.md`); the first real Deploy run (the newest `dev` commit with images); a trial `cms_nh_pipeline` run, a forced-failure alert, a backup and restore | item 2's deploy |
+| **T24** | clear the data bucket root, all versions, **keeping `ml-dev/`**, and reset the VM's `precursor_meta` (T23's trial run left keys that exist only under its prefix): `infra/vm/README.md`, the trial prefix's close-out step 2, which empties the `airflow` database too | — |
 | **T25 full backfill** | `mode=backfill`, node by node, then the full run; `cms_nh_ml` stays paused. If the late-November release is out, it is included and brings 2025-03 into the test window | item 3 |
 | **T26 production start** | the team's go: unpause `cms_nh_pipeline`, then `cms_nh_release_check` | — (later gold events start `cms_nh_ml` while it is unpaused) |
 | **T27 VM runbook** | `docs/runbooks/vm.md` (access, deploy, rollback, up and down, backup and restore, costs) | add the MLflow parts (item 2) |
@@ -99,7 +101,7 @@ at once, in parallel with T23.
 | 8 | **Tuned challenger and automatic re-tune**: `train` applies a tuning proposal as a challenger; `gate` compares it with no tolerance (spec §12.2, §13) | 3 | a `retune` run yields a gated challenger |
 | 9 | **Verified gold**: the data spec's §11 gate (W5 part 2), then `allow_unverified: false` | — | prod refuses unverified gold |
 | 10 | **Hardening**: anchor the package hashes in `ml_runs` when MLflow gets a login (spec O5) | — | one PR per area |
-| 11 | **Downstream**: the FastAPI service, the four agents and the dashboard read `scores/`, `status/latest.json` and BigQuery | 4 | as the demo scope says (§4) |
+| 11 | **Downstream, not yours:** `AGENTS_PLAN.md` gives the API, the four agents, the frontend and their GCP rollout to Tanoj, Riya and Aakash. Your part: review its infrastructure PRs (its part L), and keep stable what its `build-evidence` step reads (the API reads only that step's output): `scores/v=…/` with its `scores_manifest.json`, `ml_runs.gate_results_json`, the run folders' `evaluation.json`, `monitor`'s status and drift flags, and the `cms_nh_scores` asset its `cms_nh_agents` DAG runs on; plus BigQuery (item 4) for its `llm_calls` sink. A change to any of them breaks the agents' evidence build | 4 | the agents plan's definition of done (its §5) |
 | 12 | **Model research**: `y_g6` (O1); rolling-origin folds (O3); regime-invariant enforcement features (O8); bring back excluded features (`d12_turnover_total` once the eval window starts at 2023-01 or later, about `V_L` 2027-05; the four `qm_ls_*` after about 6 months of the new definitions; `staffing_rating_fn` when its PSI is under 0.25); a hazard model (spec §21) | — | each through a reviewed PR and the gates |
 
 **The `pg_hba` hand step (item 2).** The VM's data disk was initialized before MLflow existed, and `init-db.sh` never
@@ -149,4 +151,5 @@ sudo docker exec "$pg" psql -U airflow -d airflow -c 'SELECT line_number, databa
 | The VM: deploys, up and down, backups, restore | `infra/README.md` "The VM", `infra/vm/README.md` |
 | Running the stack, MLflow, alerts | `runbooks/airflow-local.md`, `AIRFLOW_PIPELINE.md`, `ALERTS_HANDOFF.md` |
 | The data pipeline and the verified gate | `DATA_PIPELINE_SPEC.md` (§11, §15) |
+| The agents, the API and their rollout | `AGENTS_PLAN.md` |
 | Your bugs | #73 (B15, B16) |

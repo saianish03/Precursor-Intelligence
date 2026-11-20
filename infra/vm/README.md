@@ -18,7 +18,7 @@ can read its metadata.
 | `pi-pg-backup.service` | Runs `pi-pg-backup` whenever the OS shuts down or Docker stops, while both are still up. A backstop: best effort within GCE's ~90 s. |
 | `pi-down` | `sudo pi-down [--force]`: dumps the databases (`pi-pg-backup`), then stops the VM; refuses during a run unless `--force`. `pi-down --if-idle` is the idle shutdown (below, "Up and down"). |
 | `pi-idle-shutdown.timer` / `.service` | Run `pi-down --if-idle` every 15 minutes (:07, :22, :37, :52). Log: `journalctl -u pi-idle-shutdown` (after a stop: `journalctl -b -1 -u pi-idle-shutdown`) |
-| `tests/` | Offline tests of `pi-down` in Debian 12 containers with fake commands: `bash infra/vm/tests/run.sh` (needs Docker; not run by CI). Rerun them after any change to `pi-down`. |
+| `tests/` | Offline tests in Debian 12 containers: `pi-down` with fake commands, and `pi-deploy`'s smoke-test overrides. `bash infra/vm/tests/run.sh` (needs Docker; not run by CI). Rerun them after any change to `pi-down` or to `pi-deploy`'s env file. |
 
 ## Deploys (T20)
 - **A release is one full git sha** whose two images CD pushed (`precursor/airflow:<sha>`, `precursor/pipeline:<sha>`).
@@ -50,7 +50,8 @@ can read its metadata.
      during a run anyway, stop the scheduler first;
   4. puts the bundle in `/opt/precursor/compose/` and the env file in `/etc/precursor/.env` (root, mode 600), then
      runs `docker compose up -d --wait`;
-  5. checks that the Airflow containers run that image and that Postgres's task-network rule matches the network.
+  5. checks that the Airflow containers run that image, that the scheduler uses the env file's data bucket (the root,
+     or a trial prefix, below) and that Postgres's task-network rule matches the network.
 - **When it fails:**
   - A failure in steps 1–3 changes nothing and is tried twice more, a minute apart.
   - A failure from step 4 on puts back the files saved at the last good deploy (its bundle and env file, so its
@@ -77,6 +78,31 @@ can read its metadata.
     running watcher keeps its old code.
   - Without SSH, `gcloud compute instances get-guest-attributes pi-airflow --zone us-central1-a --query-path=precursor/`
     shows the last result. It is informational only: anything on the VM may write it.
+- **A trial prefix, for a smoke test only (T23).** The stack writes to the data bucket's root. To point it at a trial
+  prefix instead, put one line in `/etc/precursor/overrides.env` and deploy again:
+  ```bash
+  echo 'PI_BUCKET_URI=gs://precursor-intel-mlops-data/trial-2026-11-20' | sudo tee /etc/precursor/overrides.env >/dev/null
+  sudo pi-deploy now
+  sudo pi-deploy status              # "bucket:" is what runs; "overrides:" whether the file is set or invalid
+  ```
+  - Only that setting, and only `trial-YYYY-MM-DD` under this bucket. Any other line refuses the deploy (nothing
+    changes, and no line of the file is ever printed).
+  - **Every deploy applies it**: `pi-deploy now`, a new `pi-release` and every boot. Each deploy or rollback that
+    leaves the stack on a trial prefix emails `… runs on a trial prefix`. A rollback puts back the last good release's
+    env file, so it can bring a removed override back: `status` shows the bucket that really runs.
+  - **Start only on an empty `precursor_meta`** (a fresh data disk, or after the reset below). It records keys relative
+    to the bucket root, so on a used one the trial run would trust work that exists only at the root, and the root
+    would later trust work that exists only under the prefix.
+  - **Keep `cms_nh_ml` paused**: no ML runs on trial gold, and its packages would go to the VM's package store.
+  - **When the test is done:**
+    1. pause every DAG, then `sudo rm /etc/precursor/overrides.env && sudo pi-deploy now`. Keep the DAGs paused until
+       step 2 is done, however much later (on the GCP VM, with T24's bucket clean-up);
+    2. reset `precursor_meta`: a new, empty Postgres, as in "Restore" step 3 below without the two `pi-pg-restore`
+       lines (`pi-pg-backup` first if the run history matters). That empties every database, not only
+       `precursor_meta`: `airflow` loses its run history and any asset events queued during the trial, and `mlflow`
+       (once it runs) its runs and registry. That is what a fresh start before production wants;
+    3. a person deletes the prefix, from a laptop:
+       `gcloud storage rm -r --all-versions gs://precursor-intel-mlops-data/trial-<date>/`.
 - **Secrets:** no value may hold a quote, a backslash or a line break; database passwords only letters, digits,
   `_` and `-` (they go into URLs). To rotate one, add a new version in Secret Manager, then `sudo pi-deploy now`. A
   database password needs `ALTER ROLE` in Postgres first, which keeps its own copy.
