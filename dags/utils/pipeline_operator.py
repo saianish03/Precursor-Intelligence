@@ -122,7 +122,7 @@ def docker_kwargs() -> dict[str, Any]:
     limits: dict[str, Any] = {}
     if env.get(
         "PI_TASK_MEM_LIMIT"
-    ):  # e.g. 10g on the 16 GB VM, so the OOM killer hits the task, not Postgres
+    ):  # e.g. 20g on the 32 GB VM, so the OOM killer hits the task, not Postgres
         limits["mem_limit"] = env["PI_TASK_MEM_LIMIT"]
     return {
         "image": image,

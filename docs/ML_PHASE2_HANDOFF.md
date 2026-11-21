@@ -15,7 +15,7 @@ decisions already made and the traps. State as of `dev` `b1b1d96` (2026-11-20).
 |---|---|
 | **ML code** | W0–W6 and the follow-ups #77–#80, #85 and #86 are merged. The §17.2 acceptance passed on the laptop stack on 2026-11-18 (`ML_PIPELINE.md` §11, §14). |
 | **Phase 1 champion** | v1 (`lgbm`, test 2025-02 PR-AUC 0.470) on the lead's laptop stack `ml_dev`: registry `precursor_y_g12` with `@champion` v1 and `@challenger` v3; scores for 2026-10 in `gs://precursor-intel-mlops-data/ml-dev/scores/`; its packages (v1–v3) backfilled to `gs://precursor-intel-mlops-mlflow/packages/ml-dev/` on 2026-11-19. It does not move to the VM (§3). |
-| **VM** | `pi-airflow` (e2-standard-4, us-central1-a) is built and **stopped**: the VM in Terraform, `pi-deploy`, the idle shutdown and the Deploy workflow are done, and **the smoke test (T23) passed on 2026-11-20** (`runbooks/airflow-local.md` §8.4). It runs `5697619` on the bucket root: `cms_nh_ml` exists, paused; MLflow is off. Its database is fresh since T23's restore, with the three-line `pg_hba` (`pi_meta`, `mlflow`, reject); `precursor_meta` holds the trial's records until T24 resets it. The bucket clean-up and full backfill are next, done by the lead's team (§5.1). |
+| **VM** | `pi-airflow` (e2-highmem-4, us-central1-a) is built and **stopped**: the VM in Terraform, `pi-deploy`, the idle shutdown and the Deploy workflow are done, and **the smoke test (T23) passed on 2026-11-20** (`runbooks/airflow-local.md` §8.4). It runs `5697619` on the bucket root: `cms_nh_ml` exists, paused; MLflow is off. Its database is fresh since T23's restore, with the three-line `pg_hba` (`pi_meta`, `mlflow`, reject); `precursor_meta` holds the trial's records until T24 resets it. The bucket clean-up and full backfill are next, done by the lead's team (§5.1). |
 | **MLflow on the VM** | Off. `docker-compose.vm.yaml` keeps `mlflow` and `postgres-setup` in the profile `phase2` and sets `PI_MLFLOW_TRACKING_URI: ""`; `cd.yml` and `deploy.yml` ship two images; `pi-pg-backup`/`pi-pg-restore` skip `mlflow`. Ready: bucket `precursor-intel-mlops-mlflow`, secret `mlflow-db-password` (value set), `pi-deploy` renders it, and its `pg_hba` check knows the `mlflow` line. The package store (#85) is set: `packages/vm` in `docker-compose.vm.yaml`. |
 | **BigQuery** | Nothing yet: no Terraform, no code (`serving/publish.py` verifies the GCS scores and emits the asset). |
 | **Gold** | Phase 1 gold is under `ml-dev/` (V = 2026-10, built by the laptop stack). The VM builds its own in the full backfill (T25). |
@@ -130,7 +130,7 @@ it as in `runbooks/airflow-local.md` §2.1, directly above the reject line.
   the same inputs: run `uv run dvc repro` and commit `dvc.lock` (CI forces `toy_ml`).
 - **The `dev` ruleset:** a push after an approval dismisses it; every thread must be resolved; issues don't close
   themselves for PRs into `dev` (the default branch is `main`).
-- **Memory:** the VM has 16 GB; tasks are capped at 10 GB, MLflow at 1 GB. The `heavy` pool (1 slot) serializes
+- **Memory:** the VM has 32 GB (e2-highmem-4 since T25, whose gold needed more than 10 GB); tasks are capped at 20 GB, MLflow at 1 GB. The `heavy` pool (1 slot) serializes
   `build_gold`, `train`, `tune` and `evaluate`. On the laptop the peak was 3.1 GB per ML step.
 - **On the VM:** never run `docker compose config` without `-q` (it prints the secrets into the journal); an MLflow
   version bump runs `mlflow db upgrade`, which can't be undone, so dump first; every `gcloud compute ssh` keeps a
