@@ -1,0 +1,56 @@
+# The agents' runtime settings (docs/AGENTS_PLAN.md A1, D3, D4, §7). Loaded by agents/settings.py: load_agents_settings,
+# which refuses unknown keys. Every model id, limit and price lives here or in an environment variable, never in code.
+# ${VAR:-default} placeholders are expanded from the environment, so Cloud Run can override them (L3).
+version: 1
+
+gcp:
+  project: ${PI_GCP_PROJECT:-precursor-intel-mlops}
+  region: ${PI_AGENTS_REGION:-us-central1}
+
+model:
+  # Vertex AI's OpenAI-compatible endpoint (A2). The exact ids are confirmed by L4's laptop proof.
+  base_url: https://${PI_AGENTS_REGION:-us-central1}-aiplatform.googleapis.com/v1/projects/${PI_GCP_PROJECT:-precursor-intel-mlops}/locations/${PI_AGENTS_REGION:-us-central1}/endpoints/openapi
+  primary: ${PI_AGENTS_MODEL:-openai/gpt-oss-120b-maas}
+  fallback: ${PI_AGENTS_FALLBACK_MODEL:-openai/gpt-oss-20b-maas}
+  request_timeout_s: 60
+
+# max_tokens and temperature per agent (D4); every agent needs an entry.
+agents:
+  facility_investigation:
+    max_tokens: 4000
+    temperature: 0.2
+  evidence_retriever:
+    max_tokens: 2000
+    temperature: 0.0
+  model_ops:
+    max_tokens: 3000
+    temperature: 0.2
+  portfolio_briefing:
+    max_tokens: 3000
+    temperature: 0.2
+
+# Pydantic AI usage limits for one agent run (D4); together about $0.04 at most a run (§7). The output retry runs
+# inside the same run, so it counts against these too.
+limits:
+  request_limit: 6
+  input_tokens_limit: 200000
+  output_tokens_limit: 12000
+  tool_calls_limit: 20
+  max_subagent_calls: 2            # k: Agent 2 calls per Agent 1 run
+
+tools:
+  timeout_s: 10
+
+# Shared across Cloud Run instances (D3). Nested runs count; a cache hit and a fallback answer do not count as a run.
+cost_control:
+  daily_run_cap: 100
+  daily_spend_stop_usd: 2.0        # can overshoot by the runs already in flight
+
+cache:
+  bucket: ${PI_AGENTS_CACHE_BUCKET:-precursor-intel-mlops-agents-cache}
+
+# USD per million tokens (C3). Every model above needs a price. Launch prices (§7): check Google's page before relying
+# on them.
+prices:
+  openai/gpt-oss-120b-maas: {input: 0.15, output: 0.60}
+  openai/gpt-oss-20b-maas: {input: 0.075, output: 0.30}
