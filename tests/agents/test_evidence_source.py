@@ -51,9 +51,15 @@ def test_pointer_and_manifest_must_agree(store):
         ParquetEvidenceSource.open(store, PREFIX)
 
 
-def test_month_outside_the_vintage_range_refuses(store):
+def test_a_month_after_2026_is_served(store):
+    # The archive starts in 2021, but the monthly run keeps going: 2027-01 must not stop the agents.
     write_evidence(store, v="2027-01")
-    with pytest.raises(EvidenceError, match="not YYYY-MM in 2021-2026"):
+    assert ParquetEvidenceSource.open(store, PREFIX).pointer.v == "2027-01"
+
+
+def test_a_month_that_is_not_yyyy_mm_refuses(store):
+    write_evidence(store, v="2026-13")
+    with pytest.raises(EvidenceError, match="not YYYY-MM"):
         ParquetEvidenceSource.open(store, PREFIX)
 
 
@@ -129,3 +135,23 @@ def test_a_numeric_ccn_is_refused_not_read_as_unscored(store):
     write_evidence(store, tables)
     with pytest.raises(EvidenceError, match="wrong type"):
         ParquetEvidenceSource.open(store, PREFIX)
+
+
+def test_a_null_in_a_required_column_is_refused(store):
+    # A null the tools' records do not allow would fail one facility at a time inside a tool; refuse the month.
+    tables = toy_tables()
+    tables["citations"] = tables["citations"].with_columns(
+        scope_severity=pl.when(pl.col("ccn") == "015009")
+        .then(None)
+        .otherwise(pl.col("scope_severity"))
+    )
+    write_evidence(store, tables)
+    with pytest.raises(EvidenceError, match=r"nulls in \['scope_severity'\]"):
+        ParquetEvidenceSource.open(store, PREFIX)
+
+
+def test_a_null_in_an_optional_column_is_served(store):
+    tables = toy_tables()
+    tables["citations"] = tables["citations"].with_columns(correction_date=pl.lit(None, pl.Date))
+    write_evidence(store, tables)
+    assert ParquetEvidenceSource.open(store, PREFIX).rows("citations", "ccn", ["015009"]).height

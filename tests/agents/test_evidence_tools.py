@@ -3,17 +3,28 @@
 import asyncio
 import time
 from datetime import date
+from typing import get_args
 
 import polars as pl
 import pytest
 from evidence_fakes import GOLD, PREFIX, V, toy_tables, write_evidence
 
 from precursorintelligence.agents.tools.evidence import (
+    Chain,
+    Citation,
     EvidenceTools,
+    FacilityScore,
+    Penalty,
+    Reason,
+    Record,
     ToolInputError,
     ToolTimeout,
 )
-from precursorintelligence.agents.tools.source import EvidenceError, ParquetEvidenceSource
+from precursorintelligence.agents.tools.source import (
+    NULLABLE,
+    EvidenceError,
+    ParquetEvidenceSource,
+)
 
 
 @pytest.fixture
@@ -147,3 +158,22 @@ def test_every_id_in_a_full_set_of_answers_is_unique(tools):
     ]
     ids = [r.evidence_id for r in records]
     assert len(ids) == len(set(ids))
+
+
+@pytest.mark.parametrize(
+    ("model", "table"),
+    [
+        (FacilityScore, "facility_scores"),
+        (Reason, "facility_reasons"),
+        (Citation, "citations"),
+        (Penalty, "penalties"),
+        (Chain, "chain_scores"),
+    ],
+)
+def test_nullable_columns_match_the_optional_fields(model, table):
+    # The source refuses a null in any other column at open(), so a record never fails to build inside a tool.
+    for name, field in model.model_fields.items():
+        if name in Record.model_fields:
+            continue
+        optional = type(None) in get_args(field.annotation)
+        assert optional == (name in NULLABLE[table]), name

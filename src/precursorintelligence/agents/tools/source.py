@@ -36,7 +36,7 @@ from ...common.io.object_store import ObjectStore
 
 CURRENT = "_current.json"
 EVIDENCE_MANIFEST = "evidence_manifest.json"
-V_PATTERN = re.compile(r"^20(2[1-6])-(0[1-9]|1[0-2])$")  # vintages 2021-2026 only
+V_PATTERN = re.compile(r"^20\d\d-(0[1-9]|1[0-2])$")  # YYYY-MM; the monthly run goes past 2026
 
 Table = Literal["facility_scores", "facility_reasons", "citations", "penalties", "chain_scores"]
 
@@ -107,6 +107,18 @@ COLUMN_TYPES: dict[str, type[pl.DataType]] = {
     "correction_date": pl.Date,
     "penalty_date": pl.Date,
     "payment_denial_start_date": pl.Date,
+}
+
+# The columns of each table that may hold nulls: the optional fields of the tools' records. A null anywhere else
+# is refused at ``open``, so a record never fails to build inside a tool.
+NULLABLE: dict[Table, frozenset[str]] = {
+    "facility_scores": frozenset({"state", "chain_id"}),
+    "facility_reasons": frozenset({"feature_value"}),
+    "citations": frozenset({"correction_date"}),
+    "penalties": frozenset(
+        {"fine_amount", "payment_denial_start_date", "payment_denial_length_days"}
+    ),
+    "chain_scores": frozenset({"bed_weighted_mean_p"}),
 }
 
 
@@ -187,9 +199,7 @@ class ParquetEvidenceSource:
                 f"{pointer_key} is not a valid pointer: {exc.error_count()} error(s)"
             ) from None
         if not V_PATTERN.match(pointer.v):
-            raise EvidenceError(
-                f"{pointer_key} names month {pointer.v!r}, not YYYY-MM in 2021-2026"
-            )
+            raise EvidenceError(f"{pointer_key} names month {pointer.v!r}, not YYYY-MM")
 
         directory = f"{prefix}v={pointer.v}/"
         manifest_key = f"{directory}{EVIDENCE_MANIFEST}"
@@ -245,6 +255,9 @@ def _load(store: ObjectStore, m: EvidenceManifest, table: Table) -> pl.DataFrame
     }
     if wrong:
         raise EvidenceError(f"{key} has columns of the wrong type: {wrong}")
+    nulls = [c for c in TABLE_COLUMNS[table] if c not in NULLABLE[table] and df[c].null_count()]
+    if nulls:
+        raise EvidenceError(f"{key} has nulls in {nulls}")
     if "gold_run_id" in df.columns and set(df["gold_run_id"].unique().to_list()) - {m.gold_run_id}:
         raise EvidenceError(f"{key} holds rows of another gold run than {m.gold_run_id}")
     if "model_version" in df.columns and set(df["model_version"].unique().to_list()) - {
