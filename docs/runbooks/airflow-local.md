@@ -206,7 +206,7 @@ docker compose exec postgres psql -U airflow -d precursor_meta -c "select status
 - **Postgres from the host:** `127.0.0.1:${PI_POSTGRES_HOST_PORT}`.
 
 ## 5. On the GCP VM
-**Verified end to end on the VM** by the smoke test (T23, 2026-11-20): §8.4.
+**Verified end to end on the VM** by the smoke test (T23, 2026-11-20): §8.4. Operating it day to day (access, start and stop, deploys, runs, restore, alerts, troubleshooting): [`vm.md`](vm.md).
 
 The VM `pi-airflow` and its Postgres data disk are in Terraform (T19; `infra/README.md` "The VM"). `pi-deploy` (T20) runs the stack there: the release that the instance metadata `pi-release` names, at boot and whenever it changes (`infra/vm/README.md` "Deploys"). What to set and check:
 
@@ -227,7 +227,7 @@ The VM `pi-airflow` and its Postgres data disk are in Terraform (T19; `infra/REA
   - `PI_RELEASE_SHA`: the full git sha of the release. Both images come from Artifact Registry with that tag, so they can't come from different commits;
   - `PI_ALERT_SMTP_USER`, `PI_ALERT_SMTP_PASSWORD` and `PI_ALERT_EMAIL_TO`, from the secrets `alert-smtp-user`, `smtp-password` and `alert-email-to`, so a failed run emails someone. The two addresses aren't secret, but email addresses stay out of this public repository.
 - **MLflow is off on the VM until Phase 2:** `docker-compose.vm.yaml` puts `mlflow` and `postgres-setup` in the profile `phase2`, which nothing enables. Phase 2 publishes the image, adds the database to `pi-pg-backup` and `pi-pg-restore`, and removes the profile (ML spec §16.1).
-- **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The scripts are `infra/vm/pi-pg-backup` and `pi-pg-restore`; a restore is done by a person with their own login (steps in `infra/vm/README.md`). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` run or an SSH session.
+- **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The scripts are `infra/vm/pi-pg-backup` and `pi-pg-restore`; a restore is done by a person with their own login (steps in `infra/vm/README.md`). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` or `cms_nh_ml` run or an SSH session.
 - **Credentials:** the VM runs as `sa-pipeline`, with no key file: gcsfs and gcloud get its tokens from the GCE metadata server. Its roles (Terraform, #41):
   - `storage.objectAdmin` on the data bucket;
   - `secretmanager.secretAccessor` on each VM secret (the only service account with access);
