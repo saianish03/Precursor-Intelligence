@@ -107,7 +107,7 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 |---|---|---|
 | D1 | **Answer cache** in a new GCS bucket `precursor-intel-mlops-agents-cache`. The key is sha256 of the agent, prompt version, model, normalized input, the **evidence manifest sha** from `_current.json`, and the **corpus version** (for Agent 2, and for Agent 1 because it calls Agent 2). A rebuilt month or a new corpus misses, even for the same scores. Only answers that passed validation are stored; a 45-day lifecycle rule deletes old entries | a repeated request makes no LLM call; a new month, evidence rebuild, corpus or prompt version misses |
 | D2 | **Tool-result cache** in memory, per instance, for the parquet reads (they don't change within a month) | a second read in the same instance takes no GCS call |
-| D3 | **Daily call cap** shared across instances: one counter object per day in the cache bucket, updated with a generation-match write (no race between the 2 instances). **Nested runs count:** Agent 2 called by Agent 1, and Agent 1 called by Agent 4, each count as calls | over the cap, the API returns 429 with a clear message; fallbacks don't count |
+| D3 | **Daily call cap** shared across instances: one counter object per day in the cache bucket, updated with a generation-match write (no race between the 2 instances). **Nested runs count:** Agent 2 called by Agent 1, and Agent 1 called by Agent 4, each count as calls. The same object also sums the day's estimated spend from C3, with a stop in dollars (6.6) | over the cap or the spend stop, the API returns 429 with a clear message; fallbacks don't count |
 | D4 | `max_tokens` per agent, plus Pydantic AI usage limits per run: a request limit, a tool-call limit, and **at most k Agent 2 calls per Agent 1 run** (k from settings) | a runaway loop stops; a test shows the Agent 2 limit holds |
 
 ### E. Evidence data layer (Riya)
@@ -182,12 +182,12 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 |---|---|---|
 | L1 | **Terraform, the service account** `sa-api`: object read on `agents/` in the data bucket only (an IAM condition on the prefix), plus `legacyBucketReader` on the bucket, because gcsfs calls `storage.buckets.get` first (the same fix `sa-pipeline` has in `infra/terraform/envs/prod/main.tf`). The API reads objects by exact name from `_current.json`, so it needs no `objects.list`, which prefix conditions don't cover. Read and write on the cache bucket; `roles/aiplatform.user`; `logging.logWriter`; `cloudtrace.agent`; read on the allowlist secret; nothing else | `terraform plan` shows only these grants; a smoke test reads one evidence file as `sa-api` |
 | L2 | **Terraform, the cache bucket** `precursor-intel-mlops-agents-cache` (us-central1, uniform access, 45-day lifecycle) | it exists, and `sa-api` is its only writer |
-| L3 | **Terraform, Cloud Run** `precursor-api`: min 0, max 2, 1 vCPU and 1 GiB to start, concurrency 10, request timeout 120 s, the `sa-api` service account, the image from Artifact Registry, environment variables from settings, the OAuth client ID as a variable, and the allowlist from Secret Manager | the service exists, serving traffic to the latest revision |
+| L3 | **Terraform, Cloud Run** `precursor-api`: min 0, max 2, 1 vCPU and 1 GiB to start, concurrency 10, request timeout 120 s (300 s if Agent 4's facility briefs can't run concurrently, see 6.7), the `sa-api` service account, the image from Artifact Registry, environment variables from settings, the OAuth client ID as a variable, and the allowlist from Secret Manager | the service exists, serving traffic to the latest revision |
 | L4 | **Vertex AI, by hand:** add `aiplatform.googleapis.com` and `run.googleapis.com` to the `gcloud services enable` command in `gcp-bootstrap.md` step 1 (the project owner runs it); enable the gpt-oss models in Model Garden; confirm the region and the exact model id. **Day one, from a laptop:** prove that a Pydantic AI run with a tool call and structured output works on the gpt-oss endpoint; it's the riskiest unknown | a tool call with structured output succeeds, first from a laptop, then from Cloud Run |
 | L5 | **Terraform, observability:** a log sink from Cloud Run's `llm_call` lines to BigQuery `llm_calls` (once Nishanth's BigQuery dataset exists), and the C4 metrics and alerts | a call shows up in BigQuery within minutes |
-| L6 | **Budgets, by hand:** the main budget (`pi-trial-credit`) already exists. Add a Vertex-only budget in the console and record it in `gcp-bootstrap.md`. Not Terraform: `sa-tf-apply` has no billing-account role | alert emails go to the team |
+| L6 | **Budgets, by hand:** the main budget (`pi-trial-credit`) already exists. Add a Vertex-only budget in the console, with alerts at $10, $25 and $50 (6.6), and record it in `gcp-bootstrap.md`. Not Terraform: `sa-tf-apply` has no billing-account role | alert emails go to the team |
 | L7 | **Image:** `docker/backend.Dockerfile` (the name `backend/README.md` uses). A pinned `node` stage runs `npm ci` and `vite build`; the Python stage uses uv with `--extra agents --extra api`, non-root, pinned base, and copies in `dist/`. Add what the API needs to the `agents` or `api` extras: `polars`, `pyarrow`, `gcsfs`, `opentelemetry-sdk` and the Cloud Trace exporter. Not the whole `pipeline` extra: duckdb, pandas, pandera and psycopg stay out | `docker run ... /health` returns 200 in CI, and `/` serves the app |
-| L8 | **CD:** `cd.yml` builds, tests and pushes `api:<sha>`, and counts it in "already published" | the image is in Artifact Registry after a merge |
+| L8 | **CD:** `cd.yml` builds, tests and pushes `api:<sha>`, and counts it in "already published"; a cleanup policy keeps the last 10 `api` images (6.4) | the image is in Artifact Registry after a merge |
 | L9 | **Deploy:** `deploy-api.yml` deploys a sha to Cloud Run with no traffic, runs a smoke test on the new revision's URL (health plus one cached brief), then moves traffic to 100%. A rollback deploys an older sha. WIF uses a new `sa-api-deployer` (`run.developer` on this one service, `actAs sa-api`) | a bad revision never gets traffic; a rollback works |
 | L10 | **The batch step on the VM:** a new DAG `cms_nh_agents`, scheduled on the asset `cms_nh_scores` (which `publish` emits), runs `build-evidence` and then `build-corpus` (when its version changes) in the `pipeline` image. So the idle shutdown waits for it, add it to the `PI_BUSY_DAGS` default in `infra/vm/pi-busy` and to `RUN_DAGS` in `infra/vm/pi-down`. Both ship to the VM as metadata through Terraform, so this is an infra change, picked up on the VM's next boot | after a monthly publish, `agents/evidence/v=<new month>/` and the new `_current.json` appear |
 | L11 | **Pre-warming (optional):** after `build-evidence`, generate and cache briefs for the top 50 riskiest facilities, so the demo and the busiest requests are instant | the cost stays inside the daily cap |
@@ -252,7 +252,120 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 
 ---
 
-## 6. Decisions needed now
+## 6. Cost in production
+
+**Summary:**
+- **To Dec 1:** about **$50-75** in total, mostly golden-set evaluation runs.
+- **After Dec 1:** about **$20-25 a month** at demo-level use and about **$120 a month** at pilot-level use.
+- **The LLM is almost all of it:** the GCP services fit in their free tiers or cost a dollar or two a month.
+- **The worst case is bounded by the daily cap,** not by how much people use the app.
+
+These are planning estimates. The token counts are guesses until L4's laptop proof and the first `llm-eval` run measure them, so the numbers here are updated after those runs (task C3).
+
+### 6.1 Prices used
+
+| Item | Price | Free each month |
+|---|---|---|
+| Vertex AI `gpt-oss-120b` (planning price) | $0.15 per million input tokens, $0.60 per million output tokens | none |
+| The same model, lower listed price | $0.09 input, $0.36 output (if this is the current rate, every LLM number below falls by 40%) | |
+| `gpt-oss-20b` (fallback) | about half of the 120b price | |
+| Cloud Run, request-based billing | $0.000024 per vCPU-second, $0.0000025 per GiB-second, $0.40 per million requests | 180,000 vCPU-seconds, 360,000 GiB-seconds, 2 million requests |
+| GCS Standard, us-central1 | $0.020 per GB-month; $0.005 per 1,000 writes; $0.0004 per 1,000 reads | |
+| Cloud Logging | $0.50 per GiB | 50 GiB |
+| Cloud Trace | $0.20 per million spans | 2.5 million spans |
+| BigQuery | $6.25 per TB queried, $0.02 per GB stored | 1 TB queried, 10 GB stored |
+| Artifact Registry | $0.10 per GB-month | 0.5 GB |
+
+Check every price against the live GCP pricing pages before the demo; Vertex's gpt-oss price has two published figures.
+
+### 6.2 Cost of one answer
+
+An agent run sends several model requests, and each request resends the conversation so far. That makes input tokens the bulk of the count. gpt-oss's reasoning tokens are billed as output.
+
+| Answer | Model requests | Input tokens | Output tokens | Cost (planning price) |
+|---|---|---|---|---|
+| Agent 2, one evidence search | about 3 | about 14,000 | about 1,500 | **$0.003** |
+| Agent 1, one facility brief, own run | about 4 | about 20,000 | about 2,500 | $0.0045 |
+| Agent 1, one brief with k = 2 Agent 2 calls | | | | **$0.011** |
+| Agent 3, one ops report | about 3 | about 15,000 | about 2,000 | **$0.0035** |
+| Agent 4, one portfolio brief with N = 10 (10 Agent 1 briefs plus its own run) | 1 + N x (1 + k) = 31 runs | | | **$0.11** (less when the facility briefs are cached) |
+
+**A retry** adds one more request inside the same run, so a failed first answer costs about 1.3 times as much. A fallback answer costs nothing more: it's a template.
+
+**The hard ceiling per run:** a request limit of 6 (D4), about 32,000 input tokens per request at most, and `max_tokens` of 2,000. That's at most about **$0.036 per run**, whatever the model does.
+
+### 6.3 Monthly cost by use level
+
+Both levels assume 30% of facility briefs come from the cache, helped by pre-warming (L11).
+
+| Use level | Agent 1 a day | Agent 2 | Agent 3 | Agent 4 | LLM per month | Cloud Run per month |
+|---|---|---|---|---|---|---|
+| **Demo** (the team plus a few reviewers) | 50 | 20 | 5 | 2 | about **$20** | $0 (inside the free tier) |
+| **Pilot** (a few insurer users) | 300 | 100 | 20 | 10 | about **$115** | about $4 |
+
+**Cloud Run:**
+- A facility brief takes about 30 seconds, most of it waiting for the model, and a portfolio brief takes about 2 minutes.
+- Demo use is about 60,000 instance-seconds a month, inside the free tier.
+- Pilot use is about 345,000, so about 165,000 vCPU-seconds are billed, about $4. Memory stays inside its free tier.
+- With min 0 instances, nothing is billed while idle.
+- Setting min 1 for demo day only, to avoid a cold start, costs well under a dollar.
+
+### 6.4 Fixed monthly costs (any use level)
+
+| Item | Why it's small | Per month |
+|---|---|---|
+| GCS: evidence, corpus, cache, counter | evidence and corpus are MBs; a cached answer is about 5 KB; the counter is one write per run (about 15,000 writes a month at most) | under $0.50 |
+| Cloud Logging, Cloud Trace | about 1 KB per `llm_call` line and about 20 spans per brief, far inside the free tiers | $0 |
+| BigQuery `llm_calls` | MBs stored, small queries | $0 |
+| Artifact Registry `api` images | about 0.4 GB each; a cleanup policy keeping the last 10 (add to L8) keeps it near 4 GB | about $0.40 |
+| Secret Manager: the allowlist | one secret version, read at startup | under $0.10 |
+| The VM: `build-evidence` once a month | about 15 minutes of e2-standard-4 | under $0.10 |
+| Pre-warming (L11) | 50 briefs a month | about $0.55 |
+| **Total** | | **about $1-2** |
+
+### 6.5 Building and evaluating, to Dec 1
+
+| Item | Estimate |
+|---|---|
+| One full golden-set run, all four agents: 40 x $0.011 + 50 x $0.003 + 15 x $0.0035 + 10 x $0.11 | about $1.75 |
+| About 20 full runs through Dec 1 (prompt changes, re-runs) | about $35 |
+| Laptop and dev testing against Vertex (L4, the team) | about $10-20 |
+| Demo week (demo-level use, plus a rehearsal) | about $5-10 |
+| Infrastructure (6.4) | about $2 |
+| **Total to Dec 1** | **about $50-75** |
+
+### 6.6 The worst case, and the cap
+
+The daily cap in D3 is the only thing that stops a bug or a busy user from spending the trial credit (`pi-trial-credit`, $300). At the $0.036 ceiling per run:
+
+| Daily cap (agent runs) | Worst case a day | Worst case a month |
+|---|---|---|
+| 100 | $3.60 | $108 |
+| 300 | $10.80 | $324 |
+| 1,000 | $36 | $1,080 |
+
+**Recommendation (decision 7):**
+- A cap of **300 agent runs a day**, plus a **daily spend stop of $3**, summed from C3's per-call cost estimates in the same counter object. Whichever trips first returns 429.
+- That holds the worst month near $90, covers demo use (about 190 runs and $0.70 a day) with room, and is raised in one setting for a pilot.
+- **The Vertex-only budget (L6):** alerts at $10, $25 and $50.
+- **The C4 alert:** fires when a day's estimated spend passes $2.
+
+### 6.7 What moves the cost most
+
+1. **Tokens per request.** This is the biggest unknown. Pass the model only what it needs (for example the 10 most recent citations, not 36 months), and measure it in L4 and the first `llm-eval` run.
+2. **Reasoning effort.** gpt-oss bills reasoning as output. Run it at low reasoning effort unless the golden sets get worse.
+3. **The cache and pre-warming.** Every cache hit costs nothing, and the busiest facilities are pre-warmed each month.
+4. **N and k.** Agent 4's top N and Agent 1's Agent 2 calls multiply the cost. N = 10 and k = 2 keep a portfolio brief near $0.11.
+5. **Batch for pre-warming.** Vertex batch prediction is about half price, which fits L11 since nobody waits for it.
+6. **The 20b fallback.** About half price, but used only when the 120b fails, not to save money, unless the golden sets pass on it too.
+
+**Two timing risks for the tasks:**
+- **Cloud Run request timeout:** a portfolio brief that runs its 10 Agent 1 briefs one after another can pass L3's 120-second timeout. Run them concurrently in H1, or raise the timeout to 300 s.
+- **Artifact Registry cleanup policy:** add it in L8, so old images don't pile up.
+
+---
+
+## 7. Decisions needed now
 0. **The frontend owner.** The React app is a new workstream (M), and it needs an owner.
 1. **Demo scope.** Recommendation: Agents 1 and 2 are the must-haves; Agents 3 and 4 are stretch goals.
 2. **Vertex AI.** Who enables the gpt-oss models in Model Garden; the region (us-central1 if available); the quota; the daily call cap and the monthly LLM budget.
@@ -260,3 +373,4 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 4. **UI hosting and auth (ADR 0001).** Recommended: one Cloud Run service with FastAPI serving the built app, and Google sign-in verified in FastAPI against an email allowlist. The alternatives are a separate nginx `precursor-ui` service with CORS, and IAP in front of Cloud Run (no auth code, but it has to work on a project with no organization). Either way, `/health` stays open and every other endpoint needs a signed-in user.
 5. **The Retriever's corpus.** Deficiency-tag descriptions only, or Appendix PP too.
 6. **The cache.** A GCS bucket (recommended) or Firestore.
+7. **The daily cap and spend stop (6.6).** Recommended: 300 agent runs and $3 of estimated spend a day, whichever comes first, with Vertex budget alerts at $10, $25 and $50.
