@@ -83,15 +83,16 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 
 | Evidence ID | Returned by | Example |
 |---|---|---|
-| `score:<ccn>:<v>` | `get_facility_score`, `portfolio_stats` | `score:015009:2026-10` |
-| `reason:<ccn>:<v>:<rank>` | `get_reasons` | `reason:015009:2026-10:1` |
-| `citation:<ccn>:<date>:<tag>` | `get_citations` | `citation:015009:2026-03-14:F689` |
-| `penalty:<ccn>:<date>:<type>` | `get_penalties` | `penalty:015009:2026-04-02:fine` |
+| `score:<ccn>:<v>` | `get_facility_score` | `score:015009:2026-10` |
+| `reason:<ccn>:<v>:<raises\|lowers>:<rank>` (rank restarts at 1 in each direction) | `get_reasons` | `reason:015009:2026-10:raises:1` |
+| `citation:<ccn>:<survey_date>:<ftag>` (the tag as prefix plus four digits) | `get_citations` | `citation:015009:2026-03-14:F0689` |
+| `penalty:<ccn>:<penalty_date>:<fine\|payment_denial>:<n>` (n from 1: one date can hold several identical fines) | `get_penalties` | `penalty:015009:2026-04-02:fine:1` |
 | `chain:<chain_id>:<v>` | `get_chain` | `chain:123:2026-10` |
-| `passage:<source>:<tag>:<n>` | `search_passages`, `get_passage` | `passage:citation_lookup:F689:0` |
+| `portfolio:<v>:<hash>` (first 12 hex of the sha256 of the sorted CCNs and `top_n`) | `portfolio_stats` | `portfolio:2026-10:3f9a0c1b2d4e` |
+| `passage:<source>:<tag>:<n>` (`n` numbers a tag's wordings, oldest first; same tag spelling as `ftag`) | `search_passages`, `get_passage` | `passage:cms_tag:F0689:0` |
 | `ops:<kind>:<v>` | Agent 3's tools (`kind` is status, gates, card or drift) | `ops:gates:2026-10` |
 
-The shared record types (`Evidence`, `Driver`, the `data_as_of` and caveat fields) come in A5, first, so every tool and agent uses the same ones. A new tool or ID format is a change to this table in the same PR.
+Riya's `Record` (`evidence_id`, `v`, `gold_run_id`; E3) is the base of every tool record, and A5 builds on it rather than adding a second type: `Driver`, `Section`, and the `data_as_of` and caveat fields. The formats above match the code in the E3 and G1 PRs. A new tool or ID format is a change to this table in the same PR.
 
 ### Libraries
 
