@@ -317,6 +317,14 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
   - a re-read of every staged file for its checks (`gold/build.py`, `_run` and `_stage`).
 - **Why it matters:** on the full archive (spine 2023-01 → 2026-09, ≈ 590k rows; ≈ 755k with a 2022-01 start, spec §14 #10) the review estimates a 4–5 GB peak. That was too tight for the originally planned 8 GB VM: the Airflow services and Postgres use about 2–2.5 GB and `PI_TASK_MEM_LIMIT` was 6g, so the VM itself could run out of memory before the container limit stopped the task.
 - **Measured on the VM, 2026-11-20 (T25):** the first full-archive gold (775,400 rows × 148 columns: spine 2022-01, quality family) was **OOM-killed at 10.46 GB** anonymous memory by its 10g container limit (`build_gold` exit 137 after 324 s; kernel `Memory cgroup out of memory`). The estimates below predate the 2022-01 spine (+31% rows) and W5 (+41 columns); scaled, gold needs **≈ 12–14 GiB**. The VM is therefore an e2-highmem-4 (32 GB) with `PI_TASK_MEM_LIMIT=20g`. The fix below would bring gold back to a 16 GB machine.
+- **T25 on the VM, per node** (`docker stats` sampled every few seconds, so short spikes can be missed):
+
+  | Node | Duration | Peak memory |
+  |---|---|---|
+  | ingestion (69 zips) | 24.0 min (download 2.3 min, extract 21.0 min, 3 at a time) | host 3.2 GiB; each extract task ~450 MiB, the download task 814 MiB |
+  | bronze (427 files) | 9.6 min | host 3.8 GiB; the task 1.9 GiB |
+  | silver (incl. validation) | 8.4 min | host 2.8 GiB; the task 835 MiB |
+  | gold (775,400 × 148) | 5.9 min (+ 12 s validation) | **above 10.46 GB** (killed there under the 10g limit); sampled up to 8.5 GiB under 20g, host 10.6 GiB of 31 |
 - **Update 2026-10-29 (superseded):** the VM was an e2-standard-4 with 16 GB and `PI_TASK_MEM_LIMIT=10g`, for the ≈ 5.8 GB estimate below.
 - **Measured locally (runbook §8.2):** gold peaked at **1.95–2.17 GB** for 207k–237k rows (sampled every 2 s, so short spikes can be missed). Scaled linearly to the full archive's ≈ 590k rows, that is **≈ 5 GB**, above the ~4 GB comfort line of an 8 GB VM.
 - **Merged dataset file (PR #32):** writing `gold/facility_month_dataset.parquet` adds about 16% to the peak (2.55–2.57 → 2.95–2.99 GiB on the 237k-row subset, sampled every 0.1 s), so the full-archive estimate goes from ≈ 5 GB to **≈ 5.8 GB**: within the 16 GB VM's 10g limit, but close to an 8 GB VM's 6g. Writing that file by streaming the staged partitions, instead of holding a second sorted copy, is part of the fix below.

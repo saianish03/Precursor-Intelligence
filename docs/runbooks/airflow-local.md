@@ -346,3 +346,20 @@ Release `5697619` on `pi-airflow` (e2-standard-4, 16 GB), written to the trial p
 Both emails arrived: `… runs on a trial prefix` (from `pi-deploy`) and `[cms_nh_pipeline] run failed:
 ingestion.discover_download`. Afterwards: the override removed (the stack is back on the bucket root), the DAGs left
 paused, the trial prefix deleted; `precursor_meta` still holds the trial's records until T24 resets it.
+
+### 8.5 On the GCP VM: the first full backfill (T25, 2026-11-20/21)
+`mode=backfill` node by node (`stop_after`), into the bucket root owned by the VM's fresh database (T24), with
+`cms_nh_release_check` and `cms_nh_ml` paused. Each checkpoint was compared with the official run `p0_backfill_1`
+(`ml-dev/`, the laptop stack, 2026-11-11). Releases `5697619`, then `8ed727c` (#90) for gold.
+
+| Run | Result (laptop) | Compared with the official run |
+|---|---|---|
+| `t25-ingestion` | **24.0 min** (51): 69 zips downloaded in 138 s (366), extracted 3 at a time in 21.0 min (45), at most 76 s per zip | `01_inventory.csv` identical (1,504 rows, every zip's sha256: CMS changed nothing since Nov 11); the summary has the same 393 lines |
+| `t25-bronze` | **10.5 min** (18.6): `load_bronze` 575 s | `bronze_files`: 441 of 441 content hashes equal |
+| `t25-silver` | **9.4 min** (15.4): `build_silver` 400 s, `validate_silver` 103 s | `silver_partitions`: 504 of 504 content hashes equal; Checkpoints 2–4 identical; the validation stats differ only in 295 standard deviations, at most 1.2e-15 relative (amd64 vs arm64 float summation) |
+| `t25-gold` (e2-standard-4, 10g) | **failed**: `build_gold` OOM-killed after 324 s (exit 137, the kernel's memory cgroup, 10.46 GB anonymous memory) | — |
+| `t25-gold-2` (e2-highmem-4, 20g, #90) | **11.2 min**: `build_gold` 356 s (15.2 min on the laptop, from the CLI), `validate_gold` 12 s | gold V 2026-10, v_labels 2026-10, **52 months, 775,400 rows × 148 columns**: all 83 non-float columns identical, 64 of 65 float columns bit-identical, `fine_dollars_24m` within 2.2e-16 relative, which is all that changes `dataset_version` (`50b5a48bd0259da9` vs `3f9bac9367ae18ec`) |
+
+The failure email arrived (`[cms_nh_pipeline] run failed: gold.build_gold`). The laptop driving the runs slept after
+the first one; the VM's idle shutdown then stopped it 78 minutes after the last SSH session, dumping first, and the
+runs went on after a restart. Memory peaks per node are in `AIRFLOW_PIPELINE.md` §9.1.
