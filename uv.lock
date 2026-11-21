@@ -1571,6 +1571,9 @@ wheels = [
 pyopenssl = [
     { name = "cryptography" },
 ]
+requests = [
+    { name = "requests" },
+]
 
 [[package]]
 name = "google-auth-oauthlib"
@@ -3524,7 +3527,8 @@ dependencies = [
 
 [package.optional-dependencies]
 agents = [
-    { name = "google-auth" },
+    { name = "google-auth", extra = ["requests"] },
+    { name = "httpx2" },
     { name = "pydantic-ai-slim", extra = ["openai"] },
     { name = "rank-bm25" },
 ]
@@ -3614,7 +3618,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.143.0" },
     { name = "fsspec", marker = "extra == 'pipeline'", specifier = ">=2026.9.0" },
     { name = "gcsfs", marker = "extra == 'pipeline'", specifier = ">=2026.10.0" },
-    { name = "google-auth", marker = "extra == 'agents'", specifier = ">=2.61.0" },
+    { name = "google-auth", extras = ["requests"], marker = "extra == 'agents'", specifier = ">=2.61.0" },
     { name = "google-cloud-bigquery", marker = "extra == 'api'", specifier = ">=3.46.1" },
     { name = "google-cloud-bigquery", marker = "extra == 'pipeline'", specifier = ">=3.46.1" },
     { name = "google-cloud-secret-manager", marker = "extra == 'api'", specifier = ">=2.31.0" },
@@ -3622,6 +3626,7 @@ requires-dist = [
     { name = "google-cloud-storage", marker = "extra == 'pipeline'", specifier = ">=3.17.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'ui'", specifier = ">=0.28.1" },
+    { name = "httpx2", marker = "extra == 'agents'", specifier = ">=2.13.1" },
     { name = "interpret", marker = "extra == 'ml-extra'", specifier = ">=0.7.8" },
     { name = "joblib", marker = "extra == 'ml'", specifier = ">=1.6.0" },
     { name = "lightgbm", marker = "extra == 'ml'", specifier = ">=4.7.0" },
