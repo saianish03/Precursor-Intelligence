@@ -61,8 +61,8 @@ stages:
       nfiles: 17
     - path: src/precursorintelligence/harmonize
       hash: md5
-      md5: d72266e7c90cd8eb9f27bbdb34e290fe.dir
-      size: 113509
+      md5: 7b288b8aed9a7bdffccdfa654a0045fe.dir
+      size: 113780
       nfiles: 18
     - path: src/precursorintelligence/ingestion
       hash: md5
@@ -203,6 +203,11 @@ stages:
       hash: md5
       md5: af54ddbff9a0ce8d307e48490c156d0d
       size: 3985
+    - path: src/precursorintelligence/agents
+      hash: md5
+      md5: 77f19da611594527bc0aba885780ca04.dir
+      size: 28645
+      nfiles: 4
     - path: src/precursorintelligence/bias
       hash: md5
       md5: 4f39f56019ddc6d2d2c66c4ac3b2700e.dir
@@ -225,8 +230,8 @@ stages:
       nfiles: 17
     - path: src/precursorintelligence/harmonize
       hash: md5
-      md5: d72266e7c90cd8eb9f27bbdb34e290fe.dir
-      size: 113509
+      md5: 7b288b8aed9a7bdffccdfa654a0045fe.dir
+      size: 113780
       nfiles: 18
     - path: src/precursorintelligence/ingestion
       hash: md5
