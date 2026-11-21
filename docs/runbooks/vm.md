@@ -31,9 +31,10 @@ here.
   ```
   The alert emails' log links point at `http://localhost:8080`, so they work through this tunnel.
 - **Every SSH connection keeps the VM up,** a port forward too: close them when done.
-- **The commands below** assume these two lines in your VM shell:
+- **The commands below** assume these two lines in your VM shell (absolute paths, as `pi-deploy` uses, so they work
+  from any folder):
   ```bash
-  cd /opt/precursor/compose && dc="docker compose -f docker-compose.yaml -f docker-compose.vm.yaml --env-file /etc/precursor/.env"
+  dc="docker compose -f /opt/precursor/compose/docker-compose.yaml -f /opt/precursor/compose/docker-compose.vm.yaml --project-directory /opt/precursor/compose --env-file /etc/precursor/.env"
   af() { sudo $dc exec -T airflow-scheduler airflow "$@" </dev/null; }
   ```
   Never run `$dc config` without `-q` or `--services`: it prints the env file's secrets.
