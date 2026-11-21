@@ -21,7 +21,7 @@ from precursorintelligence.agents.retriever_eval import (
     score_retrieval,
 )
 
-F689 = "passage:cms_tag:F0689:0"
+F689 = "passage:cms_tag:F0689:2021-01"
 
 
 @pytest.fixture(scope="module")
@@ -54,7 +54,9 @@ def test_the_repo_golden_set():
         dict(answerable=False, expected_tags=["F0689"], expected_passages=[], why_unanswerable="x"),
         dict(answerable=False, expected_tags=[], expected_passages=[]),
         dict(
-            answerable=True, expected_tags=["F0689"], expected_passages=["passage:cms_tag:F0880:0"]
+            answerable=True,
+            expected_tags=["F0689"],
+            expected_passages=["passage:cms_tag:F0880:2021-01"],
         ),
     ],
 )
@@ -91,7 +93,7 @@ def small_golden() -> GoldenSet:
                 answerable=True,
                 kind="as_of",
                 expected_tags=["F0605"],
-                expected_passages=["passage:cms_tag:F0605:0"],
+                expected_passages=["passage:cms_tag:F0605:2021-01"],
                 as_of="2024-06",
             ),
         ],
@@ -122,7 +124,9 @@ def test_perfect_answers_meet_the_targets(corpus):
     answers = {
         "er-001": _es("q", [Quote(passage_id=F689, text="adequate supervision")]),
         "er-002": _es("q", abstained=True),
-        "er-003": _es("q", [Quote(passage_id="passage:cms_tag:F0605:0", text="restrain them")]),
+        "er-003": _es(
+            "q", [Quote(passage_id="passage:cms_tag:F0605:2021-01", text="restrain them")]
+        ),
     }
     out = score_answers(gs, answers, corpus)
     assert (

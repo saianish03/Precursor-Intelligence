@@ -29,7 +29,7 @@ from precursorintelligence.agents.evidence_retriever import (
     validate_answer,
 )
 
-F689 = "passage:cms_tag:F0689:0"
+F689 = "passage:cms_tag:F0689:2021-01"
 F689_TEXT = (
     "Ensure that a nursing home area is free from accident hazards and provides adequate supervision to "
     "prevent accidents."
@@ -94,7 +94,7 @@ EDITED = {
 MADE_UP = {
     "abstained": False,
     "quotes": [
-        {"passage_id": "passage:cms_tag:F0880:0", "text": "infection prevention and control"}
+        {"passage_id": "passage:cms_tag:F0880:2021-01", "text": "infection prevention and control"}
     ],
     "claims": [],
 }
@@ -193,7 +193,7 @@ def test_validate_answer_rules(corpus):
     unquoted_claim = EvidenceAnswer(
         abstained=False,
         quotes=[Quote(passage_id=F689, text="adequate supervision")],
-        claims=[Claim(claim="x", passage_ids=["passage:cms_tag:F0880:0"])],
+        claims=[Claim(claim="x", passage_ids=["passage:cms_tag:F0880:2021-01"])],
     )
     assert "not a valid quote" in validate_answer(unquoted_claim, corpus, ledger)[0]
     no_reason = EvidenceAnswer(abstained=True)
@@ -208,7 +208,7 @@ def test_validate_answer_rules(corpus):
 
 def test_fallback_answer_quotes_whole_passages(corpus):
     a = fallback_answer("pressure ulcer care", corpus)
-    assert not a.abstained and a.quotes[0].passage_id == "passage:cms_tag:F0686:0"
+    assert not a.abstained and a.quotes[0].passage_id == "passage:cms_tag:F0686:2021-01"
     assert a.quotes[0].text == corpus.get(a.quotes[0].passage_id).text
 
 
