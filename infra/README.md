@@ -37,7 +37,7 @@ recreated.
   every boot. What runs on it is the release that the instance metadata `pi-release` names: `pi-deploy` deploys it at
   boot and whenever it changes (`infra/vm/README.md` "Deploys"); the Deploy workflow (T22) sets it. Terraform
   ignores that pointer and new Debian images, so neither ever replaces the VM. CI refuses any replacement anyway.
-- **Created running:** the apply that creates it starts it. It costs about $0.18 an hour ($4.40 a day); a stopped VM
+- **Created running:** the apply that creates it starts it. It costs about $0.19 an hour ($4.50 a day); a stopped VM
   costs only its disks (about $4 a month). Details: "Cost of the VM" below. The idle shutdown (T21) stops it after an hour with no run and no SSH
   connection; stop it yourself with `sudo pi-down` when you're done (`infra/vm/README.md`, "Up and down").
   ```bash
@@ -81,17 +81,17 @@ On-demand list prices, before the $300 trial credit; E2 machines get no sustaine
 | Disks: 30 GB boot + 10 GB Postgres, pd-balanced | ≈ $0.10 per GB-month, ≈ **$4 a month** ([disk pricing](https://cloud.google.com/compute/disks-image-pricing)) | always, also while stopped |
 | NAT external IP (`AUTO_ONLY`) | ≈ $0.005/h | while the VM runs; $0–3.65 a month if Google keeps the IP while it is stopped (the billing report shows which) |
 
-**Running: ≈ $0.18 an hour. Stopped: ≈ $4 a month.**
+**Running: ≈ $0.187 an hour** (the machine $0.1808, the NAT $0.0014 and its IP $0.005; the e2-standard-4 was ≈ $0.140). **Stopped: ≈ $4 a month.**
 
 | Situation | Running hours a month | Cost a month (e2-standard-4) |
 |---|---|---|
-| Stopped all month | 0 | **≈ $4** (up to ≈ $7.70 with a held NAT IP) |
-| Production: one CMS release a month (a ~1–1.5 h run: the new zip, silver, a full gold rebuild, the ML retrain and scores; then the idle shutdown's ~1–1.5 h) | 2–3 | **≈ $4.40–4.60** ($4.30–4.40) |
-| Development or demo weeks (VM sessions of 2–4 h on about 10 days) | 20–40 | **≈ $7.60–11.30** ($6.70–9.40) |
-| A heavy month (debugging, several backfills) | 100 | **≈ $22** ($17.50) |
+| Stopped all month | 0 | **≈ $4** (up to ≈ $7.65 with a held NAT IP) |
+| Production: one CMS release a month. **A person starts the VM on the release day** (e.g. 2026-12-02), since nothing starts it automatically: the hourly release check runs only while the VM is up. Then a ~1–1.5 h run (the new zip, silver, a full gold rebuild, the ML retrain and scores) and the idle shutdown's ~1–1.5 h. Keeping the VM up to wait for a release is the last row | 2–3 | **≈ $4.40–4.60** ($4.30–4.40) |
+| Development or demo weeks (VM sessions of 2–4 h on about 10 days) | 20–40 | **≈ $7.75–11.50** ($6.80–9.60) |
+| A heavy month (debugging, several backfills) | 100 | **≈ $22.70** ($18) |
 | One extra full backfill | ≈ 1 | **+ ≈ $0.30** (with 2.6 GB through NAT) |
-| **Edge: left running a day / a week** (an open SSH session, `pi-deploy pause` left on, a hung run) | 24 / 168 | **≈ $4.40 / ≈ $31** |
-| **Edge: left running all month** | 730 | **≈ $137** ($103) |
+| **Edge: left running a day / a week** (an open SSH session, `pi-deploy pause` left on, a hung run) | 24 / 168 | **+ ≈ $4.50 / + ≈ $31.50** on top of the month's other rows |
+| **Edge: left running all month** | 730 | **≈ $141** ($106) |
 
 - **The upgrade (T25, #90) adds $0.047 per running hour:** about $1–2 in a normal month, $34 only if the VM ran all
   month.

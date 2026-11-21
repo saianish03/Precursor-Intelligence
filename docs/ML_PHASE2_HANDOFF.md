@@ -38,7 +38,7 @@ decisions already made and the traps. State as of `dev` `b1b1d96` (2026-11-20).
 3. **Read:** the spec §15–§17, §18.1, §19 (decisions), §21 (limitations); `ML_PIPELINE.md` §13–§15 (how to run, the
    Phase 1 runs, known limitations); `infra/vm/README.md` (deploys, up and down, backups, restore);
    `runbooks/airflow-local.md` §2.1 (MLflow) and §5 (the VM); `AIRFLOW_PIPELINE.md`; `ALERTS_HANDOFF.md`.
-4. **Cost:** the VM costs about $0.18 an hour (e2-highmem-4; every situation in `infra/README.md`, "Cost of the VM"). It stops itself about 70–85 minutes after the last run and SSH session;
+4. **Cost:** the VM costs about $0.19 an hour (e2-highmem-4, with its NAT; every situation in `infra/README.md`, "Cost of the VM"). It stops itself about 70–85 minutes after the last run and SSH session;
    stop it yourself with `sudo pi-down`.
 
 ---

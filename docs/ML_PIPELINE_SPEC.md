@@ -622,7 +622,7 @@ All changes only add resources (the CI apply guard refuses deletes); `sa-tf-appl
 After the VM exists (VM plan T19–T23) and the real backfill is done (T25): pull and start the mlflow image; T21 idle shutdown and T20 deploys count `cms_nh_ml`; T22 deploys three images; the ML acceptance (§17.2) runs after T25 on real gold (a smoke run on trial gold would pollute the registry and the outputs; if one is needed, it uses the `_smoke` experiment and model name and publishes nothing).
 
 ### 16.6 Cost
-On top of the data pipeline's ~$10–15/month: MLflow bucket cents; BigQuery loads free, storage in the free tier; one secret ~$0.06; VM time ~20–60 extra minutes per monthly run (≈ $0.06–0.18 at the e2-highmem-4's $0.18/h, `infra/README.md` "Cost of the VM") and ~$0.35 per re-tune; Artifact Registry +$1–2.5 with the 7-day rule (+$5–10 without it).
+On top of the data pipeline's ~$10–15/month: MLflow bucket cents; BigQuery loads free, storage in the free tier; one secret ~$0.06; VM time ~20–60 extra minutes per monthly run (≈ $0.06–0.19 at the e2-highmem-4's ≈ $0.19/h with its NAT, `infra/README.md` "Cost of the VM") and ~$0.35 per re-tune; Artifact Registry +$1–2.5 with the 7-day rule (+$5–10 without it).
 
 ---
 
