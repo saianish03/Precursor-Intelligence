@@ -16,7 +16,9 @@ The month comes only from ``_current.json``: never from ``status/latest.json`` (
 nothing scored) and never from listing the prefix. The pointer must match the manifest's sha256, and each file its
 manifest entry, or the read refuses (``EvidenceError``): a half-written month is never served. ``citations`` and
 ``penalties`` have no ``gold_run_id`` column: the manifest's sha256 is what ties them to its gold run.
-``scores_manifest_sha256`` is not checked here; it is for the answer cache's key (D1).
+``scores_manifest_sha256`` is not checked here. The source keeps the pointer it read (``pointer``), so the answer
+cache's key (D1) comes from the same read as the evidence; the runner reopens the source when ``_current.json``
+changes.
 """
 
 from __future__ import annotations
@@ -24,7 +26,6 @@ from __future__ import annotations
 import hashlib
 import io
 import re
-import threading
 from collections.abc import Sequence
 from typing import Literal, Protocol
 
@@ -143,6 +144,11 @@ class EvidenceSource(Protocol):
     """Read-only access to one month's evidence."""
 
     @property
+    def pointer(self) -> CurrentPointer:
+        """The ``_current.json`` this source was opened from."""
+        ...
+
+    @property
     def manifest(self) -> EvidenceManifest: ...
 
     def rows(self, table: Table, key: str, values: Sequence[str]) -> pl.DataFrame:
@@ -157,17 +163,17 @@ def _sha256(data: bytes) -> str:
 class ParquetEvidenceSource:
     """The evidence of the month in ``<prefix>_current.json``, from parquet in an ``ObjectStore`` (GCS or local).
 
-    ``open`` reads and checks the pointer and the manifest; each table is read, checked against the manifest and
-    kept in memory on first use (they are small, and fixed for the month).
+    ``open`` reads and checks the pointer, the manifest and every table, and keeps the tables in memory (they are
+    small, and fixed for the month): a bad file is refused at startup, and tool calls never touch the store, so a
+    stuck read can only fail the instance's start.
     """
 
-    def __init__(self, store: ObjectStore, manifest: EvidenceManifest) -> None:
-        self._store = store
+    def __init__(
+        self, pointer: CurrentPointer, manifest: EvidenceManifest, tables: dict[Table, pl.DataFrame]
+    ) -> None:
+        self._pointer = pointer
         self._manifest = manifest
-        self._tables: dict[Table, pl.DataFrame] = {}
-        self._locks = {
-            t: threading.Lock() for t in TABLE_COLUMNS
-        }  # a slow table never blocks another
+        self._tables = tables
 
     @classmethod
     def open(cls, store: ObjectStore, prefix: str) -> ParquetEvidenceSource:
@@ -206,52 +212,46 @@ class ParquetEvidenceSource:
             inside = key.startswith(directory) and "/" not in key[len(directory) :]
             if (expected and key != expected) or not inside:  # never another month's file
                 raise EvidenceError(f"{manifest_key} points {name} at {key}, outside {directory}")
-        return cls(store, manifest)
+        tables = {t: _load(store, manifest, t) for t in TABLE_COLUMNS}
+        return cls(pointer, manifest, tables)
+
+    @property
+    def pointer(self) -> CurrentPointer:
+        return self._pointer
 
     @property
     def manifest(self) -> EvidenceManifest:
         return self._manifest
 
     def rows(self, table: Table, key: str, values: Sequence[str]) -> pl.DataFrame:
-        df = self._table(table)
-        return df.filter(pl.col(key).is_in(list(values)))
+        return self._tables[table].filter(pl.col(key).is_in(list(values)))
 
-    def _table(self, table: Table) -> pl.DataFrame:
-        with self._locks[table]:
-            if table not in self._tables:
-                self._tables[table] = self._load(table)
-            return self._tables[table]
 
-    def _load(self, table: Table) -> pl.DataFrame:
-        m = self._manifest
-        key = m.files[table]
-        data = _read(self._store, key)
-        if _sha256(data) != m.sha256.get(table):
-            raise EvidenceError(f"{key} does not match its sha256 in {EVIDENCE_MANIFEST}")
-        df = pl.read_parquet(io.BytesIO(data))
-        if df.height != m.rows.get(table):
-            raise EvidenceError(
-                f"{key} has {df.height} rows, the manifest says {m.rows.get(table)}"
-            )
-        missing = [c for c in TABLE_COLUMNS[table] if c not in df.columns]
-        if missing:
-            raise EvidenceError(f"{key} lacks the columns {missing}")
-        wrong = {
-            c: str(df.schema[c])
-            for c in TABLE_COLUMNS[table]
-            if c in COLUMN_TYPES and df.schema[c] not in (COLUMN_TYPES[c], pl.Null)
-        }
-        if wrong:
-            raise EvidenceError(f"{key} has columns of the wrong type: {wrong}")
-        if "gold_run_id" in df.columns and set(df["gold_run_id"].unique().to_list()) - {
-            m.gold_run_id
-        }:
-            raise EvidenceError(f"{key} holds rows of another gold run than {m.gold_run_id}")
-        if "model_version" in df.columns and set(df["model_version"].unique().to_list()) - {
-            m.model_version
-        }:
-            raise EvidenceError(f"{key} holds rows of another model version than {m.model_version}")
-        return df
+def _load(store: ObjectStore, m: EvidenceManifest, table: Table) -> pl.DataFrame:
+    key = m.files[table]
+    data = _read(store, key)
+    if _sha256(data) != m.sha256.get(table):
+        raise EvidenceError(f"{key} does not match its sha256 in {EVIDENCE_MANIFEST}")
+    df = pl.read_parquet(io.BytesIO(data))
+    if df.height != m.rows.get(table):
+        raise EvidenceError(f"{key} has {df.height} rows, the manifest says {m.rows.get(table)}")
+    missing = [c for c in TABLE_COLUMNS[table] if c not in df.columns]
+    if missing:
+        raise EvidenceError(f"{key} lacks the columns {missing}")
+    wrong = {
+        c: str(df.schema[c])
+        for c in TABLE_COLUMNS[table]
+        if c in COLUMN_TYPES and df.schema[c] not in (COLUMN_TYPES[c], pl.Null)
+    }
+    if wrong:
+        raise EvidenceError(f"{key} has columns of the wrong type: {wrong}")
+    if "gold_run_id" in df.columns and set(df["gold_run_id"].unique().to_list()) - {m.gold_run_id}:
+        raise EvidenceError(f"{key} holds rows of another gold run than {m.gold_run_id}")
+    if "model_version" in df.columns and set(df["model_version"].unique().to_list()) - {
+        m.model_version
+    }:
+        raise EvidenceError(f"{key} holds rows of another model version than {m.model_version}")
+    return df
 
 
 def _read(store: ObjectStore, key: str) -> bytes:

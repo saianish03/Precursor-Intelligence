@@ -19,6 +19,23 @@ def test_reads_the_month_in_the_pointer_not_a_newer_folder(store):
     assert source.rows("facility_scores", "ccn", ["015009"])["p"].to_list() == [0.42]
 
 
+def test_keeps_the_pointer_it_read(store):
+    # The answer cache's key (D1) comes from the same read as the evidence, never a second read of the pointer.
+    write_evidence(store)
+    pointer = json.loads(store.open_read(f"{PREFIX}_current.json").read())
+    source = ParquetEvidenceSource.open(store, PREFIX)
+    assert source.pointer.model_dump() == pointer
+
+
+def test_reads_never_touch_the_store_after_open(store):
+    # A stuck store read can then only fail the instance's start, never hold up a tool call.
+    m = write_evidence(store)
+    source = ParquetEvidenceSource.open(store, PREFIX)
+    for key in m["files"].values():
+        store.put_bytes(key, b"gone", overwrite=True)
+    assert source.rows("facility_scores", "ccn", ["015009"])["p"].to_list() == [0.42]
+
+
 def test_no_pointer_refuses(store):
     with pytest.raises(EvidenceError, match="_current.json is missing"):
         ParquetEvidenceSource.open(store, PREFIX)
@@ -73,25 +90,23 @@ def test_a_missing_table_refuses(store):
         ParquetEvidenceSource.open(store, PREFIX)
 
 
-def test_a_changed_file_is_refused_on_read(store):
+def test_a_changed_file_is_refused_on_open(store):
     write_evidence(store)
     store.put_bytes(
         f"{PREFIX}v={V}/citations.parquet",
         toy_tables()["citations"].head(1).write_ipc(None).getvalue(),
         overwrite=True,
     )
-    source = ParquetEvidenceSource.open(store, PREFIX)
     with pytest.raises(EvidenceError, match="does not match its sha256"):
-        source.rows("citations", "ccn", ["015009"])
+        ParquetEvidenceSource.open(store, PREFIX)
 
 
 def test_a_missing_column_is_refused(store):
     tables = toy_tables()
     tables["citations"] = tables["citations"].drop("scope_severity")
     write_evidence(store, tables)
-    source = ParquetEvidenceSource.open(store, PREFIX)
     with pytest.raises(EvidenceError, match="scope_severity"):
-        source.rows("citations", "ccn", ["015009"])
+        ParquetEvidenceSource.open(store, PREFIX)
 
 
 def test_rows_of_another_gold_run_are_refused(store):
@@ -100,9 +115,8 @@ def test_rows_of_another_gold_run_are_refused(store):
         gold_run_id=pl.lit("gold-other")
     )
     write_evidence(store, tables)
-    source = ParquetEvidenceSource.open(store, PREFIX)
     with pytest.raises(EvidenceError, match="another gold run"):
-        source.rows("facility_scores", "ccn", ["015009"])
+        ParquetEvidenceSource.open(store, PREFIX)
 
 
 def test_a_numeric_ccn_is_refused_not_read_as_unscored(store):
@@ -113,6 +127,5 @@ def test_a_numeric_ccn_is_refused_not_read_as_unscored(store):
         .with_columns(pl.col("ccn").cast(pl.Int64))
     )  # 015009 would become 15009
     write_evidence(store, tables)
-    source = ParquetEvidenceSource.open(store, PREFIX)
     with pytest.raises(EvidenceError, match="wrong type"):
-        source.rows("facility_scores", "ccn", ["015009"])
+        ParquetEvidenceSource.open(store, PREFIX)
