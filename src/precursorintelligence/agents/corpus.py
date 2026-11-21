@@ -4,11 +4,13 @@ Source today: the CMS deficiency-tag descriptions (silver ``citation_lookup_vers
 Appendix PP regulation text can be added as a second source once the team decides (plan §6, decision 5); a source is
 just a function that returns passages, so adding one changes no reader.
 
-Passage IDs are ``passage:<source>:<tag>:<n>``, e.g. ``passage:cms_tag:F0689:0``. The tag uses the same spelling as
-the ``ftag`` of a citation (prefix plus four digits), so Agent 1 can join a citation to its text. ``n`` numbers a
-tag's wordings, oldest first: CMS reworded a few tags (F0605 in 2025-04, K0311 in 2021-04), and a citation from
-before the change must be quoted with the wording it was written against. Each passage carries the vintages its
-wording was published in. History only grows, so an ID never changes meaning: a new wording gets the next ``n``.
+Passage IDs are ``passage:<source>:<tag>:<from>``, e.g. ``passage:cms_tag:F0689:2021-01``. The tag uses the same
+spelling as the ``ftag`` of a citation (prefix plus four digits), so Agent 1 can join a citation to its text.
+``<from>`` is the first vintage the wording was published in: CMS reworded a few tags (F0605 in 2025-04, K0311 in
+2021-04), and a citation from before the change must be quoted with the wording it was written against. Two wordings
+of one tag can't start in the same vintage (refused), so the ID is unique, and it never moves: a rebuild of silver
+with older vintages added, or a wording dropping out, leaves every other wording's ID as it was (a position number
+would shift). Each passage also carries the last vintage its wording was published in.
 
 CMS's lookup still lists the F-tags retired by the F-tag renumbering of 2017-11-28 (F0150-F0522; the current tags
 are F0540-F0949), with the same wording as their successors (F0323 and F0689). They are marked ``legacy``: in the
@@ -59,7 +61,8 @@ LOOKUP_COLUMNS = (
 )
 
 TAG_PATTERN = re.compile(r"^[A-Z]\d{4}$")
-PASSAGE_ID_PATTERN = re.compile(r"^passage:[a-z_]+:[A-Z]\d{4}:\d+$")
+VINTAGE_PATTERN = re.compile(r"^20\d\d-(0[1-9]|1[0-2])$")
+PASSAGE_ID_PATTERN = re.compile(r"^passage:[a-z_]+:[A-Z]\d{4}:20\d\d-(0[1-9]|1[0-2])$")
 VERSION_PATTERN = re.compile(r"^c\d+-[0-9a-f]{12}$")
 _SPACES = re.compile(r"\s+")
 FIRST_CURRENT_F_TAG = 540  # F-tag renumbering of 2017-11-28: F0540-F0949 replaced F0150-F0522
@@ -77,11 +80,10 @@ class Passage(BaseModel):
     passage_id: str = Field(pattern=PASSAGE_ID_PATTERN.pattern)
     source: str
     tag: str = Field(pattern=TAG_PATTERN.pattern)
-    n: int = Field(ge=0)
     category: str
     text: str = Field(min_length=1)
-    valid_from_vintage: str
-    valid_to_vintage: str
+    valid_from_vintage: str = Field(pattern=VINTAGE_PATTERN.pattern)
+    valid_to_vintage: str = Field(pattern=VINTAGE_PATTERN.pattern)
     is_current: bool  # the wording was in the newest vintage of citation_lookup
     legacy: bool  # a tag retired in 2017 (see the module docstring)
 
@@ -161,9 +163,9 @@ def is_legacy_tag(tag: str) -> bool:
 def passages_from_lookup(lookup: pl.DataFrame, source: str = CMS_TAG_SOURCE) -> list[Passage]:
     """One passage per tag wording, from silver ``citation_lookup_versions``.
 
-    A tag's wordings are numbered by ``valid_from_vintage``, oldest first. A wording is current when it was in the
-    newest vintage of the table. Raises ``CorpusError`` on missing columns, an empty table, a malformed tag or two
-    wordings of one tag starting in the same vintage.
+    A wording's ID ends in its ``valid_from_vintage``. A wording is current when it was in the newest vintage of the
+    table. Raises ``CorpusError`` on missing columns, an empty table, a malformed tag or vintage, or two wordings of
+    one tag starting in the same vintage.
     """
     missing = [c for c in LOOKUP_COLUMNS if c not in lookup.columns]
     if missing:
@@ -185,23 +187,24 @@ def passages_from_lookup(lookup: pl.DataFrame, source: str = CMS_TAG_SOURCE) -> 
     )
     if bad:
         raise CorpusError(f"malformed deficiency tags: {bad[:10]}")
+    for col in ("valid_from_vintage", "valid_to_vintage"):
+        bad = df.filter(~pl.col(col).str.contains(VINTAGE_PATTERN.pattern))[col].unique().to_list()
+        if bad:
+            raise CorpusError(f"malformed {col}: {sorted(map(str, bad))[:10]}")
     dup = df.group_by("tag", "valid_from_vintage").len().filter(pl.col("len") > 1)
     if dup.height:
         raise CorpusError(
             f"two wordings of one tag start in the same vintage: {dup['tag'].to_list()[:10]}"
         )
     newest = df["valid_to_vintage"].max()
-    df = df.sort("tag", "valid_from_vintage").with_columns(
-        pl.int_range(pl.len()).over("tag").alias("n")
-    )
+    df = df.sort("tag", "valid_from_vintage")
     out = []
     for r in df.iter_rows(named=True):
         out.append(
             Passage(
-                passage_id=f"passage:{source}:{r['tag']}:{r['n']}",
+                passage_id=f"passage:{source}:{r['tag']}:{r['valid_from_vintage']}",
                 source=source,
                 tag=r["tag"],
-                n=r["n"],
                 category=normalize_text(r["deficiency_category"] or ""),
                 text=normalize_text(r["deficiency_description"]),
                 valid_from_vintage=r["valid_from_vintage"],
@@ -210,12 +213,12 @@ def passages_from_lookup(lookup: pl.DataFrame, source: str = CMS_TAG_SOURCE) -> 
                 legacy=is_legacy_tag(r["tag"]),
             )
         )
-    return sorted(out, key=lambda p: (p.source, p.tag, p.n))
+    return sorted(out, key=lambda p: (p.source, p.tag, p.valid_from_vintage))
 
 
 def serialize_passages(passages: Sequence[Passage]) -> bytes:
     """Canonical JSONL: sorted keys, no extra whitespace, UTF-8, one passage per line, sorted by ID."""
-    ordered = sorted(passages, key=lambda p: (p.source, p.tag, p.n))
+    ordered = sorted(passages, key=lambda p: (p.source, p.tag, p.valid_from_vintage))
     ids = [p.passage_id for p in ordered]
     if len(set(ids)) != len(ids):
         raise CorpusError("duplicate passage IDs")

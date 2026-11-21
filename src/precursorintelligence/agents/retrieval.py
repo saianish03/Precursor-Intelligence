@@ -1,15 +1,18 @@
 """BM25 search over the Retriever's corpus (docs/AGENTS_PLAN.md G2), loaded once per instance.
 
-The index covers each passage's tag, category and text. A tag written any common way in a query ("F689", "F-0689",
-"f 689", "tag 689" is not one) becomes one token, ``tag_f0689``, which only that tag's passages hold, so asking for
-a tag by number finds it first.
+The index covers each passage's tag, category and text. A tag written in a query as a letter and its number
+("F689", "F-0689", "K712", "E0041") becomes one token, ``tag_f0689``, which only that tag's passages hold, so asking
+for a tag by number finds it first. A space is allowed only after F and before three or four digits ("F 689"), so
+ordinary text doesn't read as a tag ("vitamin E 400", "part K 12").
 
 The search abstains (no hits, and the reason) rather than hand Agent 2 a passage that doesn't answer the question, so
 Agent 2 can report ``abstained: true``. It abstains when either check fails:
 - **coverage:** at least ``min_coverage`` of the query's words must occur somewhere in the corpus. A query that names
   a tag the corpus holds passes this check by itself.
-- **score:** the best passage must score at least ``min_score``. A query that names a tag the corpus holds skips this
-  check (in a small corpus a tag token's idf is modest), gets that tag's passages first, then every other passage that scores above zero.
+- **score:** the best passage must score at least ``min_score``.
+A query that names a tag the corpus holds always gets that tag's passages, first, whatever their score (in a small
+corpus a tag token's idf is modest). The other passages are held to both checks as usual, on the query's other
+words, so "F689 python list comprehension" returns F0689 alone.
 Both checks are needed. BM25 scores are not normalized, and on the real CMS tag corpus (643 current wordings,
 2026-10) a raw score alone can't separate the two kinds of question: the weakest on-topic query ("F689") scored 5.0
 and an off-topic one ("python list comprehension", matching "list") scored 6.1. Coverage separates them (1.0 for the
@@ -38,7 +41,10 @@ DEFAULT_K = 5
 MAX_K = 20
 MAX_QUERY_CHARS = 500
 
-_TAG_IN_TEXT = re.compile(r"\b([efk])\s?-?\s?0*(\d{1,4})\b", re.IGNORECASE)
+_TAG_IN_TEXT = re.compile(
+    r"\b(?:([efk])-?0*(\d{1,4})|(f)\s0*(\d{3,4}))\b",  # "F689", "F-0689", "K712"; a space only in "F 689"
+    re.IGNORECASE,
+)
 _WORD = re.compile(r"[a-z0-9]+")
 _VINTAGE = re.compile(r"^20\d\d-(0[1-9]|1[0-2])$")
 
@@ -56,6 +62,14 @@ def tag_token(prefix: str, number: str) -> str:
     return f"tag_{prefix.lower()}{int(number):04d}"
 
 
+def _tag_mentions(text: str) -> list[tuple[str, str]]:
+    """(prefix, number) for every tag a text mentions, in order."""
+    return [
+        (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+        for m in _TAG_IN_TEXT.finditer(text)
+    ]
+
+
 def _stem(word: str) -> str:
     """A light plural fold so "ulcers" matches "ulcer" and "falls" matches "fall"; no other suffixes."""
     if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
@@ -65,7 +79,7 @@ def _stem(word: str) -> str:
 
 def tokenize(text: str) -> list[str]:
     """Lower-case words without stopwords, plural-folded, plus one ``tag_x0000`` token per tag mentioned."""
-    tags = [tag_token(m.group(1), m.group(2)) for m in _TAG_IN_TEXT.finditer(text)]
+    tags = [tag_token(prefix, number) for prefix, number in _tag_mentions(text)]
     words = [_stem(w) for w in _WORD.findall(text.lower()) if w not in STOPWORDS]
     return tags + words
 
@@ -115,6 +129,10 @@ class Bm25Index:
         """The share of the query's word tokens that occur in the corpus; 1.0 when it names a tag the corpus holds."""
         if any(t.startswith("tag_") and t in self._vocab for t in tokens):
             return 1.0
+        return self.word_coverage(tokens)
+
+    def word_coverage(self, tokens: Sequence[str]) -> float:
+        """The share of the query's word tokens (tags aside) that occur in the corpus; 0.0 with no words."""
         words = [t for t in tokens if not t.startswith("tag_")]
         if not words:
             return 0.0
@@ -142,8 +160,9 @@ class Bm25Index:
                 f"only {cov:.0%} of the query's words occur in the corpus (needs {min_coverage:.0%})",
             )
         scores = self._bm25.get_scores(tokens)
-        named = {t for t in tokens if t.startswith("tag_")}
-        names_a_tag = bool(named & self._vocab)
+        named = {t for t in tokens if t.startswith("tag_")} & self._vocab
+        # without a named tag this repeats the coverage check above; with one, it holds the other passages to it
+        others_ok = not named or self.word_coverage(tokens) >= min_coverage
         # the passages of a tag the query names come first, then by score
         order = sorted(
             range(len(scores)),
@@ -155,9 +174,9 @@ class Bm25Index:
         )
         hits = tuple(
             Hit(self.passages[i], float(scores[i]))
-            for i in order[:k]
-            if (scores[i] > 0 if names_a_tag else scores[i] >= min_score)
-        )
+            for i in order
+            if self._tag_tokens[i] in named or (others_ok and scores[i] >= min_score)
+        )[:k]
         if not hits:
             best = float(scores[order[0]]) if order else 0.0
             return self._abstain(
@@ -179,13 +198,25 @@ def _in_force(p: Passage, as_of: str | None) -> bool:
 
 
 _lock = threading.Lock()
+# (corpus version, as_of, include_legacy) -> index; months with the same wordings in force share one index
 _indexes: dict[tuple[str, str | None, bool], Bm25Index] = {}
+_by_passages: dict[tuple[str, frozenset[str]], Bm25Index] = {}
+
+
+def _in_force_ids(corpus: Corpus, as_of: str | None, include_legacy: bool) -> frozenset[str]:
+    return frozenset(
+        p.passage_id
+        for p in corpus.passages
+        if _in_force(p, as_of) and (include_legacy or not p.legacy)
+    )
 
 
 def get_index(corpus: Corpus, as_of: str | None = None, include_legacy: bool = False) -> Bm25Index:
     """The index for this corpus version and vintage, built on first use and kept for the instance's life.
 
-    A new corpus version builds a new index; old ones are dropped, since an instance serves one corpus at a time.
+    Most months have the same wordings in force, so an index is built once per distinct set of passages and shared by
+    every month that has it. A new corpus version builds new indexes; old ones are dropped, since an instance serves
+    one corpus at a time.
     """
     key = (corpus.version, as_of, include_legacy)
     with _lock:
@@ -193,7 +224,13 @@ def get_index(corpus: Corpus, as_of: str | None = None, include_legacy: bool = F
         if idx is None:
             for old in [k for k in _indexes if k[0] != corpus.version]:
                 del _indexes[old]
-            idx = _indexes[key] = Bm25Index(corpus, as_of, include_legacy)
+            for old_p in [k for k in _by_passages if k[0] != corpus.version]:
+                del _by_passages[old_p]
+            pkey = (corpus.version, _in_force_ids(corpus, as_of, include_legacy))
+            idx = _by_passages.get(pkey)
+            if idx is None:
+                idx = _by_passages[pkey] = Bm25Index(corpus, as_of, include_legacy)
+            _indexes[key] = idx
         return idx
 
 
@@ -214,6 +251,6 @@ def search(
 def tags_in(text: str) -> Sequence[str]:
     """The tags a text mentions, in corpus spelling (``F0689``), first mention first."""
     seen: dict[str, None] = {}
-    for m in _TAG_IN_TEXT.finditer(text):
-        seen.setdefault(f"{m.group(1).upper()}{int(m.group(2)):04d}", None)
+    for prefix, number in _tag_mentions(text):
+        seen.setdefault(f"{prefix.upper()}{int(number):04d}", None)
     return list(seen)

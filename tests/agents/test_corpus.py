@@ -41,15 +41,15 @@ def test_one_passage_per_tag_wording_with_stable_ids():
     ps = passages_from_lookup(lookup_frame())
     assert len(ps) == len(ROWS)
     ids = by_id(ps)
-    p = ids["passage:cms_tag:F0689:0"]
-    assert (p.tag, p.n, p.source) == ("F0689", 0, "cms_tag")
+    p = ids["passage:cms_tag:F0689:2021-01"]
+    assert (p.tag, p.valid_from_vintage, p.source) == ("F0689", "2021-01", "cms_tag")
     assert p.text.startswith("Ensure that a nursing home area is free from accident hazards")
     assert p.category == "Quality of Life and Care Deficiencies"
 
 
 def test_reworded_tag_numbers_its_wordings_oldest_first():
     ids = by_id(passages_from_lookup(lookup_frame()))
-    old, new = ids["passage:cms_tag:F0605:0"], ids["passage:cms_tag:F0605:1"]
+    old, new = ids["passage:cms_tag:F0605:2021-01"], ids["passage:cms_tag:F0605:2025-04"]
     assert (old.valid_from_vintage, old.valid_to_vintage, old.is_current) == (
         "2021-01",
         "2025-03",
@@ -64,7 +64,8 @@ def test_reworded_tag_numbers_its_wordings_oldest_first():
 
 
 def test_a_new_wording_keeps_the_old_ids():
-    """CMS rewords F0880 in 2026-11: every other wording stays current, F0880 gets n=1, and no old ID changes."""
+    """CMS rewords F0880 in 2026-11: every other wording stays current, the new one starts 2026-11, no old ID
+    changes."""
     before = by_id(passages_from_lookup(lookup_frame()))
     nov = "2026-11"
     rows = [(*r[:5], nov) if r[5] == NEWEST and r[:2] != ("F", "0880") else r for r in ROWS]
@@ -72,12 +73,22 @@ def test_a_new_wording_keeps_the_old_ids():
     after = by_id(passages_from_lookup(lookup_frame(rows)))
     for pid, p in before.items():
         assert after[pid].text == p.text
-    assert after["passage:cms_tag:F0880:1"].text == "A new wording."
-    assert not after["passage:cms_tag:F0880:0"].is_current
+    assert after["passage:cms_tag:F0880:2026-11"].text == "A new wording."
+    assert not after["passage:cms_tag:F0880:2021-01"].is_current
+
+
+def test_an_older_vintage_added_by_a_rebuild_keeps_the_later_ids():
+    """A backfill adds a 2020-06 wording of F0605: the 2021-01 and 2025-04 IDs still name the same text."""
+    before = by_id(passages_from_lookup(lookup_frame()))
+    rows = [*ROWS, ("F", "0605", "x", "An older wording.", "2020-06", "2020-12")]
+    after = by_id(passages_from_lookup(lookup_frame(rows)))
+    for pid in ("passage:cms_tag:F0605:2021-01", "passage:cms_tag:F0605:2025-04"):
+        assert after[pid].text == before[pid].text
+    assert after["passage:cms_tag:F0605:2020-06"].text == "An older wording."
 
 
 def test_text_is_whitespace_normalized():
-    p = by_id(passages_from_lookup(lookup_frame()))["passage:cms_tag:F0690:0"]
+    p = by_id(passages_from_lookup(lookup_frame()))["passage:cms_tag:F0690:2021-01"]
     assert "  " not in p.text
     assert "appropriate catheter care, and appropriate care to prevent" in p.text
 
@@ -86,8 +97,8 @@ def test_legacy_f_tags():
     assert is_legacy_tag("F0323") and is_legacy_tag("F0150")
     assert not is_legacy_tag("F0540") and not is_legacy_tag("F0689") and not is_legacy_tag("K0311")
     ids = by_id(passages_from_lookup(lookup_frame()))
-    assert ids["passage:cms_tag:F0323:0"].legacy
-    assert not ids["passage:cms_tag:F0689:0"].legacy
+    assert ids["passage:cms_tag:F0323:2021-01"].legacy
+    assert not ids["passage:cms_tag:F0689:2021-01"].legacy
 
 
 def test_same_input_in_any_order_gives_the_same_bytes_and_version():
@@ -112,6 +123,7 @@ def test_a_changed_wording_changes_the_version():
         (lookup_frame().drop("deficiency_category"), "lacks columns"),
         (lookup_frame().head(0), "no rows"),
         (lookup_frame().with_columns(pl.lit("68").alias("deficiency_tag")), "malformed"),
+        (lookup_frame().with_columns(pl.lit("2021-1").alias("valid_from_vintage")), "malformed"),
         (
             lookup_frame(ROWS + [("F", "0880", "x", "Another wording.", "2021-01", NEWEST)]),
             "same vintage",
@@ -128,8 +140,8 @@ def test_build_publishes_and_load_reads_it_back(store):
     assert res.written and res.passages == len(ROWS)
     corpus = load_corpus(store)
     assert corpus.version == res.version == read_current_version(store).version
-    assert corpus.get("passage:cms_tag:F0689:0").tag == "F0689"
-    assert corpus.get("passage:cms_tag:F9999:0") is None
+    assert corpus.get("passage:cms_tag:F0689:2021-01").tag == "F0689"
+    assert corpus.get("passage:cms_tag:F9999:2021-01") is None
     manifest = json.loads(store.open_read(f"{PREFIX}{res.version}/{MANIFEST}").read())
     assert manifest["sources"][0]["name"] == "cms_tag"
     assert manifest["sources"][0]["input_key"] == "silver/citation_lookup_versions/part-0.parquet"

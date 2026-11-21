@@ -127,14 +127,14 @@ def test_result_carries_the_corpus_version(corpus):
 def test_as_of_serves_the_wording_in_force(corpus):
     old = search(corpus, "medications that restrain", as_of="2024-06")
     new = search(corpus, "medications that restrain")
-    assert old.hits[0].passage.passage_id == "passage:cms_tag:F0605:0"
-    assert new.hits[0].passage.passage_id == "passage:cms_tag:F0605:1"
-    assert all(h.passage.passage_id != "passage:cms_tag:F0605:0" for h in new.hits)
+    assert old.hits[0].passage.passage_id == "passage:cms_tag:F0605:2021-01"
+    assert new.hits[0].passage.passage_id == "passage:cms_tag:F0605:2025-04"
+    assert all(h.passage.passage_id != "passage:cms_tag:F0605:2021-01" for h in new.hits)
 
 
 def test_as_of_after_the_newest_vintage_uses_the_current_wordings(corpus):
     ids = {p.passage_id for p in Bm25Index(corpus, as_of="2027-03").passages}
-    assert "passage:cms_tag:F0605:1" in ids and "passage:cms_tag:F0605:0" not in ids
+    assert "passage:cms_tag:F0605:2025-04" in ids and "passage:cms_tag:F0605:2021-01" not in ids
 
 
 def test_bad_as_of_is_a_usage_error(corpus):
@@ -157,6 +157,7 @@ def test_the_index_is_built_once_per_version(corpus):
     other = make_corpus(lookup_frame().head(10))
     get_index(other)
     assert all(k[0] == other.version for k in retrieval._indexes)
+    assert all(k[0] == other.version for k in retrieval._by_passages)
 
 
 def test_tokenize_folds_plurals_drops_stopwords_and_reads_tags():
@@ -166,4 +167,26 @@ def test_tokenize_folds_plurals_drops_stopwords_and_reads_tags():
 
 
 def test_tags_in():
-    assert tags_in("F689 and k 353, then F0689 again") == ["F0689", "K0353"]
+    assert tags_in("F689 and K353, then F0689 again, and F 880") == ["F0689", "K0353", "F0880"]
+
+
+@pytest.mark.parametrize("text", ["vitamin E 400", "part K 12", "F 12 residents", "k 353"])
+def test_ordinary_text_is_not_a_tag(text):
+    assert tags_in(text) == []
+
+
+def test_a_named_tag_plus_off_topic_words_returns_that_tag_alone(corpus):
+    res = search(corpus, "F689 python list comprehension")
+    assert not res.abstained
+    assert {h.passage.tag for h in res.hits} == {"F0689"}
+
+
+def test_a_named_tag_plus_on_topic_words_returns_others_too(corpus):
+    res = search(corpus, "F689 and abuse neglect")
+    tags = [h.passage.tag for h in res.hits]
+    assert tags[0] == "F0689" and "F0600" in tags
+
+
+def test_months_with_the_same_wordings_share_one_index(corpus):
+    assert get_index(corpus, as_of="2025-06") is get_index(corpus, as_of="2026-02")
+    assert get_index(corpus, as_of="2024-06") is not get_index(corpus, as_of="2025-06")
