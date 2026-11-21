@@ -1,0 +1,85 @@
+@import "tailwindcss";
+@import "@fontsource-variable/public-sans/wght.css";
+@import "@fontsource/merriweather/latin-400.css";
+@import "@fontsource/roboto-mono/latin-400.css";
+@import "@fontsource/roboto-mono/latin-500.css";
+
+/* The Register: GPO navy rail, cool ground, white work surfaces, oxblood only for risk and G-L severity. */
+@theme {
+  --font-sans: "Public Sans Variable", "Public Sans", system-ui, sans-serif;
+  --font-serif: "Merriweather", Georgia, serif;
+  --font-mono: "Roboto Mono", ui-monospace, monospace;
+
+  --color-navy: #14284b;
+  --color-navy-2: #1d3560;
+  --color-rail-text: #d3dceb;
+  --color-ground: #f6f7f5;
+  --color-paper: #ffffff;
+  --color-ink: #16191d;
+  --color-muted: #55606e;
+  --color-rule: #c9ced6;
+  --color-rule-soft: #e5e8ec;
+  --color-link: #1a5dab;
+  --color-link-tint: #eaf1fa;
+  --color-risk: #8a2b1f;
+  --color-risk-tint: #f3deda;
+  --color-lowers: #4f6b8a;
+  --color-attn: #8a5a00;
+  --color-attn-tint: #fbefd6;
+  --color-mark: #fff4c2;
+  --color-mark-edge: #c99a00;
+  --color-sev-low: #e3e6ea;
+  --color-survey: #6b7686; /* 4.6:1 on paper: interactive marks need 3:1 (WCAG 1.4.11) */
+
+  /* Three sizes carry the app; rank comes from weight and rule. The probability is the one display figure. */
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.45;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.5;
+  --text-xl: 1.5rem;
+  --text-xl--line-height: 1.2;
+  --text-display: 2.125rem;
+  --text-display--line-height: 1;
+
+  --radius-sm: 3px;
+  --radius: 4px;
+  --shadow-overlay: 0 6px 24px -6px rgb(20 40 75 / 0.25);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    accent-color: var(--color-navy);
+    scrollbar-color: var(--color-rule) transparent;
+  }
+  body {
+    @apply bg-ground font-sans text-base text-ink antialiased;
+    font-variant-numeric: tabular-nums;
+    caret-color: var(--color-link);
+  }
+  ::selection {
+    background: var(--color-mark);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+  }
+  a {
+    text-underline-offset: 3px;
+  }
+  code,
+  kbd {
+    @apply font-mono;
+    font-size: 0.92em;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

@@ -1,0 +1,167 @@
+{
+ "data_as_of": {
+  "v": "2026-10",
+  "score_month": "2026-10-01",
+  "model_version": 1,
+  "gold_run_id": "20261112T020010Z-543cdc"
+ },
+ "facility": {
+  "ccn": "555806",
+  "name": "GLENBROOK",
+  "city": "CARLSBAD",
+  "state": "CA",
+  "chain_id": "160",
+  "chain_name": "CONTINUING LIFE",
+  "beds": 94.0,
+  "p": 0.08830144474689985,
+  "risk_percentile": 9.995914476372056,
+  "risk_decile": 10,
+  "address": "1950 CALLE BARCELONA",
+  "zip": "92009"
+ },
+ "score": {
+  "evidence_id": "score:555806:2026-10",
+  "p": 0.08830144474689985,
+  "risk_percentile": 9.995914476372056,
+  "risk_decile": 10
+ },
+ "reasons": [
+  {
+   "evidence_id": "reason:555806:2026-10:raises:1",
+   "direction": "raises",
+   "rank": 1,
+   "feature": "days_since_last_gplus",
+   "label": "days since the last harm-level (G–L) citation",
+   "feature_value": "1134",
+   "contribution_logodds": 0.05736540560502977
+  },
+  {
+   "evidence_id": "reason:555806:2026-10:raises:2",
+   "direction": "raises",
+   "rank": 2,
+   "feature": "days_since_last_std",
+   "label": "days since the last standard health survey",
+   "feature_value": "377",
+   "contribution_logodds": 0.024972328760694856
+  },
+  {
+   "evidence_id": "reason:555806:2026-10:raises:3",
+   "direction": "raises",
+   "rank": 3,
+   "feature": "days_to_std_due",
+   "label": "days until the next standard survey is due (negative: overdue)",
+   "feature_value": "79",
+   "contribution_logodds": 0.01884724879713962
+  },
+  {
+   "evidence_id": "reason:555806:2026-10:raises:4",
+   "direction": "raises",
+   "rank": 4,
+   "feature": "occupancy",
+   "label": "occupancy (residents per certified bed)",
+   "feature_value": "58%",
+   "contribution_logodds": 0.012922393802173688
+  },
+  {
+   "evidence_id": "reason:555806:2026-10:raises:5",
+   "direction": "raises",
+   "rank": 5,
+   "feature": "n_cat_abuse_24m",
+   "label": "abuse, neglect and exploitation citations in the last 24 months",
+   "feature_value": "1",
+   "contribution_logodds": 0.012281585201138761
+  },
+  {
+   "evidence_id": "reason:555806:2026-10:lowers:1",
+   "direction": "lowers",
+   "rank": 1,
+   "feature": "state",
+   "label": "state",
+   "feature_value": "CA",
+   "contribution_logodds": -0.33349771370445286
+  },
+  {
+   "evidence_id": "reason:555806:2026-10:lowers:2",
+   "direction": "lowers",
+   "rank": 2,
+   "feature": "n_complaint_surveys_cited_24m",
+   "label": "complaint surveys with citations in the last 24 months",
+   "feature_value": "1",
+   "contribution_logodds": -0.13532247269243453
+  },
+  {
+   "evidence_id": "reason:555806:2026-10:lowers:3",
+   "direction": "lowers",
+   "rank": 3,
+   "feature": "state_gplus_rate_12m",
+   "label": "share of the state's facilities with harm-level citations in the last 12 months",
+   "feature_value": "16%",
+   "contribution_logodds": -0.09388746421183553
+  }
+ ],
+ "citations": [
+  {
+   "evidence_id": "citation:555806:2025-09-19:F0577",
+   "survey_date": "2025-09-19",
+   "ftag": "F0577",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-11-25"
+  },
+  {
+   "evidence_id": "citation:555806:2025-09-19:F0605",
+   "survey_date": "2025-09-19",
+   "ftag": "F0605",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "E",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-11-25"
+  },
+  {
+   "evidence_id": "citation:555806:2025-09-19:F0628",
+   "survey_date": "2025-09-19",
+   "ftag": "F0628",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-11-25"
+  },
+  {
+   "evidence_id": "citation:555806:2025-09-19:F0689",
+   "survey_date": "2025-09-19",
+   "ftag": "F0689",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-11-25"
+  },
+  {
+   "evidence_id": "citation:555806:2024-10-17:F0656",
+   "survey_date": "2024-10-17",
+   "ftag": "F0656",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-11-15"
+  }
+ ],
+ "penalties": [],
+ "chain": {
+  "evidence_id": "chain:160:2026-10",
+  "chain_id": "160",
+  "n_facilities": 6,
+  "beds": 408.0,
+  "expected_facilities_with_event": 0.5220404536210571,
+  "p_any_event": 0.4232892055469385,
+  "bed_weighted_mean_p": 0.09302173117341496,
+  "max_p": 0.15155060906355786,
+  "worst_ccn": "555515",
+  "share_top_decile": 0.0
+ }
+}

@@ -1,0 +1,18 @@
+{
+ "v": "2026-10",
+ "score_month": "2026-10-01",
+ "model_version": 1,
+ "gold_run_id": "20261112T020010Z-543cdc",
+ "model_name": "precursor_y_g12",
+ "candidate": "lgbm",
+ "scored_at": "2026-11-19T05:11:49Z",
+ "gold_verified": false,
+ "stale_refresh": false,
+ "n_facilities": 14686,
+ "flags": [
+  "skew:state_gplus_rate_12m",
+  "skew:staffing_rating_fn"
+ ],
+ "decision": "SCORE",
+ "base_rate": 0.25609506248719527
+}
