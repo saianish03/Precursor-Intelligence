@@ -77,7 +77,7 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 | **1. Facility Investigation** | Riya | "Why is this nursing home risky?" for one CCN | `InvestigationBrief` | `get_facility_score`, `get_reasons`, `get_citations`, `get_penalties`, `get_chain`, and **Agent 2** for regulation quotes (at most k calls a run, D4) |
 | **2. Regulatory Evidence Retriever** | Aakash | "What does the regulation say about this?" for one claim or question | `EvidenceSet` | `search_passages` (BM25 over the corpus, G2) and `get_passage` (the exact stored text by passage ID, for quote checking) |
 | **3. Model Ops Analyst** | Tanoj | "Is the model healthy?" for the system | `OpsReport` | `get_status`, `get_gate_results`, `get_model_card`, `get_drift` |
-| **4. Portfolio Briefing** | Riya | "How risky is this insurer's book?" for a list of CCNs | `ExecutiveBrief` | `portfolio_stats` (all counting in code), `get_chain`, and the top N facilities' cached Agent 1 briefs, through `get_facility_brief` (H2, #91) |
+| **4. Portfolio Briefing** | Riya | "How risky is this insurer's book?" for a list of CCNs | `ExecutiveBrief` | `portfolio_stats` (all counting in code), `get_chain`, and the top N facilities' cached Agent 1 briefs (the `overview` `question_type`), through `get_facility_brief` (H2, #91) |
 
 **Where the tools read from:** every tool reads the evidence files that `build-evidence` writes (E2), for the month named in `agents/evidence/_current.json`, or the corpus that `build-corpus` writes (G1). The one exception is `get_facility_brief`, which reads the answer cache (D1), read-only, for Agent 4. No tool writes, calls another service, or reads Postgres or MLflow.
 
@@ -91,11 +91,11 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 | `penalty:<ccn>:<penalty_date>:<fine\|payment_denial>:<n>` (n from 1: one date can hold several identical fines) | `get_penalties` | `penalty:015009:2026-04-02:fine:1` |
 | `chain:<chain_id>:<v>` | `get_chain` | `chain:123:2026-10` |
 | `portfolio:<v>:<hash>` (first 12 hex of the sha256 of the sorted CCNs and `top_n`) | `portfolio_stats` | `portfolio:2026-10:3f9a0c1b2d4e` |
-| `brief:<ccn>:<v>` (a cached Agent 1 brief) | `get_facility_brief` | `brief:015009:2026-10` |
-| `passage:<source>:<tag>:<n>` (`n` numbers a tag's wordings, oldest first; same tag spelling as `ftag`) | `search_passages`, `get_passage` | `passage:cms_tag:F0689:0` |
+| `brief:<ccn>:<v>` (a cached Agent 1 brief for the `overview` `question_type`, the one L11 pre-builds) | `get_facility_brief` | `brief:015009:2026-10` |
+| `passage:<source>:<tag>:<from>` (`from` is the vintage the wording starts, YYYY-MM; same tag spelling as `ftag`) | `search_passages`, `get_passage` | `passage:cms_tag:F0689:2021-01` |
 | `ops:<kind>:<v>` | Agent 3's tools (`kind` is status, gates, card or drift) | `ops:gates:2026-10` |
 
-Riya's `Record` (`evidence_id`, `v`, `gold_run_id`; E3) is the base of every tool record, and A5 builds on it rather than adding a second type: `Driver`, `Section`, and the `data_as_of` and caveat fields. The formats above match the code in the E3 and G1 PRs. A new tool or ID format is a change to this table in the same PR.
+Riya's `Record` (`evidence_id`, `v`, `gold_run_id`; E3) is the base of every tool record, and A5 builds on it rather than adding a second type: `Driver`, `Section`, and the `data_as_of` and caveat fields. The formats above match the code in #93 (E3) and #98 (G1). A new tool or ID format is a change to this table in the same PR.
 
 ### Libraries
 
@@ -107,7 +107,7 @@ Python packages go in the `pyproject.toml` extras named here. The API image inst
 | `google-auth` | `agents` (already there) | the Vertex token, refreshed per request (A2); verifying the Google ID token (`google.oauth2.id_token`, K1) | A2, K1 |
 | `httpx` | `agents` (add; today only in `ui`) | the small `httpx.Auth` that adds a fresh token to each Vertex request | A2 |
 | `rank-bm25` | `agents` (already there) | Agent 2's passage search | G2 |
-| `polars`, `pyarrow` | `agents` (add) | reading the evidence parquet files; `portfolio_stats` counting | E1, E3 |
+| `polars`, `pyarrow` | `agents` (add; #93 adds `polars`) | reading the evidence parquet files; `portfolio_stats` counting | E1, E3 |
 | `gcsfs` | `agents` (add) | reading the evidence and corpus from GCS | E1 |
 | `google-cloud-storage` | `agents` (add) | the cache and the daily counter: the generation-match write needs the storage client, not gcsfs | D1, D3 |
 | `opentelemetry-sdk`, `opentelemetry-exporter-gcp-trace` | `agents` (add) | spans per run and per tool call, sent to Cloud Trace in production | C1 |
@@ -194,7 +194,7 @@ Not needed: `logfire` (Pydantic AI's instrumentation is plain OpenTelemetry), La
 
 | ID | Task | Done when |
 |---|---|---|
-| G1 | **Corpus build** `precursor-pipeline agents build-corpus`: CMS deficiency-tag descriptions (`citation_lookup`), and Appendix PP regulation text if the team agrees, cut into passages with stable IDs (`passage:<source>:<tag>:<n>`), written to `agents/corpus/<version>/` with a manifest | passages are deterministic: the same input gives the same IDs |
+| G1 | **Corpus build** `precursor-pipeline agents build-corpus`: CMS deficiency-tag descriptions (`citation_lookup`), and Appendix PP regulation text if the team agrees, cut into passages with stable IDs (`passage:<source>:<tag>:<from>`, `from` being the vintage the wording starts), written to `agents/corpus/<version>/` with a manifest | passages are deterministic: the same input gives the same IDs |
 | G2 | **BM25 search** (`rank-bm25`) over the passages, loaded once per instance; a score threshold under which the agent abstains | the search returns the right tag for the known queries in a test |
 | G3 | `EvidenceSet`: quotes (exact text plus passage ID), each claim's support, or an explicit `abstained: true` with the reason | the quote-fidelity validator (B6) passes |
 | G4 | `configs/prompts/evidence_retriever.yaml` v1 and the agent | unit tests pass, including abstention |
