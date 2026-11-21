@@ -70,6 +70,7 @@ stages:
       # the parquet hash (dataset_version) records the writer's library version
       - uv.lock
       # what the fixture and the `ml` commands import and load
+      - src/precursorintelligence/agents  # imported by the precursor-pipeline entrypoint (the agents sub-app)
       - src/precursorintelligence/bias
       - src/precursorintelligence/common
       - src/precursorintelligence/evaluation
