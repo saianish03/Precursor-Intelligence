@@ -130,9 +130,11 @@ can read its metadata.
 - **When it can't stop:** a failed dump, or `pi-busy` getting no answer, emails `[pi-airflow VM] the VM stays up: …`
   (at most every 6 hours) and it tries again 15 minutes later. A Postgres that isn't running has nothing to dump: it
   emails and stops anyway.
-- **A run that never ends keeps the VM up** (only `build_gold` has a time limit). Once the VM has been up 6 hours with
-  nobody on SSH, each check during a run emails `… the VM has been up 6+ hours and a run keeps it up` (at most every 6
-  hours): look in the Airflow UI and fail a hung run.
+- **A run that never ends keeps the VM up.** Every task has a time limit (60 min; `build_gold` 2 h) and each run
+  one too (`cms_nh_pipeline` 8 h, `cms_nh_ml` 4 h), so a hung run fails by itself; a timed-out pipeline run keeps its
+  lock (`docs/AIRFLOW_PIPELINE.md` §9.4). Until then, once the VM has been up 6 hours with nobody on SSH, each check
+  during a run emails `… the VM has been up 6+ hours and a run keeps it up` (at most every 6 hours): look in the
+  Airflow UI and fail a hung run.
 - **An open SSH session keeps the VM up,** even an idle one: close it when you're done.
 - **Each stop leaves two pairs of dumps:** the one before the stop and the shutdown backstop's.
 

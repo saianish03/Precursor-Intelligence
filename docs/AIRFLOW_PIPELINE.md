@@ -360,7 +360,10 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
 ### 9.4 Operator and scheduling notes
 - **Out of memory is retried.** **Fixed (ticket 2):** exit 137 is no-retry, and the failure alert names it.
 - **No timeout on `build_gold`.** **Fixed (ticket 2):** `execution_timeout` of 2 h (`PI_GOLD_TIMEOUT_MINUTES`); the failure alert fires when it hits.
-  - **Still open:** check the 2 h against a measured full-archive gold duration. A timeout is retried like exit 1 (2 × 5 min), so a hang can hold the lock for about 6 h before the alert.
+  - **Checked (T25):** the full-archive gold took 356 s on the VM, so 2 h is about 20 times that. A timeout is retried like exit 1 (2 × 5 min), so a gold hang holds the lock for about 6 h 10 min before the alert.
+- **Only `build_gold` had a time limit.** **Fixed (L5, 2026-11-21):** every other task stops after 60 min (T25's slowest, `load_bronze`, took 9.6 min on the VM and 18.6 min on the laptop) and `release_lock` after 10 min. A timeout is retried like exit 1, and the failure alert names the task. The run itself stops after 8 h (`dagrun_timeout`): longer than gold hanging on all 3 tries plus the rest of a full backfill, so a hang fails as its own task first. (Raising `PI_GOLD_TIMEOUT_MINUTES` above about 140 min would let the run's limit fire first.)
+  - **A timed-out run keeps the lock.** On `dagrun_timeout`, Airflow 3.1.8 marks the run failed and skips every unfinished task, the `release_lock` teardown too, then calls the failure callback: the email says `run failed: see the run` and `Reason: timed_out`. The next run takes the lock over after 12 h; to start one sooner, free it with `precursor-ingest lock release --run-id <the timed-out run's id> --force` (in a pipeline container on the task network).
+  - **`cms_nh_ml`:** 60 min for every task except `train`, `tune` and `evaluate` (45, 90 and 60 min), and 4 h for the run. It takes no run lock.
 - **`cms_nh_gold` means published, not verified.**
   - **What:** the asset is emitted on every successful gold run, even when nothing changed. Gold stays `verified: false` until the spec §11 verification gate exists.
   - **Fix:** any DAG triggered by this asset (training) must check `gold/_current.json` (`verified`, `dataset_version`) first.

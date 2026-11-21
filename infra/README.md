@@ -90,14 +90,15 @@ On-demand list prices, before the $300 trial credit; E2 machines get no sustaine
 | Development or demo weeks (VM sessions of 2–4 h on about 10 days) | 20–40 | **≈ $7.75–11.50** ($6.80–9.60) |
 | A heavy month (debugging, several backfills) | 100 | **≈ $22.70** ($18) |
 | One extra full backfill | ≈ 1 | **+ ≈ $0.30** (with 2.6 GB through NAT) |
-| **Edge: left running a day / a week** (an open SSH session, `pi-deploy pause` left on, a hung run) | 24 / 168 | **+ ≈ $4.50 / + ≈ $31.50** on top of the month's other rows |
+| **Edge: left running a day / a week** (an open SSH session, `pi-deploy pause` left on; a hung run now ends within 8 h, L5) | 24 / 168 | **+ ≈ $4.50 / + ≈ $31.50** on top of the month's other rows |
 | **Edge: left running all month** | 730 | **≈ $141** ($106) |
 
 - **The upgrade (T25, #90) adds $0.047 per running hour:** about $1–2 in a normal month, $34 only if the VM ran all
   month.
-- **What stops the edge cases:** the idle shutdown (about 70–85 minutes after the last session), the 6-hour reminder for
-  a forgotten pause, the 6-hour email for a run that keeps the VM up, and the project budget alerts. An open SSH session
-  keeps the VM up: close it when done.
+- **What stops the edge cases:** the idle shutdown (about 70–85 minutes after the last session), the time limits on
+  every task and run (L5: a pipeline run stops after at most 8 h), the 6-hour reminder for a forgotten pause, the
+  6-hour email for a run that keeps the VM up, and the project budget alerts. An open SSH session keeps the VM up:
+  close it when done.
 - **Around the VM, the same in every situation:** GCS ≈ 52 GB (root + `ml-dev/`) ≈ $1; Artifact Registry (≤ 5 releases
   of two images) ≈ $1–2; Secret Manager (9 secrets) ≈ $0.55; backups cents; together ≈ $3–5 a month.
 - **Not used:** Spot VMs (about half price) can be stopped mid-run; committed-use discounts need a 1- or 3-year term.

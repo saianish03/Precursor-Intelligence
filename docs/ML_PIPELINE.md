@@ -98,7 +98,8 @@ decide ─► prepare ─┬─ RETUNE ─► tune ─────────�
 | `promote` + `version` + `reason` | moves `@champion` to that version: Checkpoint ML-A, or a rollback to any earlier version |
 
 `train`, `tune` and `evaluate` share the Airflow pool `heavy` (one slot, also taken by gold's build) with timeouts
-of 45, 90 and 60 minutes and no retry. Behaviour lives in `configs/ml.yaml`; the code is in
+of 45, 90 and 60 minutes and no retry. Every other task stops after 60 minutes, and the run after 4 hours.
+Behaviour lives in `configs/ml.yaml`; the code is in
 `src/precursorintelligence/{training,evaluation,serving,monitoring}`.
 
 ---
