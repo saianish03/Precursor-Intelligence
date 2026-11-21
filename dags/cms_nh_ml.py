@@ -61,6 +61,12 @@ SUMMARY_KEYS = ("decision", "flags", "retune_requested")  # monitor's summary
 TRAIN_TIMEOUT = timedelta(minutes=45)
 TUNE_TIMEOUT = timedelta(minutes=90)
 EVALUATE_TIMEOUT = timedelta(minutes=60)
+# Every other task (decide, prepare, gate, promote, score, publish, monitor: minutes on the laptop stack).
+TASK_TIMEOUT = timedelta(minutes=60)
+# The run's backstop: it outlasts one task hanging on all 3 tries (3 h 10 min) plus the longest measured run (retrain
+# to gate in 10 min, tune 15 min), so a hang fails as its own task. Airflow skips the unfinished tasks of a timed-out
+# run; this DAG takes no run lock, so nothing stays held.
+RUN_TIMEOUT = timedelta(hours=4)
 MODE = "--mode {{ params.mode }}"
 ALLOW = (
     "{{ '' if params.allow_unverified is none else "
@@ -102,9 +108,11 @@ def with_output() -> dict:
     catchup=False,
     max_active_runs=1,
     is_paused_upon_creation=True,
+    dagrun_timeout=RUN_TIMEOUT,
     default_args={
         "retries": 2,
         "retry_delay": timedelta(minutes=5),
+        "execution_timeout": TASK_TIMEOUT,
     },  # exit 1 only (see the operator)
     on_failure_callback=on_dag_failure,
     params={

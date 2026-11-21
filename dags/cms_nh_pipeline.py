@@ -58,6 +58,14 @@ NODES = ("ingestion", "bronze", "silver")
 GOLD_TIMEOUT = timedelta(
     minutes=int(os.environ.get("PI_GOLD_TIMEOUT_MINUTES") or 120)
 )  # a hang holds the lock
+# Every other task's limit. T25's slowest, load_bronze, took 9.6 min on the VM and 18.6 min on the laptop. A task that
+# hangs fails and retries; the release_lock teardown still runs, and the DAG callback alerts.
+TASK_TIMEOUT = timedelta(minutes=60)
+# The run's backstop, for a run stuck where no task limit applies (tasks left queued). It outlasts build_gold hanging on
+# all 3 tries (6 h 10 min) plus the rest of a full backfill (about 1 h on the VM), so a hang fails as its own task.
+# Airflow skips every unfinished task of a timed-out run, release_lock too, so its lock stays held: the next run takes
+# it over after 12 h, or a person runs `precursor-ingest lock release --run-id <its run id> --force`.
+RUN_TIMEOUT = timedelta(hours=8)
 ENTRY_ID = re.compile(r"^[A-Za-z0-9_.:\-]+$")  # e.g. theme:2026-08-26:nursing-homes_2026-08-26.zip
 
 
@@ -80,9 +88,11 @@ def run(task_id: str, command: str, **kwargs) -> PipelineDockerOperator:
     start_date=datetime(2026, 10, 1),
     catchup=False,
     max_active_runs=1,
+    dagrun_timeout=RUN_TIMEOUT,
     default_args={
         "retries": 2,
         "retry_delay": timedelta(minutes=5),
+        "execution_timeout": TASK_TIMEOUT,
     },  # exit 1 only (see the operator)
     on_failure_callback=on_dag_failure,  # once per failed run, after the last retry
     params={
@@ -219,6 +229,7 @@ def cms_nh_pipeline():
         f"{INGEST} lock release",
         retries=2,
         retry_delay=timedelta(seconds=30),
+        execution_timeout=timedelta(minutes=10),  # seconds when Postgres answers
         on_failure_callback=on_release_failure,
     )
 

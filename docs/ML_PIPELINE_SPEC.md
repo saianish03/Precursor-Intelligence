@@ -505,7 +505,7 @@ sha256 over: the relative paths and bytes of the `*.py` files of `precursorintel
 ## 15. The DAG `cms_nh_ml`
 
 ### 15.1 Shape
-- `schedule=[Asset("cms_nh_gold")]` plus manual runs; `catchup=False`, `max_active_runs=1`, `start_date` 2026-10-01, `default_args={"retries": 2, "retry_delay": 5 min}`, `on_failure_callback=on_dag_failure`, created paused. **Unpause it before the pipeline run whose gold should start it:** Airflow does not queue asset events for a paused DAG (verified for the release check).
+- `schedule=[Asset("cms_nh_gold")]` plus manual runs; `catchup=False`, `max_active_runs=1`, `start_date` 2026-10-01, `default_args={"retries": 2, "retry_delay": 5 min, "execution_timeout": 60 min}`, `dagrun_timeout` 4 h (L5: a hung task fails by itself; the heavy tasks keep their own limits, §15.3), `on_failure_callback=on_dag_failure`, created paused. **Unpause it before the pipeline run whose gold should start it:** Airflow does not queue asset events for a paused DAG (verified for the release check).
 - Every task except `notify` is one `PipelineDockerOperator` running `precursor-pipeline ml <command> --env <env> --run-id {{ run_id }}` (`docker_kwargs` plus `MLFLOW_TRACKING_URI` and `PI_PIPELINE_IMAGE`).
 - `cms_nh_gold` is emitted on every successful pipeline run, even with nothing new (`docs/AIRFLOW_PIPELINE.md`), so `decide` is cheap and usually says SKIP or SCORE.
 
