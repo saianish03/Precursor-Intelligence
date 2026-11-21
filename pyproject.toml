@@ -66,10 +66,6 @@ api = [
     "google-cloud-secret-manager>=2.31.0",
     "uvicorn[standard]>=0.54.0",
 ]
-ui = [
-    "httpx>=0.28.1",
-    "streamlit>=1.65.0",
-]
 mlflow-server = [
     "google-cloud-storage>=3.17.0",
     "mlflow>=3.17.0",
