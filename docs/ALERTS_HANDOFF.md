@@ -66,7 +66,7 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
 | # | Problem | Status | Owner | Ticket 2? |
 |---|---|---|---|---|
 | 1 | The image did not pass the commit to gold (`PI_GIT_COMMIT`), so every container-built gold manifest had `git_commit: null` | **Fixed** in the Airflow PR; the manifest now records the full SHA | — | no |
-| 2 | **Gold's peak memory:** about 2.1 GB on 237k rows (measured); ≈ 5 GB on the full archive's ≈ 590k rows (scaled). Too tight for an 8 GB VM with a 6g task limit. The VM is now an e2-standard-4 (16 GB, 10g limit; spec §14 #26), so the fix is only needed to go back to 8 GB | Open, low: gold-side fix (§9.1) | gold | alert on exit 137 |
+| 2 | **Gold's peak memory:** about 2.1 GB on 237k rows (measured); ≈ 5 GB on the full archive's ≈ 590k rows (scaled). Too tight for an 8 GB VM with a 6g task limit. T25 (2026-11-20) measured more: the full-archive gold (775,400 rows × 148 columns) was OOM-killed at 10.46 GB under the old 10g limit, so the VM is now an e2-highmem-4 (32 GB, 20g limit; spec §14 #26), and the fix is needed only to go back to 16 GB | Open, low: gold-side fix (§9.1) | gold | alert on exit 137 |
 | 3 | Every run re-publishes gold, even unchanged; `gold/_staging/run=<id>/` and old object versions are never deleted (≈ 10 GB more per month on GCS) | Open: lifecycle rules + skip-unchanged publish (§9.2) | gold + Terraform | no |
 | 4 | Gold manifest commit: the build arg defaulted to `"unknown"`; no dirty flag | **Default fixed:** the build fails without `PI_GIT_SHA`. The dirty flag is still open (§9.3) | image + gold | no |
 | 5 | Out-of-memory kills (exit 137) are retried twice | Open (§9.4) | operator | **yes** |

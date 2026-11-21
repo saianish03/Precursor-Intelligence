@@ -23,7 +23,7 @@ idle shutdown).
 - nine empty Secret Manager secrets for the VM (values are added by hand, never by Terraform);
 - the VM network: `pi-vpc`, `pi-subnet` with Private Google Access, Cloud NAT, and SSH from IAP as the only
   inbound rule;
-- the VM `pi-airflow` (e2-standard-4, Debian 12, Shielded VM, OS Login, no external IP, runs as `sa-pipeline`) and its
+- the VM `pi-airflow` (e2-highmem-4, 4 vCPU and 32 GB, Debian 12, Shielded VM, OS Login, no external IP, runs as `sa-pipeline`) and its
   Postgres data disk `pi-airflow-pgdata` (section "The VM");
 - the `wif` module.
 

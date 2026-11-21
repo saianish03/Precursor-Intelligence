@@ -705,8 +705,9 @@ The course's example structure maps onto this repository as follows:
   the 20-month production lag. Labels mature 20 months after `t`: the newest test month is 2025-02, a development
   month (PR #49 chose its settings on it). Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far; it is
   re-read on 2025-03 when the late-November release brings it in.
-- **Gold memory:** a full-archive build is estimated at about 5.8 GB with the merged gold file. The VM is an e2-standard-4
-  (16 GB, 10 GB task limit), so it fits; the streaming fix in `docs/AIRFLOW_PIPELINE.md` §9.1 is needed only on an 8 GB VM.
+- **Gold memory:** the first full-archive build on the VM (T25) was killed at 10.46 GB, over its 10 GB task limit: gold
+  needs about 12-14 GiB at 775,400 rows and 148 columns. The VM is now an e2-highmem-4 (32 GB, 20 GB task limit); the
+  streaming fix in `docs/AIRFLOW_PIPELINE.md` §9.1 would bring it back to a smaller machine.
 - **Team decisions in #27:** which slices are fairness groups, whether state effects are risk or bias, whether
   sample weights are used by default.
 - **Snapshots of real gold:** `snapshot-gold` and the pointer exist (section 12.1). The first snapshot is of the sample archive (test data), and every snapshot is of an unverified gold until the spec §11 verification gate is built.

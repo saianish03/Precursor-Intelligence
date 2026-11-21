@@ -219,7 +219,7 @@ The VM `pi-airflow` and its Postgres data disk are in Terraform (T19; `infra/REA
   - `PI_PIPELINE_ENV=prod`;
   - `PI_HOST_DATA_DIR` and `PI_GCP_CREDENTIALS_FILE` empty;
   - `PI_BUCKET_URI` defaults to `gs://precursor-intel-mlops-data`. Only a smoke test changes it, to a trial prefix through `/etc/precursor/overrides.env` (`infra/vm/README.md`, "Deploys"); reset `precursor_meta` afterwards: the metadata database records keys relative to the bucket root, so a later run on the root would trust objects that are only under the prefix;
-  - `PI_TASK_MEM_LIMIT=10g` (e2-standard-4, 16 GB), `PI_AUTO_REMOVE=force`;
+  - `PI_TASK_MEM_LIMIT=20g` (e2-highmem-4, 32 GB; full-archive gold needs ≈ 12–14 GiB), `PI_AUTO_REMOVE=force`;
   - `PI_ALERT_SMTP_HOST=smtp.gmail.com`: the alert sender is a Gmail account (port 587, the default);
   - Postgres data in `${PI_PGDATA_DIR:-/mnt/disks/pgdata}/data` on the data disk, instead of the named volume. The disk's setup creates that folder once; compose never does, so an unmounted disk stops Postgres instead of starting an empty database on the boot disk.
 - **The env file must set these, or compose stops** (none has a default on the VM):

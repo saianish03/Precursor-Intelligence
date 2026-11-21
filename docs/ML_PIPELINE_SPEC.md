@@ -143,7 +143,7 @@ There is no online model server: CMS publishes once a month and every score chan
 | `ml-engineering`: tuning with time-based, facility-grouped folds | facility-grouped folds; rolling-origin later (O3) | a facility-grouped fold is the simple first step; time-based folds need more history inside the eval window |
 | Skills and data spec §15.1: separate DAGs `train_evaluate`, `batch_score`, `monitor` | one DAG `cms_nh_ml` | one run = one pinned gold, one decision, one audit trail (data spec §14 #19 reasoning) |
 | `ml-engineering`: `promote-model.yml` for manual override | `cms_nh_ml` run with `mode=promote` (§9.4) | GitHub Actions can't reach the VM (IAP only) |
-| `mlops-deployment`: e2-standard-2, instance schedule, nightly dump | e2-standard-4, started by hand, dump before every stop | data spec §14 #26, #27 |
+| `mlops-deployment`: e2-standard-2, instance schedule, nightly dump | e2-highmem-4 (32 GB since T25), started by hand, dump before every stop | data spec §14 #26, #27 |
 | `CLAUDE.md` (older copies): "star ratings are never features" | `staffing_rating`, `qm_rating` may be features (subject to the 2025-07 check, §1.4); `overall_rating`, `health_inspection_rating` never | ML-17: registry and data spec §8 decide; the wording is fixed (O6) |
 | Data spec §9.5: purge rows "are not used at all"; gold's purge is H | the refit trains on purge and test months; the ML evaluation gap is H + B | the refit is never evaluated on them (§3.3); the production lag is H + B (§3.1) |
 | Data spec §11.5: the dataset is frozen at Checkpoint 5 (`training_dataset_vN`) | every RETRAIN trains on the newest gold; the pinned input of each **registered** model version is kept and tagged as its `training_dataset` | monthly retraining (ML-2) needs each month's data; pinning gives the same reproducibility per version |
@@ -577,7 +577,7 @@ The data pipeline's contract (`ingestion/pipeline.py`): 0 ok; 1 transient error,
 
 ### 15.6 Running next to `cms_nh_pipeline`
 - No shared lock (gold is pinned, §1.2).
-- **Airflow pool `heavy`, 1 slot**, taken by `gold.build_gold` (data DAG), `ml train`, `ml tune` and `ml evaluate`, so the two memory-heavy jobs never run together on a 16 GB machine. The pool is created by `airflow-init` (`airflow pools set heavy 1 …`) in the **same PR** that adds `pool="heavy"` to `build_gold` (a task in a missing pool never runs, and it would hold the data lock). A DAG test asserts both DAGs use the same pool constant.
+- **Airflow pool `heavy`, 1 slot**, taken by `gold.build_gold` (data DAG), `ml train`, `ml tune` and `ml evaluate`, so the two memory-heavy jobs never run together on the VM (gold alone needs ≈ 12–14 GiB, data spec §14 #26). The pool is created by `airflow-init` (`airflow pools set heavy 1 …`) in the **same PR** that adds `pool="heavy"` to `build_gold` (a task in a missing pool never runs, and it would hold the data lock). A DAG test asserts both DAGs use the same pool constant.
 - On the VM, everything that waits for "no pipeline run" (idle shutdown T21, `pi-down`, the deploy) must also count `cms_nh_ml` runs, running or queued, and a queued `cms_nh_gold` event (Phase 2).
 
 ---

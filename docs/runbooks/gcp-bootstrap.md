@@ -223,9 +223,9 @@ the others by adding a new version; the VM picks it up at its next deploy.
 ## Sizing note
 
 The full-archive bronze run (427 files, 61 vintages) peaked at about 2.2 GiB of memory, but gold is larger: it
-holds the whole dataset in memory, estimated at about 5.8 GB on the full archive (`AIRFLOW_PIPELINE.md` §9.1),
-and every monthly run rebuilds all of gold. The Airflow VM is therefore an e2-standard-4 (16 GB), decided
-2026-10-29 (spec §14 #26); the machine type is a Terraform variable.
+holds the whole dataset in memory, measured at over 10 GB on the full archive (T25, `AIRFLOW_PIPELINE.md` §9.1),
+and every monthly run rebuilds all of gold. The Airflow VM is therefore an e2-highmem-4 (32 GB), changed from
+an e2-standard-4 on 2026-11-20 (spec §14 #26); the machine type is a Terraform variable.
 
 ## Cost and cleanup
 
