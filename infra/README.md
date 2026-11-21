@@ -37,8 +37,8 @@ recreated.
   every boot. What runs on it is the release that the instance metadata `pi-release` names: `pi-deploy` deploys it at
   boot and whenever it changes (`infra/vm/README.md` "Deploys"); the Deploy workflow (T22) sets it. Terraform
   ignores that pointer and new Debian images, so neither ever replaces the VM. CI refuses any replacement anyway.
-- **Created running:** the apply that creates it starts it. It costs about $0.13 an hour ($3.22 a day); a stopped VM
-  costs only its disks (about $4 a month). The idle shutdown (T21) stops it after an hour with no run and no SSH
+- **Created running:** the apply that creates it starts it. It costs about $0.18 an hour ($4.40 a day); a stopped VM
+  costs only its disks (about $4 a month). Details: "Cost of the VM" below. The idle shutdown (T21) stops it after an hour with no run and no SSH
   connection; stop it yourself with `sudo pi-down` when you're done (`infra/vm/README.md`, "Up and down").
   ```bash
   gcloud compute instances start pi-airflow --zone us-central1-a
@@ -68,6 +68,39 @@ recreated.
   The next CI plan after the apply must show no changes for the instance and the disk.
 - **When SSH fails:** the startup script also logs to the serial console:
   `gcloud compute instances get-serial-port-output pi-airflow --zone us-central1-a | grep pi-startup`.
+
+## Cost of the VM (e2-highmem-4, us-central1, list prices checked 2026-11-21)
+On-demand list prices, before the $300 trial credit; E2 machines get no sustained-use discount. Check the
+[pricing calculator](https://cloud.google.com/products/calculator) or the billing report for exact figures.
+
+| Part | Price | Charged |
+|---|---|---|
+| Machine (4 vCPU, 32 GB) | **$0.1808/h** ([general-purpose pricing](https://cloud.google.com/products/compute/pricing/general-purpose)); e2-standard-4 was $0.1340/h | only while the VM runs |
+| Cloud NAT, per VM | $0.0014/h ([Cloud NAT pricing](https://cloud.google.com/nat/pricing)) | while the VM uses it |
+| Cloud NAT data | $0.045 per GiB | CMS downloads only: ≈ 38 MB a month, 2.6 GB for a full backfill (images come from Artifact Registry over Private Google Access, not NAT) |
+| Disks: 30 GB boot + 10 GB Postgres, pd-balanced | ≈ $0.10 per GB-month, ≈ **$4 a month** ([disk pricing](https://cloud.google.com/compute/disks-image-pricing)) | always, also while stopped |
+| NAT external IP (`AUTO_ONLY`) | ≈ $0.005/h | while the VM runs; $0–3.65 a month if Google keeps the IP while it is stopped (the billing report shows which) |
+
+**Running: ≈ $0.18 an hour. Stopped: ≈ $4 a month.**
+
+| Situation | Running hours a month | Cost a month (e2-standard-4) |
+|---|---|---|
+| Stopped all month | 0 | **≈ $4** (up to ≈ $7.70 with a held NAT IP) |
+| Production: one CMS release a month (a ~1–1.5 h run: the new zip, silver, a full gold rebuild, the ML retrain and scores; then the idle shutdown's ~1–1.5 h) | 2–3 | **≈ $4.40–4.60** ($4.30–4.40) |
+| Development or demo weeks (VM sessions of 2–4 h on about 10 days) | 20–40 | **≈ $7.60–11.30** ($6.70–9.40) |
+| A heavy month (debugging, several backfills) | 100 | **≈ $22** ($17.50) |
+| One extra full backfill | ≈ 1 | **+ ≈ $0.30** (with 2.6 GB through NAT) |
+| **Edge: left running a day / a week** (an open SSH session, `pi-deploy pause` left on, a hung run) | 24 / 168 | **≈ $4.40 / ≈ $31** |
+| **Edge: left running all month** | 730 | **≈ $137** ($103) |
+
+- **The upgrade (T25, #90) adds $0.047 per running hour:** about $1–2 in a normal month, $34 only if the VM ran all
+  month.
+- **What stops the edge cases:** the idle shutdown (about 70–85 minutes after the last session), the 6-hour reminder for
+  a forgotten pause, the 6-hour email for a run that keeps the VM up, and the project budget alerts. An open SSH session
+  keeps the VM up: close it when done.
+- **Around the VM, the same in every situation:** GCS ≈ 52 GB (root + `ml-dev/`) ≈ $1; Artifact Registry (≤ 5 releases
+  of two images) ≈ $1–2; Secret Manager (9 secrets) ≈ $0.55; backups cents; together ≈ $3–5 a month.
+- **Not used:** Spot VMs (about half price) can be stopped mid-run; committed-use discounts need a 1- or 3-year term.
 
 ## How changes reach GCP
 
