@@ -93,6 +93,39 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 
 The shared record types (`Evidence`, `Driver`, the `data_as_of` and caveat fields) come in A5, first, so every tool and agent uses the same ones. A new tool or ID format is a change to this table in the same PR.
 
+### Libraries
+
+Python packages go in the `pyproject.toml` extras named here. The API image installs `agents` and `api` only (L7), so nothing from `pipeline`, `ml` or `dvc` is in it.
+
+| Library | Extra | Used for | Task |
+|---|---|---|---|
+| `pydantic-ai-slim[openai]` | `agents` (already there) | the agents, typed outputs, output validators, usage limits, `TestModel`/`FunctionModel` in tests; the `openai` client calls Vertex's OpenAI-compatible endpoint | A, B, F-I |
+| `google-auth` | `agents` (already there) | the Vertex token, refreshed per request (A2); verifying the Google ID token (`google.oauth2.id_token`, K1) | A2, K1 |
+| `httpx` | `agents` (add; today only in `ui`) | the small `httpx.Auth` that adds a fresh token to each Vertex request | A2 |
+| `rank-bm25` | `agents` (already there) | Agent 2's passage search | G2 |
+| `polars`, `pyarrow` | `agents` (add) | reading the evidence parquet files; `portfolio_stats` counting | E1, E3 |
+| `gcsfs` | `agents` (add) | reading the evidence and corpus from GCS | E1 |
+| `google-cloud-storage` | `agents` (add) | the cache and the daily counter: the generation-match write needs the storage client, not gcsfs | D1, D3 |
+| `opentelemetry-sdk`, `opentelemetry-exporter-gcp-trace` | `agents` (add) | spans per run and per tool call, sent to Cloud Trace in production | C1 |
+| `fastapi`, `uvicorn[standard]` | `api` (already there) | the API, and serving the React `dist/` | K |
+| `google-cloud-secret-manager` | `api` (already there) | reading the sign-in allowlist | K1 |
+| `mlflow` | `ml` (already there; not in the API image) | evaluation runs: traces and metrics per prompt version | J1, J3 |
+| `pytest` | dev group | every test; no test calls a paid model | all |
+
+Not needed: `logfire` (Pydantic AI's instrumentation is plain OpenTelemetry), LangChain (decided against), a vector database (BM25 over a small corpus is enough). `google-cloud-bigquery` stays in `api` for later (E1's BigQuery source), but nothing uses it before Dec 1. The `ui` extra (`streamlit`) is removed in M2.
+
+**Frontend** (`frontend/package.json`, with a pinned Node LTS image in L7 and `.nvmrc`):
+
+| Package | Used for | Task |
+|---|---|---|
+| `react`, `react-dom`, `typescript`, `vite` | the app and its build | M2 |
+| `shadcn/ui` (with `tailwindcss` and Radix) | the components | M2, M4 |
+| `@react-oauth/google` | Google sign-in, getting the ID token | M3 |
+| `openapi-typescript` | the typed API client, generated from FastAPI's OpenAPI document | M2 |
+| `@tanstack/react-query` | API calls, with loading, error and retry states | M4, M5 |
+| `vitest`, `@testing-library/react` | component tests for every state | M5 |
+| `eslint` | lint in CI | M6 |
+
 ### A. Runtime and settings (Tanoj), the foundation everything else imports
 
 | ID | Task | Done when |
