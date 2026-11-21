@@ -68,6 +68,31 @@
 
 Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `agent-reviewer` subagent; infrastructure PRs get the `infra-reviewer` subagent and Nishanth.
 
+### The four agents and their tools (agree on these before building)
+
+| Agent | Owner | Answers | Output type | Tools (all read-only) |
+|---|---|---|---|---|
+| **1. Facility Investigation** | Riya | "Why is this nursing home risky?" for one CCN | `InvestigationBrief` | `get_facility_score`, `get_reasons`, `get_citations`, `get_penalties`, `get_chain`, and **Agent 2** for regulation quotes (at most k calls a run, D4) |
+| **2. Regulatory Evidence Retriever** | Aakash | "What does the regulation say about this?" for one claim or question | `EvidenceSet` | `search_passages` (BM25 over the corpus, G2) and `get_passage` (the exact stored text by passage ID, for quote checking) |
+| **3. Model Ops Analyst** | Tanoj | "Is the model healthy?" for the system | `OpsReport` | `get_status`, `get_gate_results`, `get_model_card`, `get_drift` |
+| **4. Portfolio Briefing** | Riya | "How risky is this insurer's book?" for a list of CCNs | `ExecutiveBrief` | `portfolio_stats` (all counting in code), `get_chain`, and the top N facilities' Agent 1 briefs (H2 decides whether these are live or cached) |
+
+**Where the tools read from:** every tool reads the evidence files that `build-evidence` writes (E2), for the month named in `agents/evidence/_current.json`, or the corpus that `build-corpus` writes (G1). No tool writes, calls another service, or reads Postgres or MLflow.
+
+**What every tool returns:** typed records, each with a stable evidence ID, the month `v`, and the gold run it came from (E4). The model may cite only IDs that a tool returned in the same run (B3).
+
+| Evidence ID | Returned by | Example |
+|---|---|---|
+| `score:<ccn>:<v>` | `get_facility_score`, `portfolio_stats` | `score:015009:2026-10` |
+| `reason:<ccn>:<v>:<rank>` | `get_reasons` | `reason:015009:2026-10:1` |
+| `citation:<ccn>:<date>:<tag>` | `get_citations` | `citation:015009:2026-03-14:F689` |
+| `penalty:<ccn>:<date>:<type>` | `get_penalties` | `penalty:015009:2026-04-02:fine` |
+| `chain:<chain_id>:<v>` | `get_chain` | `chain:123:2026-10` |
+| `passage:<source>:<tag>:<n>` | `search_passages`, `get_passage` | `passage:citation_lookup:F689:0` |
+| `ops:<kind>:<v>` | Agent 3's tools (`kind` is status, gates, card or drift) | `ops:gates:2026-10` |
+
+The shared record types (`Evidence`, `Driver`, the `data_as_of` and caveat fields) come in A5, first, so every tool and agent uses the same ones. A new tool or ID format is a change to this table in the same PR.
+
 ### A. Runtime and settings (Tanoj), the foundation everything else imports
 
 | ID | Task | Done when |
