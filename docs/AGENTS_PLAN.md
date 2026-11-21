@@ -75,9 +75,9 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 | **1. Facility Investigation** | Riya | "Why is this nursing home risky?" for one CCN | `InvestigationBrief` | `get_facility_score`, `get_reasons`, `get_citations`, `get_penalties`, `get_chain`, and **Agent 2** for regulation quotes (at most k calls a run, D4) |
 | **2. Regulatory Evidence Retriever** | Aakash | "What does the regulation say about this?" for one claim or question | `EvidenceSet` | `search_passages` (BM25 over the corpus, G2) and `get_passage` (the exact stored text by passage ID, for quote checking) |
 | **3. Model Ops Analyst** | Tanoj | "Is the model healthy?" for the system | `OpsReport` | `get_status`, `get_gate_results`, `get_model_card`, `get_drift` |
-| **4. Portfolio Briefing** | Riya | "How risky is this insurer's book?" for a list of CCNs | `ExecutiveBrief` | `portfolio_stats` (all counting in code), `get_chain`, and the top N facilities' Agent 1 briefs (H2 decides whether these are live or cached) |
+| **4. Portfolio Briefing** | Riya | "How risky is this insurer's book?" for a list of CCNs | `ExecutiveBrief` | `portfolio_stats` (all counting in code), `get_chain`, and the top N facilities' cached Agent 1 briefs, through `get_facility_brief` (H2, #91) |
 
-**Where the tools read from:** every tool reads the evidence files that `build-evidence` writes (E2), for the month named in `agents/evidence/_current.json`, or the corpus that `build-corpus` writes (G1). No tool writes, calls another service, or reads Postgres or MLflow.
+**Where the tools read from:** every tool reads the evidence files that `build-evidence` writes (E2), for the month named in `agents/evidence/_current.json`, or the corpus that `build-corpus` writes (G1). The one exception is `get_facility_brief`, which reads the answer cache (D1), read-only, for Agent 4. No tool writes, calls another service, or reads Postgres or MLflow.
 
 **What every tool returns:** typed records, each with a stable evidence ID, the month `v`, and the gold run it came from (E4). The model may cite only IDs that a tool returned in the same run (B3).
 
@@ -89,6 +89,7 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 | `penalty:<ccn>:<penalty_date>:<fine\|payment_denial>:<n>` (n from 1: one date can hold several identical fines) | `get_penalties` | `penalty:015009:2026-04-02:fine:1` |
 | `chain:<chain_id>:<v>` | `get_chain` | `chain:123:2026-10` |
 | `portfolio:<v>:<hash>` (first 12 hex of the sha256 of the sorted CCNs and `top_n`) | `portfolio_stats` | `portfolio:2026-10:3f9a0c1b2d4e` |
+| `brief:<ccn>:<v>` (a cached Agent 1 brief) | `get_facility_brief` | `brief:015009:2026-10` |
 | `passage:<source>:<tag>:<n>` (`n` numbers a tag's wordings, oldest first; same tag spelling as `ftag`) | `search_passages`, `get_passage` | `passage:cms_tag:F0689:0` |
 | `ops:<kind>:<v>` | Agent 3's tools (`kind` is status, gates, card or drift) | `ops:gates:2026-10` |
 
