@@ -6,8 +6,8 @@ restore its databases, and what to do when something goes wrong. The reference d
 the VM's build, its cost) and `airflow-local.md` §5 (the stack's settings on the VM). The timings come from the
 smoke test and the first full backfill on the VM (T23, T25: `airflow-local.md` §8.4, §8.5).
 
-MLflow runs on the VM since ML Phase 2's item 2 (section 11). `cms_nh_ml` on the VM is item 3
-(`docs/ML_PHASE2_HANDOFF.md` §5.2); its owner adds that part here.
+MLflow runs on the VM since ML Phase 2's item 2 (section 11), and `cms_nh_ml` since item 3 (section 14,
+`docs/ML_PHASE2_HANDOFF.md` §5.2).
 
 ## 0. At a glance
 | | |
@@ -119,8 +119,8 @@ MLflow runs on the VM since ML Phase 2's item 2 (section 11). `cms_nh_ml` on the
 
 ## 4. Run the pipeline by hand
 - **Nothing runs on its own until T26** (production, section 13): the three DAGs are created paused. Keep
-  `cms_nh_release_check` paused while you trigger runs by hand (a RESUME it finds would start another run), and
-  `cms_nh_ml` paused until its Phase 2 deploy.
+  `cms_nh_release_check` paused while you trigger runs by hand (a RESUME it finds would start another run).
+  `cms_nh_ml` is unpaused since 2026-11-22 (section 14): every gold a pipeline run publishes starts an ML run.
 - **Trigger and watch** (or use the UI):
   ```bash
   af dags unpause cms_nh_pipeline
@@ -201,6 +201,8 @@ Emails go to the `alert-email-to` secret's recipients, from the Gmail account in
 | `[cms_nh_pipeline] run failed: see the run`, body `Reason: timed_out` | the run hit its 8 h limit | the run lock stays held: free it (below) or let the next run take it over after 12 h |
 | `[cms_nh_pipeline] release_lock failed (the run may still show success)` | `release_lock`'s callback | free the lock (below) |
 | `[cms_nh_pipeline] N new error anomalies` / `new CMS columns in N silver partitions` | the run, which goes on | read the listed lines (`ALERTS_HANDOFF.md` §6) |
+| `[cms_nh_ml] <DECISION> <V>`, e.g. `SKIP 2026-10`, `PROMOTE 2026-10: 2 flag(s)` | `notify`, after every ML run | read it; a `held (…)`, a flag or `re-tune requested` in the subject needs a look (section 14) |
+| `[cms_nh_ml] run failed: <tasks>` | the DAG's failure callback | open the log links; a REFUSE is exit 2 and isn't retried (section 14) |
 | `[cms_nh_release_check] …` | the release check | a CMS release partial for days, or proceeds that start no run (`airflow-local.md` §5) |
 | `[pi-airflow VM] deploy of … failed …` / `… runs on a trial prefix` | `pi-deploy` | section 3 / section 5 |
 | `[pi-airflow VM] the VM stays up: …` / `… up 6+ hours and a run keeps it up` | the idle shutdown | a failed dump, deploys paused, or a long run: look, then stop it or fail the run |
@@ -300,7 +302,7 @@ Decided 2026-11-22: production runs on `main` (section 3) and starts when the re
 starts the pipeline for each new CMS release. Nothing starts the VM: a person does, once CMS has published. CMS's
 next release is due 2026-12-02.
 1. **Before the first time:** the VM runs `main`'s release, and `cms_nh_ml` has a champion (ML Phase 2 item 3 and
-   Checkpoint ML-A); without one, `score` skips and nothing is published.
+   Checkpoint ML-A; done 2026-11-22, v1, section 14); without one, `score` skips and nothing is published.
 2. **Has CMS published?** From a laptop, without the VM. The check starts the pipeline on READY: all 7 datasets
    report one `modified` month, newer than the latest ingested vintage. This is the only case this laptop check
    sees; the check also starts it on RESUME (the last pipeline work didn't finish) and CHANGED (unfinished landing
@@ -324,7 +326,58 @@ next release is due 2026-12-02.
    af dags unpause cms_nh_release_check
    af dags trigger cms_nh_release_check      # check now instead of at the next hour
    ```
-   They stay unpaused from then on. For each later release: steps 2 and 3, then the `trigger` line. For a manual run
+   `cms_nh_ml` is already unpaused since 2026-11-22 (section 14); its line changes nothing then. They stay unpaused
+   from then on. For each later release: steps 2 and 3, then the `trigger` line. For a manual run
    or a backfill, pause `cms_nh_release_check` first (section 4) and unpause it afterwards.
 5. **What follows:** READY → a `cms_nh_pipeline` run → gold → a `cms_nh_ml` run → its `publish` to GCS and BigQuery
    (section 12). Failures email (section 8). The idle shutdown waits for both runs, then stops the VM.
+
+## 14. ML runs (`cms_nh_ml`)
+- **What starts it:** every published gold (the `cms_nh_gold` asset) starts a `mode=auto` run; or start one by hand.
+  Unpaused on the VM since 2026-11-22 (ML Phase 2 item 3). One run at a time, no run lock; `train`, `tune` and
+  `evaluate` share the `heavy` pool's one slot with gold's `build_gold`. A deploy and the idle shutdown wait for its
+  runs. What each mode and task does: the DAG's docstring (`dags/cms_nh_ml.py`) and `ML_PIPELINE.md`.
+- **Trigger and watch** (or use the UI):
+  ```bash
+  af dags trigger cms_nh_ml --run-id my-ml-1 --conf '{"mode": "auto"}'
+  af tasks states-for-dag-run cms_nh_ml my-ml-1
+  ```
+  `mode`: `auto` (decides by itself), `retrain`, `score_only`, `retune`, or `promote`, which also needs `version`
+  and `reason` (any earlier version = a rollback):
+  ```bash
+  af dags trigger cms_nh_ml --run-id my-promote-1 --conf '{"mode": "promote", "version": 1, "reason": "<who approved it, when, after reading what>"}'
+  ```
+- **Took on the VM** (item 3, 2026-11-22, gold V 2026-10):
+
+  | Run | Took | Result |
+  |---|---|---|
+  | `vm-retrain-1`, `retrain` | about 22 min (`train` 12 min, `evaluate` 8 min) | v1 registered and held as `@challenger` (a first version always is); `score` skipped, no champion yet |
+  | `vm-promote-1`, `promote` v1 | 2.1 min (`score` 28 s, `publish` 20 s) | v1 `@champion`; 14,686 homes scored and loaded to BigQuery |
+  | `vm-auto-1`, `auto` | 0.4 min | SKIP: nothing new for this gold and recipe; nothing rewritten |
+  | `vm-score-only-1`, `score_only` | 1.8 min | every score, reason, SHAP value and chain score identical to the promote's; only `ml_run_id` and `scored_at` differ |
+
+- **Where the results are:** the run folder `gs://precursor-intel-mlops-data/ml/runs/<run id>/` (`decision.json`;
+  after a retrain `report/model_card.md`, `gates.json`, `slices.csv`), the scores in `scores/v=<V>/` with
+  `scores_manifest.json`, `status/latest.json`, BigQuery (section 12), the registry (section 11) and the email
+  (section 8).
+- **After a run that scored,** check: `publish`'s `bigquery_rows` equals the manifest's `rows` (2026-10: 14,686
+  facility scores, 117,488 reasons, 612 chains); `status/latest.json` names the champion and its `n_facilities`; the
+  latest-partition query (section 12) returns the month.
+- **The first model on a new registry** (Checkpoint ML-A): `retrain`, then the lead reads the model card, the gates,
+  the slices and 20 random homes' reasons, then `promote` with the lead's approval as the reason. The reasons script
+  (`scripts/ml_checkpoint_reasons.py`) isn't in the pipeline image and needs `ml_runs`, so it runs on the VM. Copy it
+  there from a laptop:
+  ```bash
+  gcloud compute scp scripts/ml_checkpoint_reasons.py pi-airflow:/tmp/ --zone us-central1-a --tunnel-through-iap
+  ```
+  On the VM, one line at a time. The database URL goes through a root-only file, never a command line (`sudo` logs
+  those):
+  ```bash
+  img=$(sudo docker inspect --format '{{.Config.Image}}' pi-airflow-mlflow-1 | sed 's|/mlflow:|/pipeline:|')
+  sudo ${dc} exec -T airflow-scheduler printenv PI_DATABASE_URL | sudo sh -c 'umask 077; sed "s/^/PI_DATABASE_URL=/" > /root/reasons.env'
+  sudo docker run --rm --network pi-airflow-tasks --env-file /root/reasons.env -e PI_BUCKET_URI=gs://precursor-intel-mlops-data -e PI_PACKAGES_URI=gs://precursor-intel-mlops-mlflow/packages/vm -v /tmp/ml_checkpoint_reasons.py:/app/scripts/ml_checkpoint_reasons.py:ro "${img}" python scripts/ml_checkpoint_reasons.py --run-id <the retrain's run id> --version <its version> </dev/null > /tmp/reasons.txt
+  sudo rm /root/reasons.env
+  ```
+  Copy `/tmp/reasons.txt` back with `gcloud compute scp` and send it to the lead with the model card.
+- **The flags:** v1's runs flag skew on `state_gplus_rate_12m` and `staffing_rating_fn`, the same two as on the
+  laptop stack's `ml-dev`. They are information: the run still scores and publishes.
