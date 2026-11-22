@@ -670,3 +670,110 @@ def test_ml_score_scores_with_a_mode(trained, monkeypatch, capsys):
     monkeypatch.setattr(registry_mod, "default_registry", lambda cfg: reg)
     assert _ml_score(trained, monkeypatch, "--mode", "score_only") == 0
     assert '"skipped": false' in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- BigQuery publish (§11 Phase 2, ML-4)
+
+from precursorintelligence.common.config import BigQueryCfg  # noqa: E402
+from precursorintelligence.serving import bigquery as bq  # noqa: E402
+
+BQ = BigQueryCfg(project="proj", dataset="scores", location="us-central1")
+BQ_TYPES = {
+    pl.String: "STRING",
+    pl.Int64: "INTEGER",
+    pl.Float64: "FLOAT",
+    pl.Boolean: "BOOLEAN",
+    pl.Date: "DATE",
+}
+
+
+class FakeJob:
+    def __init__(self, output_rows):
+        self.output_rows = output_rows
+
+    def result(self):
+        return self
+
+
+class FakeBigQuery:
+    """Records each load job; ``fail`` raises on the first load, ``extra_rows`` reports a wrong row count."""
+
+    def __init__(self, fail=None, extra_rows=0):
+        self.loads, self.fail, self.extra_rows = [], fail, extra_rows
+
+    def load_table_from_file(self, file_obj, destination, *, job_config, location):
+        df = pl.read_parquet(file_obj)
+        self.loads.append((destination, job_config, location, df))
+        if self.fail:
+            raise self.fail
+        return FakeJob(df.height + self.extra_rows)
+
+
+def bq_publish(run, client):
+    return run_publish(
+        run.store(), run.meta(), ml_run_id=run.run_id, cfg=run.cfg, bigquery=BQ, bq_client=client
+    )
+
+
+def test_the_bigquery_schemas_match_the_score_files(trained):
+    # configs/bigquery/*.json are read by Terraform and by the load: every column, in order, with its type, and a
+    # REQUIRED column never null in what score writes
+    score(trained, setup_champion(trained, 1))
+    for name in bq.TABLES:
+        frame = bq.bq_frame(name, table(trained, name), target="g12")
+        fields = bq.schema(name)
+        assert frame.columns == [f["name"] for f in fields], name
+        for f in fields:
+            dtype = frame.schema[f["name"]]
+            want = "TIMESTAMP" if isinstance(dtype, pl.Datetime) else BQ_TYPES[type(dtype)]
+            assert f["type"] == want, (name, f["name"])
+            if f["mode"] == "REQUIRED":
+                assert frame[f["name"]].null_count() == 0, (name, f["name"])
+
+
+def test_publish_loads_each_month_into_its_partition_then_records_it(trained):
+    score(trained, setup_champion(trained, 1))
+    client = FakeBigQuery()
+    out = bq_publish(trained, client)
+    v = read_input_manifest(trained.store(), RunPaths.of(trained.cfg, trained.run_id)).v
+    month = v.replace("-", "")
+    assert [d for d, *_ in client.loads] == [f"proj.scores.{t}${month}" for t in bq.TABLES]
+    for _, job, location, _df in client.loads:
+        assert location == "us-central1"
+        assert (job.source_format, job.write_disposition, job.create_disposition) == (
+            "PARQUET",
+            "WRITE_TRUNCATE",
+            "CREATE_NEVER",
+        )
+    scores = client.loads[0][3]
+    assert "p" in scores.columns and not any(c.startswith("p_") for c in scores.columns)
+    assert set(scores["target"]) == {"g12"} and isinstance(scores.schema["scored_at"], pl.Datetime)
+    assert out.loaded == {
+        t: df.height for (_, _, _, df), t in zip(client.loads, bq.TABLES, strict=True)
+    }
+    assert last_scored_v(trained.meta()) == v
+
+
+def test_a_failed_load_records_nothing(trained):
+    # the ml_runs row comes after the load: a retry loads again, and decide never sees an unloaded month
+    score(trained, setup_champion(trained, 1))
+    with pytest.raises(RuntimeError, match="quota"):
+        bq_publish(trained, FakeBigQuery(fail=RuntimeError("quota exceeded")))
+    assert last_scored_v(trained.meta()) is None
+
+
+def test_a_load_that_wrote_other_rows_is_refused(trained):
+    score(trained, setup_champion(trained, 1))
+    with pytest.raises(MlInputError, match="rows"):
+        bq_publish(trained, FakeBigQuery(extra_rows=1))
+    assert last_scored_v(trained.meta()) is None
+
+
+def test_publish_without_bigquery_never_builds_a_client(trained, monkeypatch):
+    # dev and the toy chain have no bigquery block: publish stays Phase 1
+    score(trained, setup_champion(trained, 1))
+    monkeypatch.setattr(
+        bq, "make_client", lambda cfg: pytest.fail("no client without a bigquery block")
+    )
+    out = publish(trained)
+    assert out.loaded is None and not out.skipped

@@ -72,6 +72,7 @@
     "verified": false
   },
   "publish": {
+    "bigquery_rows": null,
     "ml_run_id": "toy-ml",
     "model_version": 1,
     "reason": "published",

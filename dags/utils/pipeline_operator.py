@@ -100,8 +100,8 @@ def docker_kwargs() -> dict[str, Any]:
     }
     if env.get("PI_MLFLOW_TRACKING_URI"):  # the compose stack's server, http://mlflow:5000
         environment["MLFLOW_TRACKING_URI"] = env["PI_MLFLOW_TRACKING_URI"]
-    # unset, not empty: prod.yaml falls back to its default bucket and package store
-    for name in ("PI_BUCKET_URI", "PI_PACKAGES_URI"):
+    # unset, not empty: prod.yaml falls back to its default bucket, no package store and no BigQuery load
+    for name in ("PI_BUCKET_URI", "PI_PACKAGES_URI", "PI_BIGQUERY_DATASET"):
         if env.get(name):
             environment[name] = env[name]
     mounts = []

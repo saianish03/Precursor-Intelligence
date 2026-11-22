@@ -1,0 +1,80 @@
+[
+  {
+    "name": "chain_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "CMS chain id"
+  },
+  {
+    "name": "score_month",
+    "type": "DATE",
+    "mode": "REQUIRED",
+    "description": "first day of the score month (the partition)"
+  },
+  {
+    "name": "n_facilities",
+    "type": "INTEGER",
+    "mode": "REQUIRED",
+    "description": "scored facilities in the chain"
+  },
+  {
+    "name": "beds",
+    "type": "FLOAT",
+    "mode": "REQUIRED",
+    "description": "certified beds (missing counted as 0)"
+  },
+  {
+    "name": "expected_facilities_with_event",
+    "type": "FLOAT",
+    "mode": "REQUIRED",
+    "description": "sum of the facilities' p"
+  },
+  {
+    "name": "p_any_event",
+    "type": "FLOAT",
+    "mode": "REQUIRED",
+    "description": "1 - prod(1 - p), assuming independent facilities"
+  },
+  {
+    "name": "bed_weighted_mean_p",
+    "type": "FLOAT",
+    "mode": "REQUIRED",
+    "description": "mean p weighted by beds"
+  },
+  {
+    "name": "max_p",
+    "type": "FLOAT",
+    "mode": "REQUIRED",
+    "description": "highest p in the chain"
+  },
+  {
+    "name": "worst_ccn",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "the facility with max_p"
+  },
+  {
+    "name": "share_top_decile",
+    "type": "FLOAT",
+    "mode": "REQUIRED",
+    "description": "share of the chain's facilities in decile 1"
+  },
+  {
+    "name": "model_version",
+    "type": "INTEGER",
+    "mode": "REQUIRED",
+    "description": "registered model version"
+  },
+  {
+    "name": "gold_run_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "the gold build scored"
+  },
+  {
+    "name": "ml_run_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "the cms_nh_ml run that scored it"
+  }
+]

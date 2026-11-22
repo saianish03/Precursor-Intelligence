@@ -17,6 +17,9 @@ idle shutdown).
 - the data, DVC, state, backups and MLflow buckets (the last holds the MLflow server's artifacts, no expiry);
 - `sa-pipeline` (the VM's identity) and its access: the data bucket, upload only on the backups bucket (never read, list,
   overwrite or delete), objects in the MLflow bucket, pull from the image repository, read on each VM secret, and writing logs and metrics;
+- the BigQuery dataset `precursorintelligence_scores` with its three monthly-partitioned score tables (schemas in
+  `configs/bigquery/`; every query must filter on `score_month`), which `sa-pipeline` loads (`bigquery.dataEditor` on
+  the dataset, `bigquery.jobUser` on the project);
 - the image repository `precursor` and `sa-deployer`, which only CD's runs on `dev` or `main` can act as (it pushes);
 - `sa-release`, only the Deploy workflow's runs on those branches ("Which workflow can act as which account"): sets `pi-release` on the VM (`compute.instanceAdmin.v1` on that
   instance, actAs `sa-pipeline`), reads the image repository and compute settings;

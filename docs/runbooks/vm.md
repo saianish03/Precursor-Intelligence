@@ -234,3 +234,17 @@ cases: `infra/README.md`, "Cost of the VM". The budget alerts never stop spendin
   5. If this first deploy fails after `up`, it rolls back to the release before MLflow, which runs no `mlflow`.
 - **An MLflow version bump** runs `mlflow db upgrade` at start, which can't be undone: `sudo pi-pg-backup` before
   deploying it, and a rollback below it needs the `mlflow` dump restored.
+
+## 12. BigQuery (the scores for SQL)
+- **What:** `ml publish` loads each scored month into `precursor-intel-mlops.precursorintelligence_scores`: tables
+  `facility_scores`, `facility_reasons` and `chain_scores`, one monthly partition per `score_month`. A rerun of
+  `publish` for the month replaces exactly that partition (`WRITE_TRUNCATE`). Only this stack loads (it sets
+  `PI_BIGQUERY_DATASET`); a laptop stack loads nothing. The SHAP matrix stays in GCS.
+- **Query it** from a laptop, always with a `score_month` filter (the tables refuse a query without one) and a byte
+  cap:
+  ```bash
+  bq query --project_id=precursor-intel-mlops --use_legacy_sql=false --maximum_bytes_billed=100000000 \
+    'SELECT risk_decile, COUNT(*) AS n, ROUND(AVG(p), 3) AS mean_p FROM precursorintelligence_scores.facility_scores WHERE score_month = DATE "2026-10-01" GROUP BY 1 ORDER BY 1'
+  ```
+- **Check a load:** the `publish` task's summary line has `bigquery_rows`, which must equal the manifest's `rows` for
+  the three tables (`publish` refuses otherwise).

@@ -10,6 +10,7 @@ from precursorintelligence.common.config import (
     load_qm_measures_config,
     load_settings,
     load_splits_config,
+    project_root,
 )
 from precursorintelligence.common.io.registry import build_package_store
 
@@ -79,6 +80,28 @@ def test_prod_writes_every_layer_into_the_gcs_bucket(monkeypatch):
     assert store.storage_options == {"token": "google_default"}
     monkeypatch.setenv("PI_BUCKET_URI", "gs://precursor-intel-mlops-data/trial-x")  # a trial prefix
     assert load_settings("prod").env.object_store.root == "gs://precursor-intel-mlops-data/trial-x"
+
+
+@pytest.mark.parametrize("value", [None, "", "  "])
+def test_prod_has_no_default_bigquery_dataset(monkeypatch, value):
+    # like the package store: a laptop stack (also env prod, on ml-dev/) must never load into the VM's dataset
+    monkeypatch.setenv("PI_DATABASE_URL", "postgresql+psycopg://u@h/db")
+    if value is None:
+        monkeypatch.delenv("PI_BIGQUERY_DATASET", raising=False)
+    else:
+        monkeypatch.setenv("PI_BIGQUERY_DATASET", value)
+    assert load_settings("prod").env.bigquery is None
+
+
+def test_only_prod_publishes_to_the_terraform_managed_bigquery_dataset(monkeypatch):
+    # ML spec §11 Phase 2: the VM's dataset is the one main.tf creates; dev and the toy chain load nothing
+    monkeypatch.setenv("PI_DATABASE_URL", "postgresql+psycopg://u@h/db")
+    monkeypatch.setenv("PI_BIGQUERY_DATASET", "precursorintelligence_scores")
+    bq = load_settings("prod").env.bigquery
+    assert bq is not None and load_settings("dev").env.bigquery is None
+    main_tf = (project_root() / "infra" / "terraform" / "envs" / "prod" / "main.tf").read_text()
+    assert f'dataset_id  = "{bq.dataset}"' in main_tf
+    assert (bq.project, bq.location) == ("precursor-intel-mlops", "us-central1")
 
 
 def test_registered_packages_go_to_the_mlflow_bucket(monkeypatch):
