@@ -58,8 +58,9 @@ drops the colon.
    ```bash
    gcloud iam workload-identity-pools create github --location=global --display-name="GitHub Actions"
    gcloud iam workload-identity-pools providers create-oidc github-repo --location=global --workload-identity-pool=github --issuer-uri=https://token.actions.githubusercontent.com --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" --attribute-condition="assertion.repository=='saianish03/Precursor-Intelligence'"
-   # Terraform later added attribute.workflow to this mapping, to bind each CI account to its own workflow file
-   # (infra/README.md, "Which workflow can act as which account"); the commands here are the bootstrap as it was run.
+   # attribute.workflow was added to this mapping later (2026-11-22, by an Owner with gcloud, as modules/wif writes it),
+   # to bind each CI account to its own workflow file (infra/README.md, "Which workflow can act as which account").
+   # The commands here are the bootstrap as it was run.
    gcloud iam service-accounts create sa-tf-plan --display-name="Terraform plan (PRs, read-only)"
    gcloud iam service-accounts create sa-tf-apply --display-name="Terraform apply (merged branches only)"
    P=principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/subject
@@ -129,10 +130,10 @@ gcloud storage buckets describe gs://$PROJECT-data --format="yaml(lifecycle_conf
 gcloud iam service-accounts get-iam-policy sa-tf-apply@$PROJECT.iam.gserviceaccount.com --format="yaml(bindings)"
 gcloud projects get-iam-policy $PROJECT --flatten="bindings[].members" --filter="bindings.members:user:" --format="table(bindings.members,bindings.role)"
 ```
-The `sa-tf-apply` policy lists two `principalSet://…/attribute.workflow/…/terraform.yml@refs/heads/dev` and `…@refs/heads/main`
-members, each with the numeric ids in the subject part: **never remove these**, they are how CI's Terraform logs in.
-Until an Owner removes them (`infra/README.md`, "Which workflow can act as which account"), it also lists the two
-bootstrap members ending in `:ref:refs/heads/dev` and `:ref:refs/heads/main`. Its project roles must be exactly three:
+The `sa-tf-apply` policy lists exactly two members: `principalSet://…/attribute.workflow/…/terraform.yml@refs/heads/dev`
+and `…@refs/heads/main`, each with the numeric ids in the subject part. **Never remove these**: they are how CI's
+Terraform logs in. The bootstrap's `:ref:refs/heads/…` members were removed on 2026-11-22 (`infra/README.md`, "Which
+workflow can act as which account"). Its project roles must be exactly three:
 ```bash
 gcloud projects get-iam-policy $PROJECT --flatten="bindings[].members" --filter="bindings.members:sa-tf-apply@" --format="value(bindings.role)"
 ```
