@@ -15,7 +15,7 @@ decisions already made and the traps. State as of `dev` `b1b1d96` (2026-11-20).
 |---|---|
 | **ML code** | W0–W6 and the follow-ups #77–#80, #85 and #86 are merged. The §17.2 acceptance passed on the laptop stack on 2026-11-18 (`ML_PIPELINE.md` §11, §14). |
 | **Phase 1 champion** | v1 (`lgbm`, test 2025-02 PR-AUC 0.470) on the lead's laptop stack `ml_dev`: registry `precursor_y_g12` with `@champion` v1 and `@challenger` v3; scores for 2026-10 in `gs://precursor-intel-mlops-data/ml-dev/scores/`; its packages (v1–v3) backfilled to `gs://precursor-intel-mlops-mlflow/packages/ml-dev/` on 2026-11-19. It does not move to the VM (§3). |
-| **VM** | `pi-airflow` (e2-highmem-4, us-central1-a) is built and **stopped**: the VM in Terraform, `pi-deploy`, the idle shutdown and the Deploy workflow are done, and **the smoke test (T23) passed on 2026-11-20** (`runbooks/airflow-local.md` §8.4). It runs `5697619` on the bucket root: `cms_nh_ml` exists, paused; MLflow is off. Its database is fresh since T23's restore, with the three-line `pg_hba` (`pi_meta`, `mlflow`, reject); `precursor_meta` holds the trial's records until T24 resets it. The bucket clean-up and full backfill are next, done by the lead's team (§5.1). |
+| **VM** | `pi-airflow` (e2-highmem-4, us-central1-a) is built and **stopped**: the VM in Terraform, `pi-deploy`, the idle shutdown and the Deploy workflow are done, and **the smoke test (T23) passed on 2026-11-20** (`runbooks/airflow-local.md` §8.4). It runs `8ed727c` on the bucket root, **with T25's full gold published there** (V 2026-10, 775,400 rows, the official dataset rebuilt): `cms_nh_ml` exists, paused; MLflow is off. Its database was reset at T24 and owns the root, with the three-line `pg_hba` (`pi_meta`, `mlflow`, reject). T24 (bucket clean-up, reset) and T25 (full backfill) are done (§5.1); T26 (production start) waits for the team's go. |
 | **MLflow on the VM** | Off. `docker-compose.vm.yaml` keeps `mlflow` and `postgres-setup` in the profile `phase2` and sets `PI_MLFLOW_TRACKING_URI: ""`; `cd.yml` and `deploy.yml` ship two images; `pi-pg-backup`/`pi-pg-restore` skip `mlflow`. Ready: bucket `precursor-intel-mlops-mlflow`, secret `mlflow-db-password` (value set), `pi-deploy` renders it, and its `pg_hba` check knows the `mlflow` line. The package store (#85) is set: `packages/vm` in `docker-compose.vm.yaml`. |
 | **BigQuery** | Nothing yet: no Terraform, no code (`serving/publish.py` verifies the GCS scores and emits the asset). |
 | **Gold** | Phase 1 gold is under `ml-dev/` (V = 2026-10, built by the laptop stack). The VM builds its own in the full backfill (T25). |
@@ -38,7 +38,7 @@ decisions already made and the traps. State as of `dev` `b1b1d96` (2026-11-20).
 3. **Read:** the spec §15–§17, §18.1, §19 (decisions), §21 (limitations); `ML_PIPELINE.md` §13–§15 (how to run, the
    Phase 1 runs, known limitations); `infra/vm/README.md` (deploys, up and down, backups, restore);
    `runbooks/airflow-local.md` §2.1 (MLflow) and §5 (the VM); `AIRFLOW_PIPELINE.md`; `ALERTS_HANDOFF.md`.
-4. **Cost:** the VM costs about $0.13 an hour. It stops itself about 70–85 minutes after the last run and SSH session;
+4. **Cost:** the VM costs about $0.19 an hour (e2-highmem-4, with its NAT; every situation in `infra/README.md`, "Cost of the VM"). It stops itself about 70–85 minutes after the last run and SSH session;
    stop it yourself with `sudo pi-down`.
 
 ---
@@ -46,8 +46,8 @@ decisions already made and the traps. State as of `dev` `b1b1d96` (2026-11-20).
 ## 3. Decisions already made (change them only with the lead)
 
 - **The VM's registry starts fresh.** Phase 1's champion, run folders and `ml_runs` rows stay with `ml-dev/`. The first
-  VM `retrain` registers v1 there as `@challenger`. The lead repeats **Checkpoint ML-A** on 2025-03 or later (the
-  late-November CMS release brings it in) before `mode=promote` (spec §17.3).
+  VM `retrain` registers v1 there as `@challenger`. The lead repeats **Checkpoint ML-A** on 2025-03 or later before `mode=promote` (spec §17.3). 2025-03 comes with the
+  next CMS release, which the metastore gives as **2026-12-02**, after the demo: before it, ML-A can read only 2025-02 again.
 - **The model recipe stays:** PR #49's parameters (the tuning gain was within noise; parameters change only through a
   reviewed PR, ML-19), reweighting off (O4), `staffing_rating_fn` and `d12_turnover_total` excluded (ML-21, O9).
 - **Data side:** the release check stays paused during development; the first full run is manual, node by node; the
@@ -81,11 +81,11 @@ log sink). Its fallbacks: the laptop stack's 2026-10 scores, and GCS without Big
 | VM task | What | Your items that wait |
 |---|---|---|
 | ✅ **T23 smoke test** (2026-11-20, `runbooks/airflow-local.md` §8.4) | the trial-prefix override; the Deploy workflow's refusals and first real run (`5697619`); a trial backfill (3 min 25 s, gold 44,614 rows), a forced-failure alert, `pi-down`, a restore (110 s) and the shutdown backstop | — |
-| **T24** | clear the data bucket root, all versions, **keeping `ml-dev/`**, and reset the VM's `precursor_meta` (T23's trial run left keys that exist only under its prefix): `infra/vm/README.md`, the trial prefix's close-out step 2, which empties the `airflow` database too | — |
-| **T25 full backfill** | `mode=backfill`, node by node, then the full run; `cms_nh_ml` stays paused. If the late-November release is out, it is included and brings 2025-03 into the test window | item 3 |
+| ✅ **T24** (2026-11-20) | the data bucket root cleared, all versions, **keeping `ml-dev/`**; the VM's databases reset (a new, empty Postgres); the laptop's `dp_gcp_test` stack removed | — |
+| ✅ **T25 full backfill** (2026-11-20/21, `runbooks/airflow-local.md` §8.5) | node by node; every layer matches the official run (`ml-dev/`); gold V 2026-10, 52 months, 775,400 rows, published at the root. The first gold attempt was OOM-killed at 10.46 GB, so the VM became an e2-highmem-4 with a 20g task limit (#90) | — |
 | **T26 production start** | the team's go: unpause `cms_nh_pipeline`, then `cms_nh_release_check` | — (later gold events start `cms_nh_ml` while it is unpaused) |
-| **T27 VM runbook** | `docs/runbooks/vm.md` (access, deploy, rollback, up and down, backup and restore, costs) | add the MLflow parts (item 2) |
-| **`VINTAGE_RANGE`** | ends at 2026-12 (`gold/build.py:73`): gold fails on the first 2027 vintage; fixed before late January 2027 | — |
+| ✅ **T27 VM runbook** (2026-11-21) | `docs/runbooks/vm.md`: access, start and stop, deploy and rollback, a manual run and a full backfill, the trial prefix, backups and restore, another database for task containers, alerts, costs, troubleshooting | add the MLflow parts (item 2), and item 2's 7-day registry rule in its section 3 |
+| ✅ **`VINTAGE_RANGE`** (L7, 2026-11-21) | it ended at 2026-12, so gold would have failed on the first 2027 vintage. Now every silver vintage must lie between the ingestion scope's `vintage_start` and the run's month (`gold/build.py: resolve_v`) | — |
 
 ### 5.2 Yours
 

@@ -383,7 +383,7 @@ behind the numbers: [`docs/ML_PIPELINE.md`](docs/ML_PIPELINE.md). Stage numbers 
   citation history; staffing and quality measures add the rest.
 - **Caveat:** labels mature 20 months after `t`, so 2025-02 is the newest test month, and PR #49 chose its settings on
   it. Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far; it is re-read on 2025-03, the first honest
-  month, when the late-November release brings it in.
+  month, when the next CMS release (due 2026-12-02) brings it in.
 
 <table>
 <tr>
@@ -704,7 +704,7 @@ The course's example structure maps onto this repository as follows:
 - **Training window:** training rows start in 2022-01 (PR #53), so the ML evaluation window has its 11 months with
   the 20-month production lag. Labels mature 20 months after `t`: the newest test month is 2025-02, a development
   month (PR #49 chose its settings on it). Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far; it is
-  re-read on 2025-03 when the late-November release brings it in.
+  re-read on 2025-03 when the next CMS release (due 2026-12-02) brings it in.
 - **Gold memory:** the first full-archive build on the VM (T25) was killed at 10.46 GB, over its 10 GB task limit: gold
   needs about 12-14 GiB at 775,400 rows and 148 columns. The VM is now an e2-highmem-4 (32 GB, 20 GB task limit); the
   streaming fix in `docs/AIRFLOW_PIPELINE.md` §9.1 would bring it back to a smaller machine.

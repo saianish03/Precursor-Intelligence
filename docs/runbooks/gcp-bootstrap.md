@@ -229,5 +229,6 @@ an e2-standard-4 on 2026-11-20 (spec §14 #26); the machine type is a Terraform 
 
 ## Cost and cleanup
 
-A stopped VM costs only its disk. Delete throwaway resources when done (`gcloud compute instances delete`).
+A stopped VM costs only its disks, about $4 a month; running, the VM costs about $0.19 an hour (`infra/README.md`,
+"Cost of the VM"). Delete throwaway resources when done (`gcloud compute instances delete`).
 The budget sends alerts but never stops spending.

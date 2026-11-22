@@ -731,7 +731,7 @@ Worked example, V = 2026-08, with the measured buffers `B_cit = 8`, `B_pen = 12`
 | `y_g6` | 6 | 8 | 2025-06 |
 | `y_pen12` | 12 | 12 | 2024-08 |
 
-Each new monthly release moves these forward by one month (by the 2026-12-01 demo, V ≈ 2026-11, the late-November release).
+Each new monthly release moves these forward by one month (at the 2026-12-01 demo, V = 2026-10: CMS's metastore gives the next update as 2026-12-02).
 
 ### 9.4 Auxiliary label columns (analysis only; `model_use = label_aux`; never features)
 `y_ij12` (J–L only), `n_gplus_surveys_12m_fwd`, `y_g12_std` (from a citation with `is_standard`), `y_g12_complaint`, `pen_dollars_12m_fwd`, `y_pen6`, `exited_within_12m`.

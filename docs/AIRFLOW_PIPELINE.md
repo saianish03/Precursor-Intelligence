@@ -246,7 +246,7 @@ Every key is relative to one root, the local folder or `gs://precursor-intel-mlo
 |---|---|---|---|
 | `PI_PIPELINE_ENV` | `dev` (configs/dev.yaml: local disk) | `prod` (configs/prod.yaml: GCS) | `prod` |
 | `PI_HOST_DATA_DIR` | a host folder, bind-mounted at `/app/data` | empty | empty |
-| `PI_BUCKET_URI` | — | empty (the bucket root) or `gs://precursor-intel-mlops-data/trial-<date>` | `gs://precursor-intel-mlops-data` |
+| `PI_BUCKET_URI` | — | empty (the bucket root) or `gs://precursor-intel-mlops-data/trial-<date>` | `gs://precursor-intel-mlops-data`; a `trial-<date>` prefix only for a smoke test, through `/etc/precursor/overrides.env` (`infra/vm/README.md`, "Deploys") |
 | `PI_GCP_CREDENTIALS_FILE` | — | host path of your gcloud ADC file, mounted read-only into task containers. **Short trials only:** it puts your personal login into containers that open untrusted zips (runbook §2.2) | empty |
 | `PI_MLFLOW_ARTIFACTS` | empty (the `mlflow-artifacts` volume) | `gs://precursor-intel-mlops-mlflow/ml-dev` (runbook §2.1) | — (MLflow is off until Phase 2) |
 | `PI_PACKAGES_URI` | — (configs/dev.yaml: `data/packages/`) | `gs://precursor-intel-mlops-mlflow/packages/ml-dev` (ML spec §9.4; no default) | `gs://precursor-intel-mlops-mlflow/packages/vm` (fixed in `docker-compose.vm.yaml`) |
@@ -317,6 +317,14 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
   - a re-read of every staged file for its checks (`gold/build.py`, `_run` and `_stage`).
 - **Why it matters:** on the full archive (spine 2023-01 → 2026-09, ≈ 590k rows; ≈ 755k with a 2022-01 start, spec §14 #10) the review estimates a 4–5 GB peak. That was too tight for the originally planned 8 GB VM: the Airflow services and Postgres use about 2–2.5 GB and `PI_TASK_MEM_LIMIT` was 6g, so the VM itself could run out of memory before the container limit stopped the task.
 - **Measured on the VM, 2026-11-20 (T25):** the first full-archive gold (775,400 rows × 148 columns: spine 2022-01, quality family) was **OOM-killed at 10.46 GB** anonymous memory by its 10g container limit (`build_gold` exit 137 after 324 s; kernel `Memory cgroup out of memory`). The estimates below predate the 2022-01 spine (+31% rows) and W5 (+41 columns); scaled, gold needs **≈ 12–14 GiB**. The VM is therefore an e2-highmem-4 (32 GB) with `PI_TASK_MEM_LIMIT=20g`. The fix below would bring gold back to a 16 GB machine.
+- **T25 on the VM, per node** (`docker stats` sampled every few seconds, so short spikes can be missed):
+
+  | Node | Duration | Peak memory |
+  |---|---|---|
+  | ingestion (69 zips) | 24.0 min (download 2.3 min, extract 21.0 min, 3 at a time) | host 3.2 GiB; each extract task ~450 MiB, the download task 814 MiB |
+  | bronze (427 files) | 9.6 min | host 3.8 GiB; the task 1.9 GiB |
+  | silver (incl. validation) | 8.4 min | host 2.8 GiB; the task 835 MiB |
+  | gold (775,400 × 148) | 5.9 min (+ 12 s validation) | **above 10.46 GB** (killed there under the 10g limit); sampled up to 8.5 GiB under 20g, host 10.6 GiB of 31 |
 - **Update 2026-10-29 (superseded):** the VM was an e2-standard-4 with 16 GB and `PI_TASK_MEM_LIMIT=10g`, for the ≈ 5.8 GB estimate below.
 - **Measured locally (runbook §8.2):** gold peaked at **1.95–2.17 GB** for 207k–237k rows (sampled every 2 s, so short spikes can be missed). Scaled linearly to the full archive's ≈ 590k rows, that is **≈ 5 GB**, above the ~4 GB comfort line of an 8 GB VM.
 - **Merged dataset file (PR #32):** writing `gold/facility_month_dataset.parquet` adds about 16% to the peak (2.55–2.57 → 2.95–2.99 GiB on the 237k-row subset, sampled every 0.1 s), so the full-archive estimate goes from ≈ 5 GB to **≈ 5.8 GB**: within the 16 GB VM's 10g limit, but close to an 8 GB VM's 6g. Writing that file by streaming the staged partitions, instead of holding a second sorted copy, is part of the fix below.
@@ -352,7 +360,10 @@ None of these blocks the DAG. They are outside the DAG wiring (gold code, Terraf
 ### 9.4 Operator and scheduling notes
 - **Out of memory is retried.** **Fixed (ticket 2):** exit 137 is no-retry, and the failure alert names it.
 - **No timeout on `build_gold`.** **Fixed (ticket 2):** `execution_timeout` of 2 h (`PI_GOLD_TIMEOUT_MINUTES`); the failure alert fires when it hits.
-  - **Still open:** check the 2 h against a measured full-archive gold duration. A timeout is retried like exit 1 (2 × 5 min), so a hang can hold the lock for about 6 h before the alert.
+  - **Checked (T25):** the full-archive gold took 356 s on the VM, so 2 h is about 20 times that. A timeout is retried like exit 1 (2 × 5 min), so a gold hang holds the lock for about 6 h 10 min before the alert.
+- **Only `build_gold` had a time limit.** **Fixed (L5, 2026-11-21):** every other task stops after 60 min (T25's slowest, `load_bronze`, took 9.6 min on the VM and 18.6 min on the laptop) and `release_lock` after 10 min. A timeout is retried like exit 1, and the failure alert names the task. The run itself stops after 8 h (`dagrun_timeout`): longer than gold hanging on all 3 tries plus the rest of a full backfill, so a hang fails as its own task first. (Raising `PI_GOLD_TIMEOUT_MINUTES` above about 140 min would let the run's limit fire first.)
+  - **A timed-out run keeps the lock.** On `dagrun_timeout`, Airflow 3.1.8 marks the run failed and skips every unfinished task, the `release_lock` teardown too, then calls the failure callback: the email says `run failed: see the run` and `Reason: timed_out`. The next run takes the lock over after 12 h; to start one sooner, free it with `precursor-ingest lock release --run-id <the timed-out run's id> --force` (in a pipeline container on the task network).
+  - **`cms_nh_ml`:** 60 min for every task except `train`, `tune` and `evaluate` (45, 90 and 60 min), and 4 h for the run. It takes no run lock.
 - **`cms_nh_gold` means published, not verified.**
   - **What:** the asset is emitted on every successful gold run, even when nothing changed. Gold stays `verified: false` until the spec §11 verification gate exists.
   - **Fix:** any DAG triggered by this asset (training) must check `gold/_current.json` (`verified`, `dataset_version`) first.
