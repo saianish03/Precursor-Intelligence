@@ -2,6 +2,7 @@
 notify summary. Runs in the airflow image (conftest.py)."""
 
 import json
+from datetime import timedelta
 
 import pytest
 from airflow.models.dagbag import DagBag
@@ -111,6 +112,20 @@ def test_the_heavy_tasks_share_gold_s_pool_with_a_timeout_and_no_retry(dag, bag,
     assert t.pool == HEAVY_POOL == bag.dags["cms_nh_pipeline"].get_task("gold.build_gold").pool
     assert t.retries == 0  # a hung fit alerts instead of holding the slot twice
     assert t.execution_timeout.total_seconds() == minutes * 60
+
+
+def test_every_task_and_the_run_have_a_time_limit(dag):
+    # L5: every task is bounded (the heavy ones by their own limits, above); the run's backstop outlasts any one task
+    # hanging on every try plus the longest measured run (10 min), and this DAG holds no run lock to leave behind
+    limits = {t.task_id: t.execution_timeout for t in dag.tasks}
+    assert all(limits.values()), [k for k, v in limits.items() if not v]
+    heavy = {"train", "tune", "evaluate"}
+    assert {v for k, v in limits.items() if k not in heavy} == {timedelta(minutes=60)}
+    assert dag.dagrun_timeout == timedelta(hours=4)
+    worst = max(
+        (t.retries + 1) * t.execution_timeout + t.retries * t.retry_delay for t in dag.tasks
+    )
+    assert dag.dagrun_timeout - worst >= timedelta(minutes=30)
 
 
 def test_outputs_are_kept_for_the_branches_and_notify(dag):

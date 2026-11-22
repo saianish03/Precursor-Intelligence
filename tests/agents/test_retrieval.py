@@ -190,3 +190,11 @@ def test_a_named_tag_plus_on_topic_words_returns_others_too(corpus):
 def test_months_with_the_same_wordings_share_one_index(corpus):
     assert get_index(corpus, as_of="2025-06") is get_index(corpus, as_of="2026-02")
     assert get_index(corpus, as_of="2024-06") is not get_index(corpus, as_of="2025-06")
+
+
+def test_a_shared_index_reports_the_requested_month(corpus):
+    a = search(corpus, "abuse", as_of="2025-06")
+    b = search(corpus, "abuse", as_of="2026-02")
+    assert (a.as_of, b.as_of) == ("2025-06", "2026-02")
+    assert [h.passage.passage_id for h in a.hits] == [h.passage.passage_id for h in b.hits]
+    assert search(corpus, "abuse").as_of is None

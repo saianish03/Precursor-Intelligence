@@ -251,6 +251,16 @@ class RunLockCfg(BaseModel):
         return None if self.stale_after_hours is None else timedelta(hours=self.stale_after_hours)
 
 
+class BigQueryCfg(BaseModel):
+    """Where ``publish`` loads the month's scores (ML spec §11 Phase 2); the dataset and tables are Terraform's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str
+    dataset: str
+    location: str
+
+
 class EnvConfig(BaseModel):
     env: str
     object_store: ObjectStoreCfg
@@ -260,6 +270,8 @@ class EnvConfig(BaseModel):
     table_sink: TableSinkCfg = Field(default_factory=TableSinkCfg)
     logging: LoggingCfg = Field(default_factory=LoggingCfg)
     run_lock: RunLockCfg = Field(default_factory=RunLockCfg)
+    # the scores' BigQuery dataset: prod only; without it publish loads nothing (dev, the toy chain)
+    bigquery: BigQueryCfg | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -269,6 +281,10 @@ class EnvConfig(BaseModel):
         store = data.get("package_store") if isinstance(data, dict) else None
         if isinstance(store, dict) and not str(store.get("root") or "").strip():
             data = {**data, "package_store": None}
+        # likewise prod.yaml's dataset ${PI_BIGQUERY_DATASET:-}: unset means publish loads nothing
+        bq = data.get("bigquery") if isinstance(data, dict) else None
+        if isinstance(bq, dict) and not str(bq.get("dataset") or "").strip():
+            data = {**data, "bigquery": None}
         return data
 
 
@@ -847,6 +863,31 @@ class MlConfig(_Strict):
     tuning: MlTuningCfg
     registry: MlRegistryCfg
     outputs: MlOutputsCfg
+
+
+class EvidenceCfg(_Strict):
+    prefix: str  # "agents/evidence/": a relative object key prefix ending with "/"
+    citation_months: int = Field(ge=1, le=120)
+    penalty_months: int = Field(ge=1, le=120)
+
+    @field_validator("prefix")
+    @classmethod
+    def _prefix(cls, v: str) -> str:
+        if not re.fullmatch(rf"({_KEY_PART}/)+", v) or ".." in v.split("/"):
+            raise ValueError(f"evidence.prefix must be like 'agents/evidence/', got {v!r}")
+        return v
+
+
+class AgentsConfig(_Strict):
+    """``configs/agents.yaml``: the agents' settings (docs/AGENTS_PLAN.md)."""
+
+    version: Literal[1]
+    evidence: EvidenceCfg
+
+
+def load_agents_config(path: str | Path | None = None) -> AgentsConfig:
+    """Load and validate ``configs/agents.yaml``."""
+    return _load_model(AgentsConfig, path or project_root() / "configs" / "agents.yaml")
 
 
 def load_ml_config(path: str | Path | None = None) -> MlConfig:

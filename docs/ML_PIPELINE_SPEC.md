@@ -143,7 +143,7 @@ There is no online model server: CMS publishes once a month and every score chan
 | `ml-engineering`: tuning with time-based, facility-grouped folds | facility-grouped folds; rolling-origin later (O3) | a facility-grouped fold is the simple first step; time-based folds need more history inside the eval window |
 | Skills and data spec §15.1: separate DAGs `train_evaluate`, `batch_score`, `monitor` | one DAG `cms_nh_ml` | one run = one pinned gold, one decision, one audit trail (data spec §14 #19 reasoning) |
 | `ml-engineering`: `promote-model.yml` for manual override | `cms_nh_ml` run with `mode=promote` (§9.4) | GitHub Actions can't reach the VM (IAP only) |
-| `mlops-deployment`: e2-standard-2, instance schedule, nightly dump | e2-standard-4, started by hand, dump before every stop | data spec §14 #26, #27 |
+| `mlops-deployment`: e2-standard-2, instance schedule, nightly dump | e2-highmem-4 (32 GB since T25), started by hand, dump before every stop | data spec §14 #26, #27 |
 | `CLAUDE.md` (older copies): "star ratings are never features" | `staffing_rating`, `qm_rating` may be features (subject to the 2025-07 check, §1.4); `overall_rating`, `health_inspection_rating` never | ML-17: registry and data spec §8 decide; the wording is fixed (O6) |
 | Data spec §9.5: purge rows "are not used at all"; gold's purge is H | the refit trains on purge and test months; the ML evaluation gap is H + B | the refit is never evaluated on them (§3.3); the production lag is H + B (§3.1) |
 | Data spec §11.5: the dataset is frozen at Checkpoint 5 (`training_dataset_vN`) | every RETRAIN trains on the newest gold; the pinned input of each **registered** model version is kept and tagged as its `training_dataset` | monthly retraining (ML-2) needs each month's data; pinning gives the same reproducibility per version |
@@ -225,7 +225,7 @@ Gold writes `verified: false` until the data spec's §11 gate and Checkpoint 5 e
 - **Non-empty months:** CMS never published some months (2021-12, 2022-12, 2023-12, 2024-12, 2025-01, 2025-08, 2026-01). Windows count months that have rows. When `spine_start` binds, a window can hold fewer than `train_months`; fewer than `min_train_months` exits 2.
 - **This needs gold to start in 2022-01** (`configs/splits.yaml: spine_start: "2022-01"`, the data spec's own recommendation for its open item #10; ML-20). With 2023-01 the eval window would have 4 months. `eval_gap: purge` (end before gold's purge window, 13+ months) exists for reproducing PR #49 and as a fallback; the model card states which gap was used.
 - **Worked example,** `V_L = 2026-10` (the 2026-10-28 release): `L = 2025-02`; test window 2024-12..2025-02, of which only 2025-02 has rows (14,643 facilities); eval window = 11 non-empty months ending 2023-04 (2022-05..2023-04 without the 2022-12 gap); refit window = 2024-02..2025-02 without 2024-12 and 2025-01. The eval model predicts 2025-02 from data that ends 22 months earlier; the production model predicts 2026-10 from data that ends 20 months earlier.
-- **2025-02 is a development month.** PR #49 chose its training window, features and parameters by test score on 2025-02, and ML-16 was measured on it. Metrics are reported **per test month**; months in `evaluation.development_months` (default `["2025-02"]`) are marked as such in `evaluation.json` and the model card. Checkpoint ML-A and the threshold review (O2) use 2025-03 or later, which enters the test window with the late-November release (`V_L = 2026-11`).
+- **2025-02 is a development month.** PR #49 chose its training window, features and parameters by test score on 2025-02, and ML-16 was measured on it. Metrics are reported **per test month**; months in `evaluation.development_months` (default `["2025-02"]`) are marked as such in `evaluation.json` and the model card. Checkpoint ML-A and the threshold review (O2) use 2025-03 or later, which enters the test window with the next CMS release (`V_L = 2026-11`; the metastore gives 2026-12-02).
 
 ### 3.3 Eval fit and refit (ML-15)
 Every RETRAIN fits the recipe twice:
@@ -441,6 +441,7 @@ All four files go to `<prefix>scores/v=YYYY-MM/` with `scores_manifest.json` (mo
 ## 11. Step M11: publish (task `publish`)
 - **Phase 1:** verifies `scores_manifest.json` against the files (each file present at `<month folder>/<name>.parquet`, its sha256 and row count, one model version; `v`, `gold_run_id` and `dataset_version` equal to the run's input manifest) and emits the Airflow asset **`cms_nh_scores`**. It then appends one `ml_runs` row, `action: score`, `scores_published: true`, with `v`, `dataset_version` and `champion_version_after` = the scoring version. That row is what `decide` reads as "published scores for (`V`, `dataset_version`, champion version)" and what `last_scored_v` reads; a retried publish writes no second row.
 - **Phase 2 (BigQuery, ML-4):** dataset `precursorintelligence_scores` (us-central1, Terraform), tables `facility_scores`, `facility_reasons`, `chain_scores`, monthly-partitioned on `score_month`, clustered by `state` where present. Loaded with a **load job** from the parquet files (never streaming inserts; data spec D6), `WRITE_TRUNCATE` on the month's partition (decorator `table$YYYYMM`), so a rerun replaces exactly that month. The SHAP matrix stays in GCS.
+  **Built (ML Phase 2 item 4):** `serving/bigquery.py`, called by `publish` before its `ml_runs` row (a failed load records nothing, and the retried task loads again; a load whose row count differs from the manifest is refused). The schemas are `configs/bigquery/*.json`, read by Terraform and by the load, and tested against the score files. In BigQuery, `facility_scores`' `p_<label>` is `p` plus a `target` column, so a new champion label never changes the schema, and `scored_at` is a `TIMESTAMP`. Every table requires a `score_month` filter. The env's `bigquery` block has no default dataset (`PI_BIGQUERY_DATASET`, set only on the VM), so a laptop stack on `ml-dev/` loads nothing.
 
 ---
 
@@ -505,7 +506,7 @@ sha256 over: the relative paths and bytes of the `*.py` files of `precursorintel
 ## 15. The DAG `cms_nh_ml`
 
 ### 15.1 Shape
-- `schedule=[Asset("cms_nh_gold")]` plus manual runs; `catchup=False`, `max_active_runs=1`, `start_date` 2026-10-01, `default_args={"retries": 2, "retry_delay": 5 min}`, `on_failure_callback=on_dag_failure`, created paused. **Unpause it before the pipeline run whose gold should start it:** Airflow does not queue asset events for a paused DAG (verified for the release check).
+- `schedule=[Asset("cms_nh_gold")]` plus manual runs; `catchup=False`, `max_active_runs=1`, `start_date` 2026-10-01, `default_args={"retries": 2, "retry_delay": 5 min, "execution_timeout": 60 min}`, `dagrun_timeout` 4 h (L5: a hung task fails by itself; the heavy tasks keep their own limits, §15.3), `on_failure_callback=on_dag_failure`, created paused. **Unpause it before the pipeline run whose gold should start it:** Airflow does not queue asset events for a paused DAG (verified for the release check).
 - Every task except `notify` is one `PipelineDockerOperator` running `precursor-pipeline ml <command> --env <env> --run-id {{ run_id }}` (`docker_kwargs` plus `MLFLOW_TRACKING_URI` and `PI_PIPELINE_IMAGE`).
 - `cms_nh_gold` is emitted on every successful pipeline run, even with nothing new (`docs/AIRFLOW_PIPELINE.md`), so `decide` is cheap and usually says SKIP or SCORE.
 
@@ -577,7 +578,7 @@ The data pipeline's contract (`ingestion/pipeline.py`): 0 ok; 1 transient error,
 
 ### 15.6 Running next to `cms_nh_pipeline`
 - No shared lock (gold is pinned, §1.2).
-- **Airflow pool `heavy`, 1 slot**, taken by `gold.build_gold` (data DAG), `ml train`, `ml tune` and `ml evaluate`, so the two memory-heavy jobs never run together on a 16 GB machine. The pool is created by `airflow-init` (`airflow pools set heavy 1 …`) in the **same PR** that adds `pool="heavy"` to `build_gold` (a task in a missing pool never runs, and it would hold the data lock). A DAG test asserts both DAGs use the same pool constant.
+- **Airflow pool `heavy`, 1 slot**, taken by `gold.build_gold` (data DAG), `ml train`, `ml tune` and `ml evaluate`, so the two memory-heavy jobs never run together on the VM (gold alone needs ≈ 12–14 GiB, data spec §14 #26). The pool is created by `airflow-init` (`airflow pools set heavy 1 …`) in the **same PR** that adds `pool="heavy"` to `build_gold` (a task in a missing pool never runs, and it would hold the data lock). A DAG test asserts both DAGs use the same pool constant.
 - On the VM, everything that waits for "no pipeline run" (idle shutdown T21, `pi-down`, the deploy) must also count `cms_nh_ml` runs, running or queued, and a queued `cms_nh_gold` event (Phase 2).
 
 ---
@@ -622,7 +623,7 @@ All changes only add resources (the CI apply guard refuses deletes); `sa-tf-appl
 After the VM exists (VM plan T19–T23) and the real backfill is done (T25): pull and start the mlflow image; T21 idle shutdown and T20 deploys count `cms_nh_ml`; T22 deploys three images; the ML acceptance (§17.2) runs after T25 on real gold (a smoke run on trial gold would pollute the registry and the outputs; if one is needed, it uses the `_smoke` experiment and model name and publishes nothing).
 
 ### 16.6 Cost
-On top of the data pipeline's ~$10–15/month: MLflow bucket cents; BigQuery loads free, storage in the free tier; one secret ~$0.06; VM time ~20–60 extra minutes per monthly run (≈ $0.05–0.13) and ~$0.25 per re-tune; Artifact Registry +$1–2.5 with the 7-day rule (+$5–10 without it).
+On top of the data pipeline's ~$10–15/month: MLflow bucket cents; BigQuery loads free, storage in the free tier; one secret ~$0.06; VM time ~20–60 extra minutes per monthly run (≈ $0.06–0.19 at the e2-highmem-4's ≈ $0.19/h with its NAT, `infra/README.md` "Cost of the VM") and ~$0.35 per re-tune; Artifact Registry +$1–2.5 with the 7-day rule (+$5–10 without it).
 
 ---
 
@@ -705,7 +706,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | Phase | When | Scope |
 |---|---|---|
 | **1. Course-complete system** | Tue Nov 10 → **Sun Nov 15** | everything in the course brief (Appendix D) working end to end: the `cms_nh_ml` DAG on a laptop compose stack against GCS (`ml-dev/` prefix), MLflow (tracking + registry, artifacts in the MLflow bucket), training with selection, calibration, validation, bias detection and gate, SHAP (global + per facility), tuning with documented sensitivity, scoring with reasons and chain roll-up, monitoring (PSI + status file), email notifications, rollback, CI smoke run |
-| **2. Production** | Nov 16 → Dec 1 and later | VM deployment (MLflow on the VM, secret, backups, T19–T26 counting `cms_nh_ml`), BigQuery publish, CD for the mlflow image, the §11 verified gate (W5 part 2), realized and early-read performance, Evidently, rolling-origin folds, Checkpoint ML-A repeated on 2025-03 (the late-November release) |
+| **2. Production** | Nov 16 → Dec 1 and later | VM deployment (MLflow on the VM, secret, backups, T19–T26 counting `cms_nh_ml`), BigQuery publish, CD for the mlflow image, the §11 verified gate (W5 part 2), realized and early-read performance, Evidently, rolling-origin folds, Checkpoint ML-A repeated on 2025-03 (the CMS release due 2026-12-02) |
 
 **Cut line for Phase 1.** If a package runs late, these stay, because the course brief needs them (Appendix D): training with selection, hold-out validation, bias slices and the G7 gate, bias mitigation (reweighting and its OOF trade-off table, §7), SHAP (global and per facility), tuning with its sensitivity, MLflow tracking and registry, the CI smoke run, alerts and rollback. These may move to Phase 2: the chain roll-up, per-state empirical-Bayes shrinkage, the Benjamini–Hochberg correction, and score-drift and regime-coverage monitoring (the performance-trend signal also moved, as an agreed exception, §12.1). The slowest package never holds up Friday's integration.
 

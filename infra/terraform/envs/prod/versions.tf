@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.7" # CI runs 1.13.3
 
   required_providers {
     google = {

@@ -58,6 +58,9 @@ drops the colon.
    ```bash
    gcloud iam workload-identity-pools create github --location=global --display-name="GitHub Actions"
    gcloud iam workload-identity-pools providers create-oidc github-repo --location=global --workload-identity-pool=github --issuer-uri=https://token.actions.githubusercontent.com --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" --attribute-condition="assertion.repository=='saianish03/Precursor-Intelligence'"
+   # attribute.workflow was added to this mapping later (2026-11-22, by an Owner with gcloud, as modules/wif writes it),
+   # to bind each CI account to its own workflow file (infra/README.md, "Which workflow can act as which account").
+   # The commands here are the bootstrap as it was run.
    gcloud iam service-accounts create sa-tf-plan --display-name="Terraform plan (PRs, read-only)"
    gcloud iam service-accounts create sa-tf-apply --display-name="Terraform apply (merged branches only)"
    P=principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/subject
@@ -127,8 +130,10 @@ gcloud storage buckets describe gs://$PROJECT-data --format="yaml(lifecycle_conf
 gcloud iam service-accounts get-iam-policy sa-tf-apply@$PROJECT.iam.gserviceaccount.com --format="yaml(bindings)"
 gcloud projects get-iam-policy $PROJECT --flatten="bindings[].members" --filter="bindings.members:user:" --format="table(bindings.members,bindings.role)"
 ```
-The `sa-tf-apply` policy must list exactly two members, ending in `:ref:refs/heads/dev` and `:ref:refs/heads/main`, each
-with the numeric ids in the repository part. Its project roles must be exactly three:
+The `sa-tf-apply` policy lists exactly two members: `principalSet://…/attribute.workflow/…/terraform.yml@refs/heads/dev`
+and `…@refs/heads/main`, each with the numeric ids in the subject part. **Never remove these**: they are how CI's
+Terraform logs in. The bootstrap's `:ref:refs/heads/…` members were removed on 2026-11-22 (`infra/README.md`, "Which
+workflow can act as which account"). Its project roles must be exactly three:
 ```bash
 gcloud projects get-iam-policy $PROJECT --flatten="bindings[].members" --filter="bindings.members:sa-tf-apply@" --format="value(bindings.role)"
 ```
@@ -223,11 +228,12 @@ the others by adding a new version; the VM picks it up at its next deploy.
 ## Sizing note
 
 The full-archive bronze run (427 files, 61 vintages) peaked at about 2.2 GiB of memory, but gold is larger: it
-holds the whole dataset in memory, estimated at about 5.8 GB on the full archive (`AIRFLOW_PIPELINE.md` §9.1),
-and every monthly run rebuilds all of gold. The Airflow VM is therefore an e2-standard-4 (16 GB), decided
-2026-10-29 (spec §14 #26); the machine type is a Terraform variable.
+holds the whole dataset in memory, measured at over 10 GB on the full archive (T25, `AIRFLOW_PIPELINE.md` §9.1),
+and every monthly run rebuilds all of gold. The Airflow VM is therefore an e2-highmem-4 (32 GB), changed from
+an e2-standard-4 on 2026-11-20 (spec §14 #26); the machine type is a Terraform variable.
 
 ## Cost and cleanup
 
-A stopped VM costs only its disk. Delete throwaway resources when done (`gcloud compute instances delete`).
+A stopped VM costs only its disks, about $4 a month; running, the VM costs about $0.19 an hour (`infra/README.md`,
+"Cost of the VM"). Delete throwaway resources when done (`gcloud compute instances delete`).
 The budget sends alerts but never stops spending.

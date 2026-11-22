@@ -29,7 +29,7 @@ from __future__ import annotations
 import re
 import threading
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from rank_bm25 import BM25Okapi
 
@@ -243,9 +243,11 @@ def search(
     min_coverage: float = DEFAULT_MIN_COVERAGE,
     include_legacy: bool = False,
 ) -> SearchResult:
-    return get_index(corpus, as_of, include_legacy).search(
+    result = get_index(corpus, as_of, include_legacy).search(
         query, k=k, min_score=min_score, min_coverage=min_coverage
     )
+    # a shared index keeps the month that built it; report the month that was asked for
+    return replace(result, as_of=as_of)
 
 
 def tags_in(text: str) -> Sequence[str]:

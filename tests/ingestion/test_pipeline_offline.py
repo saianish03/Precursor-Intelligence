@@ -4,11 +4,13 @@ quarantine, URL rejection, and identical results on two different storage backen
 import io
 import json
 import zipfile
+from dataclasses import replace
 
 import pytest
 from cms_fakes import ARCH, FakeResponse, csv_bytes, make_zip
 
 from precursorintelligence.common.io.object_store import sha256_of
+from precursorintelligence.ingestion import report as report_mod
 from precursorintelligence.ingestion.catalog import discover, select
 from precursorintelligence.ingestion.download import run_download
 from precursorintelligence.ingestion.pipeline import EXIT_VALIDATION, run_step1
@@ -80,6 +82,49 @@ def test_full_step1_offline(fake_cms, make_ctx):
     assert "2018-03-04" in summary  # earliest survey date in the 2021-01 health citations
     csv_text = ctx.object_store.open_read("reports/step1/latest/01_inventory.csv").read().decode()
     assert csv_text.splitlines()[0].startswith("zip_name,zip_sha256,file_name,table,vintage_month")
+
+
+def test_the_checkpoint_summary_does_not_depend_on_row_order(fake_cms, make_ctx, monkeypatch):
+    # Postgres returns rows in no fixed order: two runs of the same archive (T25) listed the duplicate notes and the
+    # header-set tables differently. Reading every input reversed must give the same summary.
+    build_archive(fake_cms)
+    ctx = make_ctx(fake_cms)
+    real, captured = report_mod.build_summary, []
+    monkeypatch.setattr(
+        report_mod, "build_summary", lambda c, r, i: captured.append((r, i)) or real(c, r, i)
+    )
+    run_step1(ctx)
+    res, inv = captured[-1]
+    as_stored = real(ctx, res, inv)
+    read = ctx.metadata.read
+    monkeypatch.setattr(ctx.metadata, "read", lambda table, where=None: read(table, where)[::-1])
+    reversed_res = replace(res, duplicates=res.duplicates[::-1], anomalies=res.anomalies[::-1])
+    reordered = real(ctx, reversed_res, inv[::-1])
+
+    def body(s):
+        return [line for line in s.splitlines() if "generated" not in line]
+
+    assert body(reordered) == body(as_stored)
+
+
+def test_header_sets_starting_in_the_same_month_keep_one_order():
+    # A month's duplicate file (e.g. a partial re-release) can bring a second header set that starts in the same month;
+    # the tie, and "change vs previous set" with it, must not follow the read order.
+    def row(header_hash, columns, status):
+        return {
+            "table_name": "provider_info",
+            "header_hash": header_hash,
+            "header_json": json.dumps(columns),
+            "n_columns": len(columns),
+            "status": status,
+            "vintage_month": "2026-07",
+        }
+
+    rows = [row("bbbb", ["ccn", "beds"], "selected"), row("aaaa", ["ccn"], "duplicate_vintage")]
+    as_read = report_mod._header_sets(rows)["provider_info"]
+    reversed_ = report_mod._header_sets(rows[::-1])["provider_info"]
+    assert [s["hash"] for s in as_read] == [s["hash"] for s in reversed_] == ["aaaa", "bbbb"]
+    assert as_read[1]["added"] == reversed_[1]["added"] == ["beds"]
 
 
 def test_rerun_is_idempotent(fake_cms, make_ctx, tmp_path):

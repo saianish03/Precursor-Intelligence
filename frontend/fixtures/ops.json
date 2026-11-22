@@ -1,0 +1,175 @@
+{
+ "status": {
+  "candidate": "lgbm",
+  "decision": "SCORE",
+  "failed_gates": [],
+  "flags": [
+   "skew:state_gplus_rate_12m",
+   "skew:staffing_rating_fn"
+  ],
+  "gate_outcome": null,
+  "gold_run_id": "20261112T020010Z-543cdc",
+  "gold_verified": false,
+  "ml_run_id": "b2-check-score-only-1",
+  "model_name": "precursor_y_g12",
+  "model_version": 1,
+  "n_facilities": 14686,
+  "note": null,
+  "retune_requested": false,
+  "scored_at": "2026-11-19T05:11:49Z",
+  "stale_refresh": false,
+  "v": "2026-10",
+  "v_labels": "2026-10"
+ },
+ "evaluation": {
+  "ml_run_id": "phase1-retrain-2",
+  "selected": "lgbm",
+  "test_months": [
+   "2025-02"
+  ],
+  "rows": 14643,
+  "positives": 3750,
+  "ranking": {
+   "base_rate": 0.25609506248719527,
+   "pr_auc": 0.4697545231510267,
+   "pr_auc_lift": 1.834297462000129,
+   "roc_auc": 0.7063169619633403,
+   "precision_at_5": 0.6434426229508197,
+   "precision_at_10": 0.5689890710382514,
+   "lift_at_10": 2.221788524590164
+  },
+  "probability": {
+   "brier": 0.17050235459201343,
+   "brier_skill": 0.10502328908196812,
+   "ece": 0.02764663387960794,
+   "calibration_slope": 0.8336365410839689
+  },
+  "intervals": {
+   "pr_auc": {
+    "estimate": 0.4697545231510267,
+    "ci_low": 0.45408108804099856,
+    "ci_high": 0.48614394796259053
+   },
+   "pr_auc_lift": {
+    "estimate": 1.834297462000129,
+    "ci_low": 1.777852055059519,
+    "ci_high": 1.8965685294353942
+   },
+   "roc_auc": {
+    "estimate": 0.7063169619633403,
+    "ci_low": 0.697146686585117,
+    "ci_high": 0.7158941919230789
+   },
+   "brier": {
+    "estimate": 0.17050235459201343,
+    "ci_low": 0.1671712666813236,
+    "ci_high": 0.17397434272558124
+   }
+  },
+  "baselines": {
+   "prior_gplus_rule": 0.31055515874681777,
+   "severity_24m": 0.39456976069071226,
+   "star_rating": 0.3300477454442641
+  },
+  "reliability": [
+   {
+    "bin": 1.0,
+    "rows": 1465.0,
+    "p_min": 0.010842749247643984,
+    "p_max": 0.08378210637453674,
+    "mean_predicted": 0.06147551343103265,
+    "observed_rate": 0.07303754266211604,
+    "gap": 0.01156202923108339
+   },
+   {
+    "bin": 2.0,
+    "rows": 1465.0,
+    "p_min": 0.08382088568511026,
+    "p_max": 0.11684159371095994,
+    "mean_predicted": 0.10045066248436352,
+    "observed_rate": 0.1037542662116041,
+    "gap": 0.0033036037272405755
+   },
+   {
+    "bin": 3.0,
+    "rows": 1465.0,
+    "p_min": 0.1168681687819648,
+    "p_max": 0.1510228299934317,
+    "mean_predicted": 0.13379764435509953,
+    "observed_rate": 0.1583617747440273,
+    "gap": 0.02456413038892777
+   },
+   {
+    "bin": 4.0,
+    "rows": 1464.0,
+    "p_min": 0.15102519791330526,
+    "p_max": 0.18762457285236267,
+    "mean_predicted": 0.16924734180123743,
+    "observed_rate": 0.17827868852459017,
+    "gap": 0.009031346723352734
+   },
+   {
+    "bin": 5.0,
+    "rows": 1464.0,
+    "p_min": 0.18765599939853647,
+    "p_max": 0.22966131328673403,
+    "mean_predicted": 0.2084553245040326,
+    "observed_rate": 0.22336065573770492,
+    "gap": 0.014905331233672325
+   },
+   {
+    "bin": 6.0,
+    "rows": 1464.0,
+    "p_min": 0.22967912490029332,
+    "p_max": 0.2780413150490285,
+    "mean_predicted": 0.25321152680140707,
+    "observed_rate": 0.2527322404371585,
+    "gap": -0.00047928636424859894
+   },
+   {
+    "bin": 7.0,
+    "rows": 1464.0,
+    "p_min": 0.2780505921196448,
+    "p_max": 0.33913723703836934,
+    "mean_predicted": 0.3068782344806059,
+    "observed_rate": 0.2691256830601093,
+    "gap": -0.037752551420496605
+   },
+   {
+    "bin": 8.0,
+    "rows": 1464.0,
+    "p_min": 0.3391964893947186,
+    "p_max": 0.4154605950680683,
+    "mean_predicted": 0.3756692275779324,
+    "observed_rate": 0.3162568306010929,
+    "gap": -0.05941239697683953
+   },
+   {
+    "bin": 9.0,
+    "rows": 1464.0,
+    "p_min": 0.41551290136886226,
+    "p_max": 0.5225904700435564,
+    "mean_predicted": 0.46555212050748396,
+    "observed_rate": 0.4173497267759563,
+    "gap": -0.04820239373152768
+   },
+   {
+    "bin": 10.0,
+    "rows": 1464.0,
+    "p_min": 0.5226192727976928,
+    "p_max": 0.898586174157958,
+    "mean_predicted": 0.6362720600767582,
+    "observed_rate": 0.5689890710382514,
+    "gap": -0.06728298903850682
+   }
+  ],
+  "sanity": {
+   "shuffled_label_roc": 0.49870918938768016,
+   "uncleared_leakage_flags": []
+  },
+  "flags": [
+   "psi:staffing_rating_fn"
+  ]
+ },
+ "gates": null
+}

@@ -124,6 +124,22 @@ def test_alerts_are_wired(dag):
     assert tasks["gold.build_gold"].execution_timeout == timedelta(hours=2)
 
 
+def test_every_task_and_the_run_have_a_time_limit(dag):
+    # L5: a hung task fails (and retries) instead of keeping the VM up; release_lock still runs as the teardown
+    limits = {t.task_id: t.execution_timeout for t in dag.tasks}
+    assert all(limits.values()), [k for k, v in limits.items() if not v]
+    assert limits.pop("gold.build_gold") == timedelta(hours=2)
+    assert limits.pop("release_lock") == timedelta(minutes=10)
+    assert set(limits.values()) == {timedelta(minutes=60)}
+    # the backstop outlasts any one task hanging on every try (gold: 3 x 2 h + 2 retry delays) plus the rest of a
+    # full backfill (about 1 h on the VM, T25), so a hang fails as its own task
+    assert dag.dagrun_timeout == timedelta(hours=8)
+    worst = max(
+        (t.retries + 1) * t.execution_timeout + t.retries * t.retry_delay for t in dag.tasks
+    )
+    assert dag.dagrun_timeout - worst >= timedelta(hours=1)
+
+
 def _callbacks(value):
     return value if isinstance(value, list) else [value]
 

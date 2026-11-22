@@ -8,8 +8,8 @@
 # between VMs is fixed here; the rest has no default (${VAR:?}), so a missing value stops the deploy instead of
 # falling back to a laptop default.
 x-airflow-vm: &airflow-vm
-  # A release is one commit: both images come from Artifact Registry tagged with the same full sha (cd.yml), so they
-  # can never come from different commits. No default: the registry never has `latest`.
+  # A release is one commit: its three images come from Artifact Registry tagged with the same full sha (cd.yml), so
+  # they can never come from different commits. No default: the registry never has `latest`.
   image: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/airflow:${PI_RELEASE_SHA:?set it to the full git sha}
   environment:
     PI_PIPELINE_IMAGE: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/pipeline:${PI_RELEASE_SHA:?set it to the full git sha}
@@ -17,9 +17,11 @@ x-airflow-vm: &airflow-vm
     PI_BUCKET_URI: ${PI_BUCKET_URI:-gs://precursor-intel-mlops-data} # a trial prefix only for a smoke test
     PI_HOST_DATA_DIR: "" # every layer goes to GCS, none to the VM's disk
     PI_GCP_CREDENTIALS_FILE: "" # no key file: tasks get sa-pipeline's tokens from the metadata server
-    PI_MLFLOW_TRACKING_URI: "" # MLflow is off until Phase 2 (below): tasks get no tracking server
     PI_PACKAGES_URI: gs://precursor-intel-mlops-mlflow/packages/vm # this stack's registered models (ML spec §9.4)
-    PI_TASK_MEM_LIMIT: 10g # per task container (16 GB e2-standard-4, spec §14 #26): a task past it is killed alone
+    # publish loads the scores here (ML spec §11); only this stack. No colon: a trial prefix's env file sets it empty
+    # (pi-deploy), so a smoke test never loads trial scores into the real months.
+    PI_BIGQUERY_DATASET: ${PI_BIGQUERY_DATASET-precursorintelligence_scores}
+    PI_TASK_MEM_LIMIT: 20g # per task container (32 GB e2-highmem-4, spec §14 #26): full-archive gold needs ~12-14 GiB (T25); a task past it is killed alone
     PI_AUTO_REMOVE: force # failed task containers hold PI_DATABASE_URL: never keep them
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?set it in the env file} # its own secret, not the JWT one
     # Nobody watches the VM: a failed run must email someone (src/precursorintelligence/alerts.py).
@@ -39,14 +41,16 @@ services:
         target: /var/lib/postgresql/data
         bind:
           create_host_path: false
-  # MLflow stays off on the VM until Phase 2 (ML spec §16.1): its image isn't published yet, and pi-pg-backup doesn't
-  # dump its database. A profile nobody enables keeps both services out of `up`; MLFLOW_DB_PASSWORD must still be set,
-  # because compose checks every ${VAR:?} in the file. Phase 2 also stops pointing GOOGLE_APPLICATION_CREDENTIALS at
-  # the mounted file, which is /dev/null there: the server must use the metadata server's identity.
-  postgres-setup:
-    profiles: [phase2]
+  # MLflow (ML Phase 2 item 2): tasks reach it as http://mlflow:5000 (the base file's PI_MLFLOW_TRACKING_URI).
+  # pi-deploy's rollback floor looks for this image line.
   mlflow:
-    profiles: [phase2]
+    image: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/mlflow:${PI_RELEASE_SHA:?set it to the full git sha}
+    environment:
+      # This VM's own prefix, never the bucket's root: the package store is packages/ beside it (#85).
+      PI_MLFLOW_ARTIFACTS: gs://precursor-intel-mlops-mlflow/artifacts/vm
+      # Empty means unset to google-auth: the server takes sa-pipeline's tokens from the metadata server, not the
+      # mounted file (which is /dev/null on the VM).
+      GOOGLE_APPLICATION_CREDENTIALS: ""
   airflow-init:
     <<: *airflow-vm
   airflow-apiserver:

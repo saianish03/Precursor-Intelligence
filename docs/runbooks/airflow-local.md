@@ -7,7 +7,7 @@ One DAG, `cms_nh_pipeline` (spec §15), runs the implemented nodes **ingestion �
 ```
 docker compose (docker/airflow-local/)
   postgres:16         databases airflow + precursor_meta + mlflow (named volume; on the VM, the data disk)
-  mlflow              tracking server and registry, on the task network only (off on the VM until Phase 2)
+  mlflow              tracking server and registry, on the task network only (on the VM too: runbooks/vm.md §11)
   airflow-*           precursor-airflow image: api-server, scheduler (LocalExecutor), dag-processor, triggerer
   docker-proxy        the only Docker API access (containers + images), on an internal network only the
                       scheduler joins
@@ -206,7 +206,7 @@ docker compose exec postgres psql -U airflow -d precursor_meta -c "select status
 - **Postgres from the host:** `127.0.0.1:${PI_POSTGRES_HOST_PORT}`.
 
 ## 5. On the GCP VM
-**Verified end to end on the VM** by the smoke test (T23, 2026-11-20): §8.4.
+**Verified end to end on the VM** by the smoke test (T23, 2026-11-20): §8.4. Operating it day to day (access, start and stop, deploys, runs, restore, alerts, troubleshooting): [`vm.md`](vm.md).
 
 The VM `pi-airflow` and its Postgres data disk are in Terraform (T19; `infra/README.md` "The VM"). `pi-deploy` (T20) runs the stack there: the release that the instance metadata `pi-release` names, at boot and whenever it changes (`infra/vm/README.md` "Deploys"). What to set and check:
 
@@ -219,7 +219,7 @@ The VM `pi-airflow` and its Postgres data disk are in Terraform (T19; `infra/REA
   - `PI_PIPELINE_ENV=prod`;
   - `PI_HOST_DATA_DIR` and `PI_GCP_CREDENTIALS_FILE` empty;
   - `PI_BUCKET_URI` defaults to `gs://precursor-intel-mlops-data`. Only a smoke test changes it, to a trial prefix through `/etc/precursor/overrides.env` (`infra/vm/README.md`, "Deploys"); reset `precursor_meta` afterwards: the metadata database records keys relative to the bucket root, so a later run on the root would trust objects that are only under the prefix;
-  - `PI_TASK_MEM_LIMIT=10g` (e2-standard-4, 16 GB), `PI_AUTO_REMOVE=force`;
+  - `PI_TASK_MEM_LIMIT=20g` (e2-highmem-4, 32 GB; full-archive gold needs ≈ 12–14 GiB), `PI_AUTO_REMOVE=force`;
   - `PI_ALERT_SMTP_HOST=smtp.gmail.com`: the alert sender is a Gmail account (port 587, the default);
   - Postgres data in `${PI_PGDATA_DIR:-/mnt/disks/pgdata}/data` on the data disk, instead of the named volume. The disk's setup creates that folder once; compose never does, so an unmounted disk stops Postgres instead of starting an empty database on the boot disk.
 - **The env file must set these, or compose stops** (none has a default on the VM):
@@ -227,7 +227,7 @@ The VM `pi-airflow` and its Postgres data disk are in Terraform (T19; `infra/REA
   - `PI_RELEASE_SHA`: the full git sha of the release. Both images come from Artifact Registry with that tag, so they can't come from different commits;
   - `PI_ALERT_SMTP_USER`, `PI_ALERT_SMTP_PASSWORD` and `PI_ALERT_EMAIL_TO`, from the secrets `alert-smtp-user`, `smtp-password` and `alert-email-to`, so a failed run emails someone. The two addresses aren't secret, but email addresses stay out of this public repository.
 - **MLflow is off on the VM until Phase 2:** `docker-compose.vm.yaml` puts `mlflow` and `postgres-setup` in the profile `phase2`, which nothing enables. Phase 2 publishes the image, adds the database to `pi-pg-backup` and `pi-pg-restore`, and removes the profile (ML spec §16.1).
-- **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The scripts are `infra/vm/pi-pg-backup` and `pi-pg-restore`; a restore is done by a person with their own login (steps in `infra/vm/README.md`). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` run or an SSH session.
+- **Metadata DB:** Postgres stays on the VM. Every database is dumped to GCS before every VM stop: the stop scripts dump first and don't stop the VM if the dump fails (spec §14 #27). The scripts are `infra/vm/pi-pg-backup` and `pi-pg-restore`; a restore is done by a person with their own login (steps in `infra/vm/README.md`). The VM is started and stopped by hand and stops itself after 60 minutes without a `cms_nh_pipeline` or `cms_nh_ml` run or an SSH session.
 - **Credentials:** the VM runs as `sa-pipeline`, with no key file: gcsfs and gcloud get its tokens from the GCE metadata server. Its roles (Terraform, #41):
   - `storage.objectAdmin` on the data bucket;
   - `secretmanager.secretAccessor` on each VM secret (the only service account with access);
@@ -346,3 +346,20 @@ Release `5697619` on `pi-airflow` (e2-standard-4, 16 GB), written to the trial p
 Both emails arrived: `… runs on a trial prefix` (from `pi-deploy`) and `[cms_nh_pipeline] run failed:
 ingestion.discover_download`. Afterwards: the override removed (the stack is back on the bucket root), the DAGs left
 paused, the trial prefix deleted; `precursor_meta` still holds the trial's records until T24 resets it.
+
+### 8.5 On the GCP VM: the first full backfill (T25, 2026-11-20/21)
+`mode=backfill` node by node (`stop_after`), into the bucket root owned by the VM's fresh database (T24), with
+`cms_nh_release_check` and `cms_nh_ml` paused. Each checkpoint was compared with the official run `p0_backfill_1`
+(`ml-dev/`, the laptop stack, 2026-11-11). Releases `5697619`, then `8ed727c` (#90) for gold.
+
+| Run | Result (laptop) | Compared with the official run |
+|---|---|---|
+| `t25-ingestion` | **24.0 min** (51): 69 zips downloaded in 138 s (366), extracted 3 at a time in 21.0 min (45), at most 76 s per zip | `01_inventory.csv` identical (1,504 rows, every zip's sha256: CMS changed nothing since Nov 11); the summary has the same 393 lines |
+| `t25-bronze` | **10.5 min** (18.6): `load_bronze` 575 s | `bronze_files`: 441 of 441 content hashes equal |
+| `t25-silver` | **9.4 min** (15.4): `build_silver` 400 s, `validate_silver` 103 s | `silver_partitions`: 504 of 504 content hashes equal; Checkpoints 2–4 identical; the validation stats differ only in 295 standard deviations, at most 1.2e-15 relative (amd64 vs arm64 float summation) |
+| `t25-gold` (e2-standard-4, 10g) | **failed**: `build_gold` OOM-killed after 324 s (exit 137, the kernel's memory cgroup, 10.46 GB anonymous memory) | — |
+| `t25-gold-2` (e2-highmem-4, 20g, #90) | **11.2 min**: `build_gold` 356 s (15.2 min on the laptop, from the CLI), `validate_gold` 12 s | gold V 2026-10, v_labels 2026-10, **52 months, 775,400 rows × 148 columns**: all 83 non-float columns identical, 64 of 65 float columns bit-identical, `fine_dollars_24m` within 2.2e-16 relative, which is all that changes `dataset_version` (`50b5a48bd0259da9` vs `3f9bac9367ae18ec`) |
+
+The failure email arrived (`[cms_nh_pipeline] run failed: gold.build_gold`). The laptop driving the runs slept after
+the first one; the VM's idle shutdown then stopped it 78 minutes after the last SSH session, dumping first, and the
+runs went on after a restart. Memory peaks per node are in `AIRFLOW_PIPELINE.md` §9.1.

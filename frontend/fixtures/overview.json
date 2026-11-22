@@ -1,0 +1,804 @@
+{
+ "data_as_of": {
+  "v": "2026-10",
+  "score_month": "2026-10-01",
+  "model_version": 1,
+  "gold_run_id": "20261112T020010Z-543cdc"
+ },
+ "deciles": [
+  {
+   "risk_decile": 1,
+   "n": 1469,
+   "mean_p": 0.594229671203
+  },
+  {
+   "risk_decile": 2,
+   "n": 1469,
+   "mean_p": 0.406374740311
+  },
+  {
+   "risk_decile": 3,
+   "n": 1468,
+   "mean_p": 0.327482030141
+  },
+  {
+   "risk_decile": 4,
+   "n": 1469,
+   "mean_p": 0.270263457081
+  },
+  {
+   "risk_decile": 5,
+   "n": 1468,
+   "mean_p": 0.225624228749
+  },
+  {
+   "risk_decile": 6,
+   "n": 1469,
+   "mean_p": 0.191559240559
+  },
+  {
+   "risk_decile": 7,
+   "n": 1469,
+   "mean_p": 0.160477181769
+  },
+  {
+   "risk_decile": 8,
+   "n": 1468,
+   "mean_p": 0.131869036183
+  },
+  {
+   "risk_decile": 9,
+   "n": 1469,
+   "mean_p": 0.103135494022
+  },
+  {
+   "risk_decile": 10,
+   "n": 1468,
+   "mean_p": 0.06745486784
+  }
+ ],
+ "states": [
+  {
+   "state": "IL",
+   "n": 664,
+   "n_top_decile": 455,
+   "mean_p": 0.575489211878
+  },
+  {
+   "state": "TX",
+   "n": 1177,
+   "n_top_decile": 304,
+   "mean_p": 0.376124210544
+  },
+  {
+   "state": "WI",
+   "n": 323,
+   "n_top_decile": 78,
+   "mean_p": 0.358978950158
+  },
+  {
+   "state": "SD",
+   "n": 96,
+   "n_top_decile": 62,
+   "mean_p": 0.514702703639
+  },
+  {
+   "state": "PA",
+   "n": 656,
+   "n_top_decile": 58,
+   "mean_p": 0.261667692543
+  },
+  {
+   "state": "CA",
+   "n": 1165,
+   "n_top_decile": 57,
+   "mean_p": 0.218913410535
+  },
+  {
+   "state": "MO",
+   "n": 486,
+   "n_top_decile": 57,
+   "mean_p": 0.290846438331
+  },
+  {
+   "state": "MI",
+   "n": 422,
+   "n_top_decile": 56,
+   "mean_p": 0.314706733564
+  },
+  {
+   "state": "MN",
+   "n": 337,
+   "n_top_decile": 45,
+   "mean_p": 0.333237498534
+  },
+  {
+   "state": "CT",
+   "n": 191,
+   "n_top_decile": 35,
+   "mean_p": 0.357251559305
+  },
+  {
+   "state": "DE",
+   "n": 44,
+   "n_top_decile": 32,
+   "mean_p": 0.506303266096
+  },
+  {
+   "state": "WA",
+   "n": 193,
+   "n_top_decile": 28,
+   "mean_p": 0.318994243751
+  },
+  {
+   "state": "MS",
+   "n": 202,
+   "n_top_decile": 26,
+   "mean_p": 0.316327225389
+  },
+  {
+   "state": "RI",
+   "n": 72,
+   "n_top_decile": 24,
+   "mean_p": 0.402710768771
+  },
+  {
+   "state": "MT",
+   "n": 61,
+   "n_top_decile": 20,
+   "mean_p": 0.419141529485
+  },
+  {
+   "state": "IA",
+   "n": 387,
+   "n_top_decile": 16,
+   "mean_p": 0.24127554466
+  },
+  {
+   "state": "OH",
+   "n": 924,
+   "n_top_decile": 16,
+   "mean_p": 0.212144673048
+  },
+  {
+   "state": "ND",
+   "n": 72,
+   "n_top_decile": 15,
+   "mean_p": 0.369632525887
+  },
+  {
+   "state": "CO",
+   "n": 210,
+   "n_top_decile": 14,
+   "mean_p": 0.292750407144
+  },
+  {
+   "state": "DC",
+   "n": 16,
+   "n_top_decile": 10,
+   "mean_p": 0.48621486595
+  },
+  {
+   "state": "OK",
+   "n": 283,
+   "n_top_decile": 9,
+   "mean_p": 0.267979438411
+  },
+  {
+   "state": "WY",
+   "n": 36,
+   "n_top_decile": 9,
+   "mean_p": 0.353267437524
+  },
+  {
+   "state": "KS",
+   "n": 296,
+   "n_top_decile": 8,
+   "mean_p": 0.252978308651
+  },
+  {
+   "state": "NM",
+   "n": 68,
+   "n_top_decile": 8,
+   "mean_p": 0.333189702302
+  },
+  {
+   "state": "LA",
+   "n": 265,
+   "n_top_decile": 4,
+   "mean_p": 0.207318309859
+  },
+  {
+   "state": "VT",
+   "n": 33,
+   "n_top_decile": 4,
+   "mean_p": 0.288698587592
+  },
+  {
+   "state": "NE",
+   "n": 180,
+   "n_top_decile": 3,
+   "mean_p": 0.181215444657
+  },
+  {
+   "state": "NY",
+   "n": 592,
+   "n_top_decile": 3,
+   "mean_p": 0.167415822809
+  },
+  {
+   "state": "AK",
+   "n": 20,
+   "n_top_decile": 2,
+   "mean_p": 0.149025525678
+  },
+  {
+   "state": "AZ",
+   "n": 140,
+   "n_top_decile": 2,
+   "mean_p": 0.16805960964
+  },
+  {
+   "state": "NC",
+   "n": 419,
+   "n_top_decile": 2,
+   "mean_p": 0.209436169662
+  },
+  {
+   "state": "NJ",
+   "n": 348,
+   "n_top_decile": 2,
+   "mean_p": 0.190098490995
+  },
+  {
+   "state": "VA",
+   "n": 289,
+   "n_top_decile": 2,
+   "mean_p": 0.14150298073
+  },
+  {
+   "state": "HI",
+   "n": 43,
+   "n_top_decile": 1,
+   "mean_p": 0.207739908819
+  },
+  {
+   "state": "MD",
+   "n": 221,
+   "n_top_decile": 1,
+   "mean_p": 0.189921694364
+  },
+  {
+   "state": "WV",
+   "n": 123,
+   "n_top_decile": 1,
+   "mean_p": 0.215516270011
+  },
+  {
+   "state": "AL",
+   "n": 224,
+   "n_top_decile": 0,
+   "mean_p": 0.087517573573
+  },
+  {
+   "state": "AR",
+   "n": 222,
+   "n_top_decile": 0,
+   "mean_p": 0.117682229589
+  },
+  {
+   "state": "FL",
+   "n": 694,
+   "n_top_decile": 0,
+   "mean_p": 0.143041191908
+  },
+  {
+   "state": "GA",
+   "n": 356,
+   "n_top_decile": 0,
+   "mean_p": 0.123522692385
+  },
+  {
+   "state": "GU",
+   "n": 1,
+   "n_top_decile": 0,
+   "mean_p": 0.102470269756
+  },
+  {
+   "state": "ID",
+   "n": 80,
+   "n_top_decile": 0,
+   "mean_p": 0.224415393654
+  },
+  {
+   "state": "IN",
+   "n": 507,
+   "n_top_decile": 0,
+   "mean_p": 0.138293685048
+  },
+  {
+   "state": "KY",
+   "n": 266,
+   "n_top_decile": 0,
+   "mean_p": 0.100123889665
+  },
+  {
+   "state": "MA",
+   "n": 341,
+   "n_top_decile": 0,
+   "mean_p": 0.1568303644
+  },
+  {
+   "state": "ME",
+   "n": 78,
+   "n_top_decile": 0,
+   "mean_p": 0.191793492207
+  },
+  {
+   "state": "NH",
+   "n": 73,
+   "n_top_decile": 0,
+   "mean_p": 0.078728307805
+  },
+  {
+   "state": "NV",
+   "n": 66,
+   "n_top_decile": 0,
+   "mean_p": 0.129264856444
+  },
+  {
+   "state": "OR",
+   "n": 128,
+   "n_top_decile": 0,
+   "mean_p": 0.184921185899
+  },
+  {
+   "state": "PR",
+   "n": 9,
+   "n_top_decile": 0,
+   "mean_p": 0.057881010715
+  },
+  {
+   "state": "SC",
+   "n": 187,
+   "n_top_decile": 0,
+   "mean_p": 0.190847518941
+  },
+  {
+   "state": "TN",
+   "n": 303,
+   "n_top_decile": 0,
+   "mean_p": 0.102056882008
+  },
+  {
+   "state": "UT",
+   "n": 97,
+   "n_top_decile": 0,
+   "mean_p": 0.233717713345
+  }
+ ],
+ "riskiest": [
+  {
+   "ccn": "145584",
+   "name": "PALM GARDEN OF MATTOON",
+   "city": "MATTOON",
+   "state": "IL",
+   "chain_id": "776",
+   "chain_name": "POINTE MANAGEMENT",
+   "beds": 178.0,
+   "p": 0.9100457203063013,
+   "risk_percentile": 100.0,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145427",
+   "name": "Nexus at Alton",
+   "city": "ALTON",
+   "state": "IL",
+   "chain_id": null,
+   "chain_name": null,
+   "beds": 181.0,
+   "p": 0.9089427882894373,
+   "risk_percentile": 99.99319079395343,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145938",
+   "name": "Landmark of Hyde Park Rehabilitation and Nursing C",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": "763",
+   "chain_name": "INFINITY HEALTHCARE CONSULTING",
+   "beds": 318.0,
+   "p": 0.9053953249184578,
+   "risk_percentile": 99.98638158790685,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145419",
+   "name": "Nexus at Elmwood",
+   "city": "ELMWOOD PARK",
+   "state": "IL",
+   "chain_id": "88",
+   "chain_name": "BRIA HEALTH SERVICES",
+   "beds": 245.0,
+   "p": 0.9017664381707834,
+   "risk_percentile": 99.97957238186028,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145424",
+   "name": "LANDMARK OF RICHTON PARK REHAB & NSG CTR",
+   "city": "RICHTON PARK",
+   "state": "IL",
+   "chain_id": "763",
+   "chain_name": "INFINITY HEALTHCARE CONSULTING",
+   "beds": 294.0,
+   "p": 0.9007985704964601,
+   "risk_percentile": 99.9727631758137,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145881",
+   "name": "Complete Care at Margate Park",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": "157",
+   "chain_name": "COMPLETE CARE",
+   "beds": 310.0,
+   "p": 0.8982919287340458,
+   "risk_percentile": 99.96595396976713,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145549",
+   "name": "Belhaven Nursing & Rehab Center",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": "763",
+   "chain_name": "INFINITY HEALTHCARE CONSULTING",
+   "beds": 221.0,
+   "p": 0.8910079988460353,
+   "risk_percentile": 99.95914476372054,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145834",
+   "name": "AUSTIN OASIS, THE",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": "762",
+   "chain_name": "ICARE CONSULTING SERVICES",
+   "beds": 216.0,
+   "p": 0.8887565623262732,
+   "risk_percentile": 99.95233555767398,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145914",
+   "name": "Landmark at 95th Rehabilitation and Nursing Center",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": "763",
+   "chain_name": "INFINITY HEALTHCARE CONSULTING",
+   "beds": 228.0,
+   "p": 0.8877348550326971,
+   "risk_percentile": 99.94552635162741,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145290",
+   "name": "Nexus Pavilion at Belleville",
+   "city": "BELLEVILLE",
+   "state": "IL",
+   "chain_id": null,
+   "chain_name": null,
+   "beds": 180.0,
+   "p": 0.8844163136098093,
+   "risk_percentile": 99.93871714558082,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145484",
+   "name": "ELEVATE CARE CHICAGO NORTH",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": "197",
+   "chain_name": "ELEVATE CARE",
+   "beds": 312.0,
+   "p": 0.8831740101883204,
+   "risk_percentile": 99.93190793953426,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145222",
+   "name": "La Bella of Woodstock",
+   "city": "WOODSTOCK",
+   "state": "IL",
+   "chain_id": null,
+   "chain_name": null,
+   "beds": 115.0,
+   "p": 0.8824103000325506,
+   "risk_percentile": 99.92509873348767,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145450",
+   "name": "ALDEN LAKELAND REHAB & HCC",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": "504",
+   "chain_name": "THE ALDEN NETWORK",
+   "beds": 300.0,
+   "p": 0.8823720614410727,
+   "risk_percentile": 99.9182895274411,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145244",
+   "name": "APERION CARE LAKESHORE",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": "38",
+   "chain_name": "APERION CARE",
+   "beds": 313.0,
+   "p": 0.8820076268726158,
+   "risk_percentile": 99.91148032139452,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145337",
+   "name": "RYZE ON THE AVENUE",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": null,
+   "chain_name": null,
+   "beds": 302.0,
+   "p": 0.8799300449145163,
+   "risk_percentile": 99.90467111534795,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145581",
+   "name": "La Bella of Cahokia",
+   "city": "CAHOKIA",
+   "state": "IL",
+   "chain_id": "875",
+   "chain_name": "JENMAX GROUP",
+   "beds": 150.0,
+   "p": 0.8787677008638828,
+   "risk_percentile": 99.89786190930137,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145753",
+   "name": "LA BELLA OF DANVILLE",
+   "city": "DANVILLE",
+   "state": "IL",
+   "chain_id": "875",
+   "chain_name": "JENMAX GROUP",
+   "beds": 200.0,
+   "p": 0.8786487374345152,
+   "risk_percentile": 99.8910527032548,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "146028",
+   "name": "SERENITY ESTATES OF LINCOLNSHIRE",
+   "city": "LINCOLNSHIRE",
+   "state": "IL",
+   "chain_id": "882",
+   "chain_name": "SERENITY ESTATES",
+   "beds": 144.0,
+   "p": 0.8783397858852722,
+   "risk_percentile": 99.88424349720823,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145446",
+   "name": "Marigold Rehabilitation and Health Care Center",
+   "city": "GALESBURG",
+   "state": "IL",
+   "chain_id": null,
+   "chain_name": null,
+   "beds": 172.0,
+   "p": 0.878133787920846,
+   "risk_percentile": 99.87743429116165,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145275",
+   "name": "Timbercreek Rehab and Health Care Center",
+   "city": "PEKIN",
+   "state": "IL",
+   "chain_id": null,
+   "chain_name": null,
+   "beds": 202.0,
+   "p": 0.8778675022259972,
+   "risk_percentile": 99.87062508511508,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145965",
+   "name": "LOFT REHAB OF DECATUR",
+   "city": "DECATUR",
+   "state": "IL",
+   "chain_id": "322",
+   "chain_name": "THE LOFT REHABILITATION AND NURSING",
+   "beds": 150.0,
+   "p": 0.8773608385503248,
+   "risk_percentile": 99.8638158790685,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145764",
+   "name": "MORGAN PARK HEALTHCARE",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": "777",
+   "chain_name": "SABA HEALTHCARE",
+   "beds": 294.0,
+   "p": 0.8754849358632528,
+   "risk_percentile": 99.85700667302193,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "146076",
+   "name": "GOLDWATER CARE CLINTON",
+   "city": "CLINTON",
+   "state": "IL",
+   "chain_id": "699",
+   "chain_name": "GOLDWATER CARE",
+   "beds": 134.0,
+   "p": 0.8749868163462987,
+   "risk_percentile": 99.85019746697535,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145719",
+   "name": "LINCOLN VILLAGE HEALTHCARE",
+   "city": "LINCOLN",
+   "state": "IL",
+   "chain_id": "870",
+   "chain_name": "GENERATIONS HEALTHCARE NETWORK",
+   "beds": 126.0,
+   "p": 0.8739590802739328,
+   "risk_percentile": 99.84338826092878,
+   "risk_decile": 1
+  },
+  {
+   "ccn": "145730",
+   "name": "CONTINENTAL NURSING & REHAB CENTER",
+   "city": "CHICAGO",
+   "state": "IL",
+   "chain_id": "763",
+   "chain_name": "INFINITY HEALTHCARE CONSULTING",
+   "beds": 208.0,
+   "p": 0.8728560567266082,
+   "risk_percentile": 99.83657905488221,
+   "risk_decile": 1
+  }
+ ],
+ "chains": [
+  {
+   "chain_id": "507",
+   "n_facilities": 347,
+   "beds": 38069.0,
+   "expected_facilities_with_event": 90.59682523110675,
+   "p_any_event": 1.0,
+   "bed_weighted_mean_p": 0.2734611302322258,
+   "max_p": 0.6425153517137276,
+   "worst_ccn": "455727",
+   "share_top_decile": 0.069164265129683,
+   "chain_name": "THE ENSIGN GROUP"
+  },
+  {
+   "chain_id": "690",
+   "n_facilities": 277,
+   "beds": 31535.0,
+   "expected_facilities_with_event": 68.59519069889332,
+   "p_any_event": 1.0,
+   "bed_weighted_mean_p": 0.2718114405735811,
+   "max_p": 0.6626316487928918,
+   "worst_ccn": "056039",
+   "share_top_decile": 0.08303249097472924,
+   "chain_name": "PACS GROUP"
+  },
+  {
+   "chain_id": "169",
+   "n_facilities": 150,
+   "beds": 17731.0,
+   "expected_facilities_with_event": 61.18061136072672,
+   "p_any_event": 1.0,
+   "bed_weighted_mean_p": 0.43684733035798745,
+   "max_p": 0.7838747516120814,
+   "worst_ccn": "675823",
+   "share_top_decile": 0.3333333333333333,
+   "chain_name": "CREATIVE SOLUTIONS IN HEALTHCARE"
+  },
+  {
+   "chain_id": "237",
+   "n_facilities": 183,
+   "beds": 21423.0,
+   "expected_facilities_with_event": 49.893511215352014,
+   "p_any_event": 1.0,
+   "bed_weighted_mean_p": 0.291307619276644,
+   "max_p": 0.6617567598790489,
+   "worst_ccn": "056487",
+   "share_top_decile": 0.09836065573770492,
+   "chain_name": "GENESIS HEALTHCARE"
+  },
+  {
+   "chain_id": "719",
+   "n_facilities": 118,
+   "beds": 12935.0,
+   "expected_facilities_with_event": 49.31840917089309,
+   "p_any_event": 1.0,
+   "bed_weighted_mean_p": 0.43442948511006974,
+   "max_p": 0.7056236492503427,
+   "worst_ccn": "455429",
+   "share_top_decile": 0.4067796610169492,
+   "chain_name": "AVIR HEALTH GROUP"
+  },
+  {
+   "chain_id": "306",
+   "n_facilities": 96,
+   "beds": 12079.0,
+   "expected_facilities_with_event": 41.308002536106756,
+   "p_any_event": 1.0,
+   "bed_weighted_mean_p": 0.49247620331640346,
+   "max_p": 0.8547695833979203,
+   "worst_ccn": "145324",
+   "share_top_decile": 0.4479166666666667,
+   "chain_name": "LEGACY HEALTHCARE"
+  },
+  {
+   "chain_id": "311",
+   "n_facilities": 194,
+   "beds": 25336.0,
+   "expected_facilities_with_event": 40.297547890887714,
+   "p_any_event": 1.0,
+   "bed_weighted_mean_p": 0.2114965388639357,
+   "max_p": 0.5675877074086794,
+   "worst_ccn": "175158",
+   "share_top_decile": 0.02577319587628866,
+   "chain_name": "LIFE CARE CENTERS OF AMERICA"
+  },
+  {
+   "chain_id": "726",
+   "n_facilities": 92,
+   "beds": 5883.0,
+   "expected_facilities_with_event": 28.784491714509144,
+   "p_any_event": 1.0,
+   "bed_weighted_mean_p": 0.32933262015740505,
+   "max_p": 0.7621161888423635,
+   "worst_ccn": "355065",
+   "share_top_decile": 0.18478260869565216,
+   "chain_name": "GOOD SAMARITAN SOCIETY"
+  },
+  {
+   "chain_id": "461",
+   "n_facilities": 126,
+   "beds": 13568.0,
+   "expected_facilities_with_event": 26.623685744570242,
+   "p_any_event": 0.999999999999977,
+   "bed_weighted_mean_p": 0.22896157580930604,
+   "max_p": 0.5726459473709855,
+   "worst_ccn": "395828",
+   "share_top_decile": 0.03968253968253968,
+   "chain_name": "SABER HEALTHCARE GROUP"
+  },
+  {
+   "chain_id": "670",
+   "n_facilities": 67,
+   "beds": 8695.0,
+   "expected_facilities_with_event": 26.24136783372328,
+   "p_any_event": 0.9999999999999989,
+   "bed_weighted_mean_p": 0.4082248062101946,
+   "max_p": 0.6352476682725725,
+   "worst_ccn": "675162",
+   "share_top_decile": 0.2537313432835821,
+   "chain_name": "WELLSENTIAL HEALTH"
+  }
+ ]
+}

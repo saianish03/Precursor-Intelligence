@@ -3,10 +3,13 @@
 # containers that the DockerOperator starts.
 #
 #   docker build -f docker/airflow.Dockerfile -t precursor-airflow:<tag> .
-FROM apache/airflow:3.1.8-python3.12
+# Base images by tag and digest (L10): rebuilds start from the same bytes; Dependabot proposes digest updates.
+FROM apache/airflow:3.1.8-python3.12@sha256:740da888bf8367e75e6db8c8cd62c4d7b4e6744cdf0e9b53bf4467458f8dadab
 
 ARG AIRFLOW_VERSION=3.1.8
 ARG DOCKER_PROVIDER_VERSION=4.6.1
+# The commit the tag constraints-3.1.8 points to: a tag can be moved, a commit can't (L10). Change it with the version.
+ARG AIRFLOW_CONSTRAINTS_COMMIT=6b42e8020f6d21ca892b0d1dc21c60469fef6e5f
 
 # The base image ships apache-airflow-providers-docker 4.5.2. 4.6.1 is the version PipelineDockerOperator's
 # exit-code detection was checked against (dags/utils/pipeline_operator.py; tests/dags guards it). Installed
@@ -14,7 +17,7 @@ ARG DOCKER_PROVIDER_VERSION=4.6.1
 # dependency moves between builds. pip, not uv: the official image installs into the airflow user's
 # site-packages (uv has no --user mode). pytest is only for tests/dags.
 RUN curl -fsSL -o /tmp/constraints.txt \
-      "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-3.12.txt" \
+      "https://raw.githubusercontent.com/apache/airflow/${AIRFLOW_CONSTRAINTS_COMMIT}/constraints-3.12.txt" \
     && sed -i "s/^apache-airflow-providers-docker==.*/apache-airflow-providers-docker==${DOCKER_PROVIDER_VERSION}/" /tmp/constraints.txt \
     && pip install --no-cache-dir --constraint /tmp/constraints.txt \
       "apache-airflow==${AIRFLOW_VERSION}" \

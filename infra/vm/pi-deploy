@@ -1,6 +1,6 @@
 #!/bin/bash
-# Runs the release the VM's instance metadata `pi-release` names (task T20; VM plan D5): one full git sha, whose two
-# images CD pushed to Artifact Registry. Runs as root on the VM.
+# Runs the release the VM's instance metadata `pi-release` names (task T20; VM plan D5): one full git sha, whose three
+# images (pipeline, airflow, mlflow) CD pushed to Artifact Registry. Runs as root on the VM.
 #
 #   pi-deploy watch          the service (pi-deploy.service): deploy at start, then whenever pi-release changes
 #   pi-deploy now [SHA]      deploy once, by hand (default: what pi-release names), even a sha that failed before
@@ -8,12 +8,12 @@
 #   pi-deploy pause|resume   no deploy at all until resumed (e.g. during a restore, infra/vm/README.md) / deploy again
 #
 # A deploy:
-#   1. pull both images by sha (unless already here); each image's revision label must equal the sha;
+#   1. pull the three images by sha (unless already here); each image's revision label must equal the sha;
 #   2. stage: the compose bundle out of the Airflow image, its env file from Secret Manager, `docker compose config -q`;
 #   3. wait while a pipeline run is running or queued (pi-busy), unless nothing would change for running containers;
 #   4. put the staged files in place and `docker compose up -d --wait`;
-#   5. check that the Airflow containers run that image, that the scheduler uses the env file's data bucket and that
-#      Postgres's task-network rule matches the network.
+#   5. check that the Airflow and MLflow containers run that sha's images, that the scheduler uses the env file's data
+#      bucket and that Postgres's task-network rules match the network.
 # A failure in 1-3 changes nothing and is tried twice more. A failure from 4 on puts back the last good release's
 # files (kept from its deploy, secrets included) at once. Every failure emails (pi-alert). The watcher doesn't retry
 # a failed sha until pi-release names another one.
@@ -122,6 +122,8 @@ write_overrides() { # env file
     n=$((n + 1))
     [ "$n" -eq 1 ] || { err "$OVERRIDES sets PI_BUCKET_URI more than once"; return 1; }
     printf "PI_BUCKET_URI='%s'\n" "${line#PI_BUCKET_URI=}" >> "$1" || return 1
+    # never load trial scores into the real BigQuery months (docker-compose.vm.yaml: set but empty = no load)
+    printf "PI_BIGQUERY_DATASET=''\n" >> "$1" || return 1
     log "override: $line (a trial prefix: remove $OVERRIDES and run 'pi-deploy now' when the test is done)"
   done < "$OVERRIDES"
 }
@@ -151,6 +153,9 @@ stage() { # sha, empty folder
   done
   # The rollback floor (L11, #46): a release without the task-network rule must never start on this data disk.
   grep -q PI_TASKS_SUBNET "$2/compose/init-db.sh" || { err "the bundle's init-db.sh predates L11 (#46)"; return 1; }
+  # And MLflow on the VM (ML Phase 2 item 2): an older release would drop it (--remove-orphans) and register nothing.
+  grep -q 'precursor/mlflow:' "$2/compose/docker-compose.vm.yaml" \
+    || { err "the bundle predates MLflow on the VM (ML Phase 2 item 2)"; return 1; }
   write_env "$1" "$2/.env" || return 1
   compose "$2/compose" "$2/.env" config -q || { err "the compose files don't validate with the env file"; return 1; }
 }
@@ -168,12 +173,11 @@ promote() { # staged folder -> the stable folder and the env file (the folder ke
     install -m 0600 "$1/.env" "$ENV_FILE.new" && mv -f "$ENV_FILE.new" "$ENV_FILE"
 }
 
-# After `up`: the Airflow containers run this sha's image and tell tasks to use this sha's pipeline image, and
-# Postgres's first pg_hba.conf lines name the task network's real subnet (L11 review: else the rule silently
-# stops matching). A database created before MLflow (W4) has two (pi_meta, reject), a newer one three (pi_meta,
-# mlflow, reject): a restore or a new disk must not fail every deploy. The two-line form passes only while mlflow is
-# off (the phase2 profile): once it runs, a database without its line would restart-loop it, so that is a failed
-# deploy. `config --services` prints service names only, never the env. The services are docker-compose.yaml's.
+# After `up`: the Airflow and MLflow containers run this sha's images, the scheduler tells tasks to use this sha's
+# pipeline image, and Postgres's first three pg_hba.conf lines (pi_meta, mlflow, reject) name the task network's real
+# subnet (L11 review: else the rules silently stop matching). A database without the mlflow line (created before W4,
+# or an old restore) would restart-loop MLflow, so that is a failed deploy. MLflow is checked whenever the live files
+# run it: always above the floor, never after the one rollback from the first MLflow release to the release before.
 check_running() { # sha
   local want_img svc cid vars uri subnet top meta ml rej
   want_img=$(docker image inspect --format '{{.Id}}' "$REGISTRY/airflow:$1")
@@ -182,6 +186,12 @@ check_running() { # sha
     [ -n "$cid" ] || { err "$svc is not running"; return 1; }
     [ "$(docker inspect --format '{{.Image}}' "$cid")" = "$want_img" ] || { err "$svc runs another image"; return 1; }
   done
+  if grep -q 'precursor/mlflow:' "$COMPOSE_DIR/docker-compose.vm.yaml"; then
+    cid=$(running mlflow)
+    [ -n "$cid" ] || { err "mlflow is not running"; return 1; }
+    [ "$(docker inspect --format '{{.Image}}' "$cid")" = "$(docker image inspect --format '{{.Id}}' "$REGISTRY/mlflow:$1")" ] \
+      || { err "mlflow runs another image"; return 1; }
+  fi
   vars=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$(running airflow-scheduler)")
   grep -qx "PI_PIPELINE_IMAGE=$REGISTRY/pipeline:$1" <<< "$vars" \
     || { err "the scheduler points tasks at another pipeline image"; return 1; }
@@ -194,13 +204,8 @@ check_running() { # sha
   meta="host precursor_meta pi_meta $subnet scram-sha-256"
   ml="host mlflow mlflow $subnet scram-sha-256"
   rej="host all all $subnet reject"
-  [ "$top" = "$meta"$'\n'"$ml"$'\n'"$rej" ] && return 0
-  if dc config --services | grep -qx mlflow; then
-    err "pg_hba.conf has no mlflow rule for the task network, and mlflow runs: add it (runbooks/airflow-local.md §2.1)"
-    return 1
-  fi
-  [ "$(head -n 2 <<< "$top")" = "$meta"$'\n'"$rej" ] \
-    || { err "pg_hba.conf's task-network rules don't match the network's subnet ($subnet)"; return 1; }
+  [ "$top" = "$meta"$'\n'"$ml"$'\n'"$rej" ] \
+    || { err "pg_hba.conf's first lines aren't the task network's pi_meta, mlflow and reject rules for $subnet (runbooks/airflow-local.md §2.1)"; return 1; }
 }
 
 # Don't replace the stack under a running or queued run. Returns 3 when paused meanwhile.
@@ -231,7 +236,7 @@ deploy() { # sha
   [ ! -f "$PAUSED" ] || return 3
   log "deploying $sha"
   gcloud auth configure-docker "${REGISTRY%%/*}" --quiet >/dev/null 2>&1 || err "gcloud auth configure-docker failed"
-  for img in airflow pipeline; do
+  for img in airflow pipeline mlflow; do
     ref="$REGISTRY/$img:$sha"
     # Tags are immutable: an image already here is that release, even after the registry's cleanup deleted it.
     docker image inspect "$ref" >/dev/null 2>&1 || docker pull --quiet "$ref" >/dev/null || { err "can't pull $img:$sha"; return 1; }

@@ -7,6 +7,7 @@ One command per DAG task (docs/DATA_PIPELINE_SPEC.md §15.3), all sharing the DA
   precursor-pipeline check-release --run-id R   (the hourly release check; last stdout line: JSON decision)
   precursor-pipeline ml prepare --run-id R   (the ML tasks: training/cli.py, docs/ML_PIPELINE_SPEC.md §15.3)
   precursor-pipeline agents build-corpus   (the agents' batch steps: agents/cli.py, docs/AGENTS_PLAN.md)
+  precursor-pipeline agents build-evidence --v YYYY-MM   (the agents' evidence: agents/cli.py, AGENTS_PLAN.md E2)
 
 Exit codes follow the pipeline contract: 0 ok, 1 error (retried), 2 data or validation failure,
 3 config or usage error. The DAG fails 2 and 3 without retry.

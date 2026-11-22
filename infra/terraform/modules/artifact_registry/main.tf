@@ -1,7 +1,7 @@
 resource "google_artifact_registry_repository" "this" {
   location      = var.location
   repository_id = var.repository_id
-  description   = "Pipeline and Airflow images, tagged with the full git sha"
+  description   = "Pipeline, Airflow and MLflow images, tagged with the full git sha"
   format        = "DOCKER"
 
   # A sha tag can never be moved to other bytes, so the VM runs exactly the commit it was told to.
@@ -11,8 +11,9 @@ resource "google_artifact_registry_repository" "this" {
 
   cleanup_policy_dry_run = false
 
-  # KEEP wins over DELETE: the 5 newest versions of each image always stay, for rollback; older ones go after 30
-  # days, and untagged layers left by rebuilds after 7.
+  # KEEP wins over DELETE: the 5 newest versions of each image always stay, for rollback; older ones go after 7 days
+  # (a third image per release, ML Phase 2 item 2, would otherwise grow the storage bill), and untagged layers left
+  # by rebuilds after 7.
   cleanup_policies {
     id     = "keep-5-newest"
     action = "KEEP"
@@ -22,11 +23,11 @@ resource "google_artifact_registry_repository" "this" {
   }
 
   cleanup_policies {
-    id     = "delete-after-30-days"
+    id     = "delete-after-7-days"
     action = "DELETE"
     condition {
       tag_state  = "ANY"
-      older_than = "2592000s"
+      older_than = "604800s"
     }
   }
 
