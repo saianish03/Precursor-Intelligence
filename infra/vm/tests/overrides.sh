@@ -24,13 +24,16 @@ check() { # name, condition (a bash expression)
   fi
 }
 bucket_lines() { grep -c '^PI_BUCKET_URI=' "$T/env"; }
+no_bigquery() { grep -qx "PI_BIGQUERY_DATASET=''" "$T/env"; } # a trial run must never load the real dataset
 refused() { [ "$RC" != 0 ] && grep -q "allows only PI_BUCKET_URI" <<< "$OUT"; }
 
 rm -f "$OVERRIDES"; envfile
 check "no override file: the secrets and the sha, no PI_BUCKET_URI" '[ $RC = 0 ] && [ "$(wc -l < "$T/env")" = 10 ] && [ "$(bucket_lines)" = 0 ] && [ "$(tail -n 1 "$T/env")" = "PI_RELEASE_SHA='"'"'$SHA'"'"'" ]'
+check "no override file: BigQuery stays on (the compose default)" '! grep -q "^PI_BIGQUERY_DATASET=" "$T/env"'
 
 with "PI_BUCKET_URI=$TRIAL\n"
-check "a trial prefix: written quoted, before the sha" '[ $RC = 0 ] && grep -qx "PI_BUCKET_URI='"'"'$TRIAL'"'"'" "$T/env" && [ "$(sed -n 10p "$T/env")" = "PI_BUCKET_URI='"'"'$TRIAL'"'"'" ] && [ "$(wc -l < "$T/env")" = 11 ]'
+check "a trial prefix: written quoted, before the sha" '[ $RC = 0 ] && grep -qx "PI_BUCKET_URI='"'"'$TRIAL'"'"'" "$T/env" && [ "$(sed -n 10p "$T/env")" = "PI_BUCKET_URI='"'"'$TRIAL'"'"'" ] && [ "$(wc -l < "$T/env")" = 12 ]'
+check "a trial prefix: BigQuery off, so publish never loads trial scores" 'no_bigquery'
 check "a trial prefix: logged, with how to undo it" 'grep -q "override: PI_BUCKET_URI=$TRIAL" <<< "$OUT" && grep -q "pi-deploy now" <<< "$OUT"'
 
 with "# smoke test T23\n\n   \nPI_BUCKET_URI=$TRIAL\n# done\n"

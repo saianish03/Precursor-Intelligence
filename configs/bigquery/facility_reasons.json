@@ -1,0 +1,68 @@
+[
+  {
+    "name": "ccn",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "CMS Certification Number"
+  },
+  {
+    "name": "t",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "the score month as YYYY-MM"
+  },
+  {
+    "name": "score_month",
+    "type": "DATE",
+    "mode": "REQUIRED",
+    "description": "first day of the score month (the partition)"
+  },
+  {
+    "name": "model_version",
+    "type": "INTEGER",
+    "mode": "REQUIRED",
+    "description": "registered model version"
+  },
+  {
+    "name": "gold_run_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "the gold build scored"
+  },
+  {
+    "name": "direction",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "raises or lowers the risk"
+  },
+  {
+    "name": "rank",
+    "type": "INTEGER",
+    "mode": "REQUIRED",
+    "description": "1 = the largest contribution in its direction"
+  },
+  {
+    "name": "feature",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "model feature"
+  },
+  {
+    "name": "feature_value",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "the facility's value of the feature, as text"
+  },
+  {
+    "name": "contribution_logodds",
+    "type": "FLOAT",
+    "mode": "REQUIRED",
+    "description": "SHAP contribution in log-odds"
+  },
+  {
+    "name": "label",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "plain-language reason"
+  }
+]

@@ -122,6 +122,8 @@ write_overrides() { # env file
     n=$((n + 1))
     [ "$n" -eq 1 ] || { err "$OVERRIDES sets PI_BUCKET_URI more than once"; return 1; }
     printf "PI_BUCKET_URI='%s'\n" "${line#PI_BUCKET_URI=}" >> "$1" || return 1
+    # never load trial scores into the real BigQuery months (docker-compose.vm.yaml: set but empty = no load)
+    printf "PI_BIGQUERY_DATASET=''\n" >> "$1" || return 1
     log "override: $line (a trial prefix: remove $OVERRIDES and run 'pi-deploy now' when the test is done)"
   done < "$OVERRIDES"
 }

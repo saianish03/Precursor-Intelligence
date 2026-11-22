@@ -462,14 +462,22 @@ def publish(
     ml_config: Path | None = ML_CONFIG_OPT,
     mode: ModeOpt = typer.Option(ModeOpt.auto, help="the DAG run's mode, recorded in ml_runs"),
 ) -> None:
-    """Verify scores_manifest.json against the month's files and record the published scores in ml_runs (§11,
-    Phase 1; the DAG emits the cms_nh_scores asset). Last stdout line: a JSON summary."""
+    """Verify scores_manifest.json against the month's files, load them into BigQuery when the env has a bigquery
+    block (§11 Phase 2), then record the published scores in ml_runs (the DAG emits the cms_nh_scores asset). Last
+    stdout line: a JSON summary."""
 
     def body(ctx: Any, rid: str) -> dict[str, Any]:
         from ..serving.publish import run_publish
 
         cfg = load_ml_config(ml_config)
-        out = run_publish(ctx.object_store, ctx.metadata, ml_run_id=rid, cfg=cfg, mode=mode.value)
+        out = run_publish(
+            ctx.object_store,
+            ctx.metadata,
+            ml_run_id=rid,
+            cfg=cfg,
+            mode=mode.value,
+            bigquery=ctx.settings.env.bigquery,
+        )
         typer.echo(
             f"run {rid}: publish {out.reason}" + (f" ({out.v}: {out.rows})" if out.v else "")
         )

@@ -3,8 +3,10 @@
 ``scores_manifest.json`` (written last by ``score``) must match the files beside it: every listed file present,
 with the recorded sha256 and row count, stamped with the same model version. Then one append-only ``ml_runs`` row
 (``action: score``, ``scores_published: true``) records the published month, which ``decide`` and ``prepare``
-(``training/data.last_scored_v``) read. The DAG task emits the ``cms_nh_scores`` asset on success (W6); BigQuery
-is Phase 2.
+(``training/data.last_scored_v``) read. The DAG task emits the ``cms_nh_scores`` asset on success (W6).
+
+Phase 2 (prod): with the env's ``bigquery`` block, the month is loaded into BigQuery (``serving/bigquery.py``) before
+that row is written, so a failed load records nothing and the retried task loads again.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from typing import Any
 import polars as pl
 from pydantic import ValidationError
 
-from ..common.config import MlConfig
+from ..common.config import BigQueryCfg, MlConfig
 from ..common.io.metadata_store import MetadataStore
 from ..common.io.object_store import ObjectStore
 from ..training import MlInputError
@@ -37,6 +39,7 @@ class PublishOutput:
     v: str | None = None
     model_version: int | None = None
     rows: dict[str, int] | None = None
+    loaded: dict[str, int] | None = None  # rows per BigQuery table; None without a bigquery block
 
     def summary(self, ml_run_id: str) -> dict[str, Any]:
         return {
@@ -46,6 +49,7 @@ class PublishOutput:
             "v": self.v,
             "model_version": self.model_version,
             "rows": self.rows,
+            "bigquery_rows": self.loaded,
         }
 
 
@@ -93,6 +97,8 @@ def run_publish(
     cfg: MlConfig,
     mode: Mode = "auto",
     actor: str | None = None,
+    bigquery: BigQueryCfg | None = None,
+    bq_client: Any = None,
 ) -> PublishOutput:
     """The ``publish`` task. Skips when this run has no champion (``score`` skipped too); refuses (exit 2) when the
     scores don't match their manifest or were written by another run."""
@@ -116,6 +122,19 @@ def run_publish(
     }
     if mixed:  # e.g. the run was prepared again after score: one row must not mix two golds
         raise MlInputError(f"the scores and this run's input manifest disagree: {mixed}")
+
+    loaded = None
+    # before the ml_runs row: decide must never see a month BigQuery doesn't have
+    if bigquery is not None:
+        from . import bigquery as bq
+
+        frames = {}
+        for table in bq.TABLES:
+            with store.open_read(scores.files[table]) as f:
+                frames[table] = bq.bq_frame(
+                    table, pl.read_parquet(io.BytesIO(f.read())), target=scores.label
+                )
+        loaded = bq.load_month(bq_client or bq.make_client(bigquery), bigquery, scores.v, frames)
 
     done = meta.read("ml_runs", {"ml_run_id": ml_run_id, "action": ["score"]})
     if any(r.get("scores_published") for r in done):
@@ -153,4 +172,5 @@ def run_publish(
         v=scores.v,
         model_version=scores.model_version,
         rows=scores.rows,
+        loaded=loaded,
     )

@@ -78,6 +78,7 @@ def test_docker_kwargs_from_environment(monkeypatch):
     monkeypatch.setenv("PI_HOST_DATA_DIR", "/srv/pi/data")
     monkeypatch.delenv("PI_BUCKET_URI", raising=False)
     monkeypatch.delenv("PI_PACKAGES_URI", raising=False)
+    monkeypatch.delenv("PI_BIGQUERY_DATASET", raising=False)
     monkeypatch.delenv(
         "PI_GCP_CREDENTIALS_FILE", raising=False
     )  # set in a stack that runs against GCS
@@ -88,6 +89,7 @@ def test_docker_kwargs_from_environment(monkeypatch):
     assert [(m["Source"], m["Target"]) for m in kw["mounts"]] == [("/srv/pi/data", "/app/data")]
     assert "PI_BUCKET_URI" not in kw["environment"]  # unset, so prod.yaml's default bucket applies
     assert "PI_PACKAGES_URI" not in kw["environment"]  # likewise for the package store
+    assert "PI_BIGQUERY_DATASET" not in kw["environment"]  # and BigQuery: unset, publish loads nothing
 
     assert kw["do_xcom_push"] is False and "mem_limit" not in kw
     assert (kw["log_opts_max_size"], kw["log_opts_max_file"]) == ("10m", "3")
@@ -97,9 +99,11 @@ def test_docker_kwargs_from_environment(monkeypatch):
     monkeypatch.delenv("PI_HOST_DATA_DIR")
     monkeypatch.setenv("PI_BUCKET_URI", "gs://bucket")
     monkeypatch.setenv("PI_PACKAGES_URI", "gs://mlflow/packages/ml-dev")
+    monkeypatch.setenv("PI_BIGQUERY_DATASET", "precursorintelligence_scores")
     kw = docker_kwargs()
     assert kw["mounts"] == [] and kw["environment"]["PI_BUCKET_URI"] == "gs://bucket"
     assert kw["environment"]["PI_PACKAGES_URI"] == "gs://mlflow/packages/ml-dev"
+    assert kw["environment"]["PI_BIGQUERY_DATASET"] == "precursorintelligence_scores"
 
     monkeypatch.setenv("PI_MLFLOW_TRACKING_URI", "http://mlflow:5000")
     assert docker_kwargs()["environment"]["MLFLOW_TRACKING_URI"] == "http://mlflow:5000"

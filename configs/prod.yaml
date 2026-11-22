@@ -36,3 +36,10 @@ logging:
   console_format: json                     # stdout JSON -> Cloud Logging
 run_lock:
   stale_after_hours: 12                    # a lock older than this was left by a killed run
+# The month's scores, loaded by `ml publish` (ML spec §11 Phase 2); the dataset and its tables are Terraform's, with
+# the schemas in configs/bigquery/. Load jobs only: free, and no query runs here. No default, like the package store:
+# only the VM sets PI_BIGQUERY_DATASET (docker-compose.vm.yaml), so a laptop stack on ml-dev/ loads nothing into it.
+bigquery:
+  project: precursor-intel-mlops
+  dataset: ${PI_BIGQUERY_DATASET:-}
+  location: us-central1
