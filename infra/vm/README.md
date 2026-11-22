@@ -18,7 +18,7 @@ can read its metadata.
 | `pi-pg-backup.service` | Runs `pi-pg-backup` whenever the OS shuts down or Docker stops, while both are still up. A backstop: best effort within GCE's ~90 s. |
 | `pi-down` | `sudo pi-down [--force]`: dumps the databases (`pi-pg-backup`), then stops the VM; refuses during a run unless `--force`. `pi-down --if-idle` is the idle shutdown (below, "Up and down"). |
 | `pi-idle-shutdown.timer` / `.service` | Run `pi-down --if-idle` every 15 minutes (:07, :22, :37, :52). Log: `journalctl -u pi-idle-shutdown` (after a stop: `journalctl -b -1 -u pi-idle-shutdown`) |
-| `tests/` | Offline tests in Debian 12 containers: `pi-down` with fake commands, and `pi-deploy`'s smoke-test overrides. `bash infra/vm/tests/run.sh` (needs Docker; not run by CI). Rerun them after any change to `pi-down` or to `pi-deploy`'s env file. |
+| `tests/` | Offline tests in Debian 12 containers: `pi-down` with fake commands, and `pi-deploy`'s smoke-test overrides. `bash infra/vm/tests/run.sh` (needs Docker). CI runs them (job `vm-scripts`) on every pull request that touches `infra/vm/`; run them locally after a change to `pi-down` or to `pi-deploy`'s env file. |
 
 ## Deploys (T20)
 - **A release is one full git sha** whose two images CD pushed (`precursor/airflow:<sha>`, `precursor/pipeline:<sha>`).
