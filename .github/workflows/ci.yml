@@ -40,7 +40,7 @@ jobs:
       - name: Which tests does the change need?
         id: scope
         env:
-          CODE: '^(src/|tests/|configs/|scripts/|dags/|backend/|frontend/|pyproject\.toml$|uv\.lock$|requirements\.txt$|\.python-version$|dvc\.(yaml|lock)$|metrics/|\.github/workflows/ci\.yml$)'
+          CODE: '^(src/|tests/|configs/|scripts/|dags/|backend/|pyproject\.toml$|uv\.lock$|requirements\.txt$|\.python-version$|dvc\.(yaml|lock)$|metrics/|\.github/workflows/ci\.yml$)'
           ML: '^(src/precursorintelligence/(training|evaluation|serving|monitoring)/|tests/(training|evaluation|serving|monitoring|ml)/|tests/leakage/test_ml_[a-z_]+\.py$|configs/(ml|reason_labels)\.yaml$|scripts/(dvc_toy_ml|ml_checkpoint_reasons)\.py$|dags/cms_nh_ml\.py$|dvc\.lock$|metrics/toy_ml\.json$)'
         run: |
           if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
@@ -263,16 +263,61 @@ jobs:
             docker image ls --filter reference='precursor-*:ci' --format '| {{.Repository}} | {{.Size}} |'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The React app (frontend/): lint, typecheck, tests on the recorded fixtures, and the production build. Like images,
+  # it always runs for ci-ok and skips its steps when the PR doesn't touch frontend/.
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out the merge commit and its base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2
+
+      - name: Does the change touch the frontend?
+        id: changes
+        working-directory: .
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
+              || git diff --name-only HEAD^1 HEAD | grep -qE '^(frontend/|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No frontend changes: nothing to check." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Set up Node
+        if: steps.changes.outputs.run == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install, lint, typecheck, test and build
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+
   # Single stable check name to require in the branch rulesets (independent of the Python matrix).
   ci-ok:
     name: ci-ok
-    needs: [tests, images]
+    needs: [tests, images, frontend]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: All required jobs passed
         run: |
-          if [ "${{ needs.tests.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ]; then
-            echo "tests job result: ${{ needs.tests.result }}; images job result: ${{ needs.images.result }}"
+          if [ "${{ needs.tests.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ] \
+              || [ "${{ needs.frontend.result }}" != "success" ]; then
+            echo "tests: ${{ needs.tests.result }}; images: ${{ needs.images.result }}; frontend: ${{ needs.frontend.result }}"
             exit 1
           fi

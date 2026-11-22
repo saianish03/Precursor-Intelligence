@@ -1,6 +1,6 @@
 # Agents: detailed implementation plan and GCP production rollout
 
-**Owners:** Tanoj, Riya, Aakash, plus a frontend owner (decision 0). Nishanth reviews the infrastructure. **Target:** the Dec 1 demo.
+**Owners:** Tanoj, Riya, Aakash, and Nishanth for the frontend (decision 0). Nishanth reviews the infrastructure. **Target:** the Dec 1 demo.
 
 **What this covers:** the tasks in every part, how the agents and the UI run in production on our current GCP setup, the order, and the cost (§7).
 
@@ -17,7 +17,7 @@
 | **Tanoj** | the runtime, guardrails, observability, caching and cost control, the evaluation harness, Agent 3, the API's shared middleware |
 | **Riya** | the evidence data layer and its build job, Agent 1, Agent 4, the API endpoints for both |
 | **Aakash** | the retrieval corpus, Agent 2 and its endpoint, the GCP production rollout |
-| **Frontend owner** (decision 0) | the React app: its views, states, sign-in, build and CI |
+| **Nishanth** (frontend, decision 0) | the React app: its views, states, sign-in, build and CI |
 
 ---
 
@@ -195,7 +195,7 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 | L11 | **Pre-building (required by H2):** after `build-evidence`, generate and cache Agent 1 briefs for the top 50 riskiest facilities and the top N of the demo book, under the same cache key a user request builds (D1, with F3's fixed `question_type`). The job has its own limit, (50 + N) × (1 + k) runs, and doesn't count toward the users' daily cap (D3), which it would exhaust. It runs 5 briefs at a time, within the Vertex quota, so it takes about 8–12 minutes. Where it runs is decision 7 | after a monthly publish, those briefs are in the cache; it costs about $1 a month (§7) |
 | L12 | **Runbook** `docs/runbooks/agents.md`: deploy, rollback, adding a user to the allowlist, raising the cap, reading traces, cost checks | a teammate can deploy and roll back from it |
 
-### M. Frontend, the React app (owner: decision 0)
+### M. Frontend, the React app (owner: Nishanth)
 
 | ID | Task | Done when |
 |---|---|---|
@@ -255,7 +255,7 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 ---
 
 ## 6. Decisions needed now
-0. **The frontend owner.** The React app is a new workstream (M), and it needs an owner.
+0. **The frontend owner.** Decided 2026-11-21: Nishanth owns the React app (workstream M).
 1. **Demo scope.** Recommendation: Agents 1 and 2 are the must-haves; Agents 3 and 4 are stretch goals.
 2. **Vertex AI.** Who enables the gpt-oss models in Model Garden; the region (us-central1 if available); the quota; the daily call cap and the monthly LLM budget (recommended in §7: 100 runs and $2 a day; a Vertex budget of $40 for November, then $20 a month).
 3. **Tracing in production.** Cloud Trace for production and MLflow for evaluation runs (recommended), or opening MLflow to Cloud Run, which needs a login (spec O5) and an always-on VM.
