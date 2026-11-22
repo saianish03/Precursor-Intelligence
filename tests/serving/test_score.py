@@ -777,3 +777,26 @@ def test_publish_without_bigquery_never_builds_a_client(trained, monkeypatch):
     )
     out = publish(trained)
     assert out.loaded is None and not out.skipped
+
+
+def test_columns_the_writers_leave_null_by_design_are_nullable_in_bigquery():
+    # a null in a REQUIRED column fails every load of the month: a chain with no bed counts has no bed-weighted mean,
+    # and a gold without state scores with a null state (score.py)
+    scores = pl.DataFrame(
+        {
+            "ccn": ["000001", "000002"],
+            "score_month": [date(2026, 10, 1)] * 2,
+            "chain_id": ["A", "A"],
+            "certified_beds": [None, None],
+            "p_g12": [0.2, 0.6],
+            "risk_decile": [5, 1],
+            "model_version": [7] * 2,
+            "gold_run_id": ["g1"] * 2,
+            "ml_run_id": ["r1"] * 2,
+        },
+        schema_overrides={"certified_beds": pl.Float64},
+    )
+    assert chain_scores(scores, "p_g12")["bed_weighted_mean_p"].to_list() == [None]
+    modes = {t: {f["name"]: f["mode"] for f in bq.schema(t)} for t in bq.TABLES}
+    assert modes["chain_scores"]["bed_weighted_mean_p"] == "NULLABLE"
+    assert modes["facility_scores"]["state"] == modes["facility_scores"]["chain_id"] == "NULLABLE"

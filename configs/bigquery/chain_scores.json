@@ -38,8 +38,8 @@
   {
     "name": "bed_weighted_mean_p",
     "type": "FLOAT",
-    "mode": "REQUIRED",
-    "description": "mean p weighted by beds"
+    "mode": "NULLABLE",
+    "description": "mean p weighted by beds; null when no facility in the chain has a bed count"
   },
   {
     "name": "max_p",

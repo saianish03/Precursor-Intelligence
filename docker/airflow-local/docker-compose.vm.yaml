@@ -18,7 +18,9 @@ x-airflow-vm: &airflow-vm
     PI_HOST_DATA_DIR: "" # every layer goes to GCS, none to the VM's disk
     PI_GCP_CREDENTIALS_FILE: "" # no key file: tasks get sa-pipeline's tokens from the metadata server
     PI_PACKAGES_URI: gs://precursor-intel-mlops-mlflow/packages/vm # this stack's registered models (ML spec §9.4)
-    PI_BIGQUERY_DATASET: precursorintelligence_scores # publish loads the scores here (ML spec §11); only this stack
+    # publish loads the scores here (ML spec §11); only this stack. No colon: a trial prefix's env file sets it empty
+    # (pi-deploy), so a smoke test never loads trial scores into the real months.
+    PI_BIGQUERY_DATASET: ${PI_BIGQUERY_DATASET-precursorintelligence_scores}
     PI_TASK_MEM_LIMIT: 20g # per task container (32 GB e2-highmem-4, spec §14 #26): full-archive gold needs ~12-14 GiB (T25); a task past it is killed alone
     PI_AUTO_REMOVE: force # failed task containers hold PI_DATABASE_URL: never keep them
     AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?set it in the env file} # its own secret, not the JWT one

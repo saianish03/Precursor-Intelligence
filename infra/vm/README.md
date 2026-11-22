@@ -96,6 +96,8 @@ can read its metadata.
     to the bucket root, so on a used one the trial run would trust work that exists only at the root, and the root
     would later trust work that exists only under the prefix.
   - **Keep `cms_nh_ml` paused**: no ML runs on trial gold, and its packages would go to the VM's package store.
+    BigQuery is off anyway: with an override, `pi-deploy` also writes `PI_BIGQUERY_DATASET=''`, so `publish` loads
+    nothing into the real months.
   - **When the test is done:**
     1. pause every DAG, then `sudo rm /etc/precursor/overrides.env && sudo pi-deploy now`. Keep the DAGs paused until
        step 2 is done, however much later (on the GCP VM, with T24's bucket clean-up);

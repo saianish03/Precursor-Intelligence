@@ -20,8 +20,8 @@
   {
     "name": "state",
     "type": "STRING",
-    "mode": "REQUIRED",
-    "description": "two-letter state"
+    "mode": "NULLABLE",
+    "description": "two-letter state; null if gold had none"
   },
   {
     "name": "chain_id",

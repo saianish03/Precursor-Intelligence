@@ -141,6 +141,12 @@ def test_each_stack_has_its_own_package_prefix():
     )
     laptop = yaml.safe_load((compose / "docker-compose.yaml").read_text())
     assert laptop["x-airflow-common"]["environment"]["PI_PACKAGES_URI"] == "${PI_PACKAGES_URI:-}"
+    # BigQuery (ML spec §11): only the VM loads, and a trial prefix's env file blanks it (pi-deploy)
+    assert vm["x-airflow-vm"]["environment"]["PI_BIGQUERY_DATASET"] == (
+        "${PI_BIGQUERY_DATASET-precursorintelligence_scores}"
+    )
+    for name in ("docker-compose.yaml", "docker-compose.override.yaml"):
+        assert "PI_BIGQUERY_DATASET" not in (compose / name).read_text(), name
 
 
 def test_the_package_store_must_be_configured_to_be_built(tmp_path):

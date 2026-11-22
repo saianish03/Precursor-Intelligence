@@ -246,5 +246,15 @@ cases: `infra/README.md`, "Cost of the VM". The budget alerts never stop spendin
   bq query --project_id=precursor-intel-mlops --use_legacy_sql=false --maximum_bytes_billed=100000000 \
     'SELECT risk_decile, COUNT(*) AS n, ROUND(AVG(p), 3) AS mean_p FROM precursorintelligence_scores.facility_scores WHERE score_month = DATE "2026-10-01" GROUP BY 1 ORDER BY 1'
   ```
+- **The latest month:** `SELECT MAX(score_month)` is refused (no month filter); read the partitions' metadata instead:
+  ```bash
+  bq query --project_id=precursor-intel-mlops --use_legacy_sql=false --maximum_bytes_billed=100000000 \
+    'SELECT MAX(partition_id) AS latest FROM precursorintelligence_scores.INFORMATION_SCHEMA.PARTITIONS WHERE table_name = "facility_scores" AND partition_id NOT IN ("__NULL__", "__UNPARTITIONED__")'
+  ```
+  It prints `YYYYMM`; `status/latest.json` in the data bucket names the same month as `v`.
 - **Check a load:** the `publish` task's summary line has `bigquery_rows`, which must equal the manifest's `rows` for
   the three tables (`publish` refuses otherwise).
+- **A trial prefix loads nothing:** `pi-deploy` blanks `PI_BIGQUERY_DATASET` whenever `overrides.env` sets one.
+- **Changing a schema** (`configs/bigquery/`): only add `NULLABLE` columns at the end, or relax a mode. Removing,
+  renaming or retyping a column, or making one `REQUIRED`, replaces the table, which `deletion_protection` and CI's
+  apply guard refuse. Let the Terraform apply finish before deploying the image that writes the new column.
