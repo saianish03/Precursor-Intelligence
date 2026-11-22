@@ -70,12 +70,72 @@
 
 Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `agent-reviewer` subagent; infrastructure PRs get the `infra-reviewer` subagent and Nishanth.
 
+### The four agents and their tools (agree on these before building)
+
+| Agent | Owner | Answers | Output type | Tools (all read-only) |
+|---|---|---|---|---|
+| **1. Facility Investigation** | Riya | "Why is this nursing home risky?" for one CCN | `InvestigationBrief` | `get_facility_score`, `get_reasons`, `get_citations`, `get_penalties`, `get_chain`, and **Agent 2** for regulation quotes (at most k calls a run, D4) |
+| **2. Regulatory Evidence Retriever** | Aakash | "What does the regulation say about this?" for one claim or question | `EvidenceSet` | `search_passages` (BM25 over the corpus, G2) and `get_passage` (the exact stored text by passage ID, for quote checking) |
+| **3. Model Ops Analyst** | Tanoj | "Is the model healthy?" for the system | `OpsReport` | `get_status`, `get_gate_results`, `get_model_card`, `get_drift` |
+| **4. Portfolio Briefing** | Riya | "How risky is this insurer's book?" for a list of CCNs | `ExecutiveBrief` | `portfolio_stats` (all counting in code), `get_chain`, and the top N facilities' cached Agent 1 briefs (the `overview` `question_type`), through `get_facility_brief` (H2, #91) |
+
+**Where the tools read from:** every tool reads the evidence files that `build-evidence` writes (E2), for the month named in `agents/evidence/_current.json`, or the corpus that `build-corpus` writes (G1). The one exception is `get_facility_brief`, which reads the answer cache (D1), read-only, for Agent 4. No tool writes, calls another service, or reads Postgres or MLflow.
+
+**What every tool returns:** typed records, each with a stable evidence ID, the month `v`, and the gold run it came from (E4). The model may cite only IDs that a tool returned in the same run (B3).
+
+| Evidence ID | Returned by | Example |
+|---|---|---|
+| `score:<ccn>:<v>` | `get_facility_score` | `score:015009:2026-10` |
+| `reason:<ccn>:<v>:<raises\|lowers>:<rank>` (rank restarts at 1 in each direction) | `get_reasons` | `reason:015009:2026-10:raises:1` |
+| `citation:<ccn>:<survey_date>:<ftag>` (the tag as prefix plus four digits) | `get_citations` | `citation:015009:2026-03-14:F0689` |
+| `penalty:<ccn>:<penalty_date>:<fine\|payment_denial>:<n>` (n from 1: one date can hold several identical fines) | `get_penalties` | `penalty:015009:2026-04-02:fine:1` |
+| `chain:<chain_id>:<v>` | `get_chain` | `chain:123:2026-10` |
+| `portfolio:<v>:<hash>` (first 12 hex of the sha256 of the sorted CCNs and `top_n`) | `portfolio_stats` | `portfolio:2026-10:3f9a0c1b2d4e` |
+| `brief:<ccn>:<v>` (a cached Agent 1 brief for the `overview` `question_type`, the one L11 pre-builds) | `get_facility_brief` | `brief:015009:2026-10` |
+| `passage:<source>:<tag>:<from>` (`from` is the vintage the wording starts, YYYY-MM; same tag spelling as `ftag`) | `search_passages`, `get_passage` | `passage:cms_tag:F0689:2021-01` |
+| `ops:<kind>:<v>` | Agent 3's tools (`kind` is status, gates, card or drift) | `ops:gates:2026-10` |
+
+Riya's `Record` (`evidence_id`, `v`, `gold_run_id`; E3) is the base of every tool record, and A5 builds on it rather than adding a second type: `Driver`, `Section`, and the `data_as_of` and caveat fields. The formats above match the code in #93 (E3) and #98 (G1). A new tool or ID format is a change to this table in the same PR.
+
+### Libraries
+
+Python packages go in the `pyproject.toml` extras named here. The API image installs `agents` and `api` only (L7), so nothing from `pipeline`, `ml` or `dvc` is in it.
+
+| Library | Extra | Used for | Task |
+|---|---|---|---|
+| `pydantic-ai-slim[openai]` | `agents` (already there) | the agents, typed outputs, output validators, usage limits, `TestModel`/`FunctionModel` in tests; the `openai` client calls Vertex's OpenAI-compatible endpoint | A, B, F-I |
+| `google-auth[requests]` | `agents` (already there; #104 adds the `requests` extra for token refresh) | the Vertex token, refreshed per request (A2); verifying the Google ID token (`google.oauth2.id_token`, K1) | A2, K1 |
+| `httpx2` | `agents` (add, #104) | the small `httpx2.Auth` that adds a fresh token to each Vertex request (the `openai` client is built on `httpx2`) | A2 |
+| `rank-bm25` | `agents` (already there) | Agent 2's passage search | G2 |
+| `polars` | `agents` (already there, from #93; it reads parquet itself, so `pyarrow` stays in `pipeline`) | reading the evidence parquet files; `portfolio_stats` counting | E1, E3 |
+| `gcsfs` | `agents` (add) | reading the evidence and corpus from GCS | E1 |
+| `google-cloud-storage` | `agents` (add) | the cache and the daily counter: the generation-match write needs the storage client, not gcsfs | D1, D3 |
+| `opentelemetry-sdk`, `opentelemetry-exporter-gcp-trace` | `agents` (add) | spans per run and per tool call, sent to Cloud Trace in production | C1 |
+| `fastapi`, `uvicorn[standard]` | `api` (already there) | the API, and serving the React `dist/` | K |
+| `google-cloud-secret-manager` | `api` (already there) | reading the sign-in allowlist | K1 |
+| `mlflow` | `ml` (already there; not in the API image) | evaluation runs: traces and metrics per prompt version | J1, J3 |
+| `pytest` | dev group | every test; no test calls a paid model | all |
+
+Not needed: `logfire` (Pydantic AI's instrumentation is plain OpenTelemetry), LangChain (decided against), a vector database (BM25 over a small corpus is enough). `google-cloud-bigquery` stays in `api` for later (E1's BigQuery source), but nothing uses it before Dec 1. The `ui` extra (`streamlit`) is removed in M2.
+
+**Frontend** (`frontend/package.json`, with a pinned Node LTS image in L7 and `.nvmrc`):
+
+| Package | Used for | Task |
+|---|---|---|
+| `react`, `react-dom`, `typescript`, `vite` | the app and its build | M2 |
+| `shadcn/ui` (with `tailwindcss` and Radix) | the components | M2, M4 |
+| `@react-oauth/google` | Google sign-in, getting the ID token | M3 |
+| `openapi-typescript` | the typed API client, generated from FastAPI's OpenAPI document | M2 |
+| `@tanstack/react-query` | API calls, with loading, error and retry states | M4, M5 |
+| `vitest`, `@testing-library/react` | component tests for every state | M5 |
+| `eslint` | lint in CI | M6 |
+
 ### A. Runtime and settings (Tanoj), the foundation everything else imports
 
 | ID | Task | Done when |
 |---|---|---|
 | A1 | `agents/settings.py`: model id, fallback model id, `max_tokens`, temperature, tool timeout, daily call cap, cache bucket, region, all from `configs/agents.yaml` plus environment variables; nothing hard-coded | settings load in tests; a typo is a config error |
-| A2 | `agents/model.py`: a model factory. Production uses Vertex AI's OpenAI-compatible endpoint with Cloud Run's service account (no keys). The bearer token expires after about an hour, so it is **refreshed per request**: `google.auth` credentials with `refresh()` behind a small `httpx.Auth`, passed to the OpenAI client. Tests use Pydantic AI's `TestModel` and `FunctionModel`. If the primary model fails, it falls back to `gpt-oss-20b` | a unit test builds both; a test shows the factory never caches a token string; the Vertex path is proven in L4 |
+| A2 | `agents/model.py`: a model factory. Production uses Vertex AI's OpenAI-compatible endpoint with Cloud Run's service account (no keys). The bearer token expires after about an hour, so it is **refreshed per request**: `google.auth` credentials with `refresh()` behind a small `httpx2.Auth`, passed to the OpenAI client. Tests use Pydantic AI's `TestModel` and `FunctionModel`. If the primary model fails, it falls back to `gpt-oss-20b` | a unit test builds both; a test shows the factory never caches a token string; the Vertex path is proven in L4 |
 | A3 | `agents/runner.py`: one `run_agent()` wrapper that does input guardrails, then the daily cap, cache lookup, agent run, validators, one retry, fallback, the log line, a trace span and the cache store | the whole path is tested with `TestModel`, including retry and fallback |
 | A4 | `agents/prompts.py`: loads `configs/prompts/<agent>.yaml` (`version`, `system`, `instructions`) and refuses a prompt with no version | a missing version fails |
 | A5 | Shared output models: `Evidence`, `Driver`, `Section`, and the `data_as_of` plus caveat fields, which every agent's output type extends | every agent output has `data_as_of`, the caveat and the evidence list |
@@ -118,7 +178,7 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 |---|---|---|
 | E1 | `agents/tools/source.py`: one `EvidenceSource` interface. It finds the month only from `agents/evidence/_current.json`. The GCS parquet version comes now; a BigQuery version can come later with the same methods, and every BigQuery query sets `maximum_bytes_billed` | the agents never know where the data lives |
 | E2 | **Build job** `precursor-pipeline agents build-evidence --v YYYY-MM`, which writes `agents/evidence/v=YYYY-MM/`: per-facility citations (last 36 months), penalties, the latest scores and reasons, the chain roll-ups, the **ops evidence** for Agent 3 (status, the champion's gate results from `ml_runs.gate_results_json`, the evaluation summary, drift flags), and a manifest with sha256s, the source (`ml-dev/` or production) and `gold_verified`. It writes `_current.json` last, never moves it to an older month, and a build from `ml-dev/` never replaces a production one. During development it reads `ml-dev/` | it runs on the toy chain in CI; a new DVC stage refreshes `dvc.lock` in the same PR (the stale-lock check fails CI otherwise); the output is small (MBs, not GBs) |
-| E3 | **Tools** for Agents 1 and 4: `get_facility_score`, `get_reasons`, `get_citations`, `get_penalties`, `get_chain`, `portfolio_stats` (counting done in polars, never by the model). Each returns records with evidence IDs (`score:<ccn>:<v>`, `citation:<ccn>:<date>:<ftag>`, `penalty:<ccn>:<date>:<type>:<n>`, `reason:<ccn>:<v>:<direction>:<rank>`, `chain:<chain_id>:<v>`, `portfolio:<v>:<digest>`). The reason rank restarts in each direction, and one month can list identical fines on one date, so those two IDs carry the direction and a number `n` | each tool has typed output, a timeout and a unit test |
+| E3 | **Tools** for Agents 1 and 4: `get_facility_score`, `get_reasons`, `get_citations`, `get_penalties`, `get_chain`, `portfolio_stats` (counting done in polars, never by the model). Each returns records with evidence IDs in the formats of the ID table at the top of §2. The reason rank restarts in each direction, and one month can list identical fines on one date, so those two IDs carry the direction and a number `n` | each tool has typed output, a timeout and a unit test |
 | E4 | Data-as-of on every record: the score month and the gold run | every tool record carries `v` and `gold_run_id` |
 
 ### F. Agent 1, Facility Investigation (Riya)
@@ -134,7 +194,7 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 
 | ID | Task | Done when |
 |---|---|---|
-| G1 | **Corpus build** `precursor-pipeline agents build-corpus`: CMS deficiency-tag descriptions (`citation_lookup`), and Appendix PP regulation text if the team agrees, cut into passages with stable IDs (`passage:<source>:<tag>:<n>`), written to `agents/corpus/<version>/` with a manifest | passages are deterministic: the same input gives the same IDs |
+| G1 | **Corpus build** `precursor-pipeline agents build-corpus`: CMS deficiency-tag descriptions (`citation_lookup`), and Appendix PP regulation text if the team agrees, cut into passages with stable IDs (`passage:<source>:<tag>:<from>`, `from` being the vintage the wording starts), written to `agents/corpus/<version>/` with a manifest | passages are deterministic: the same input gives the same IDs |
 | G2 | **BM25 search** (`rank-bm25`) over the passages, loaded once per instance; a score threshold under which the agent abstains | the search returns the right tag for the known queries in a test |
 | G3 | `EvidenceSet`: quotes (exact text plus passage ID), each claim's support, or an explicit `abstained: true` with the reason | the quote-fidelity validator (B6) passes |
 | G4 | `configs/prompts/evidence_retriever.yaml` v1 and the agent | unit tests pass, including abstention |
@@ -188,7 +248,7 @@ Each task is one PR (or part of one) into `dev`. Agent and prompt PRs get the `a
 | L4 | **Vertex AI, by hand:** add `aiplatform.googleapis.com` and `run.googleapis.com` to the `gcloud services enable` command in `gcp-bootstrap.md` step 1 (the project owner runs it); enable the gpt-oss models in Model Garden; confirm the region and the exact model id. **Day one, from a laptop:** prove that a Pydantic AI run with a tool call and structured output works on the gpt-oss endpoint; it's the riskiest unknown | a tool call with structured output succeeds, first from a laptop, then from Cloud Run |
 | L5 | **Terraform, observability:** a log sink from Cloud Run's `llm_call` lines to BigQuery `llm_calls` (once Nishanth's BigQuery dataset exists), and the C4 metrics and alerts | a call shows up in BigQuery within minutes |
 | L6 | **Budgets, by hand:** the main budget (`pi-trial-credit`) already exists. Add a Vertex-only budget in the console and record it in `gcp-bootstrap.md`. Not Terraform: `sa-tf-apply` has no billing-account role | alert emails go to the team |
-| L7 | **Image:** `docker/backend.Dockerfile` (the name `backend/README.md` uses). A pinned `node` stage runs `npm ci` and `vite build`; the Python stage uses uv with `--extra agents --extra api`, non-root, pinned base, and copies in `dist/`. Add what the API needs to the `agents` or `api` extras: `polars`, `pyarrow`, `gcsfs`, `opentelemetry-sdk` and the Cloud Trace exporter. Not the whole `pipeline` extra: duckdb, pandas, pandera and psycopg stay out | `docker run ... /health` returns 200 in CI, and `/` serves the app |
+| L7 | **Image:** `docker/backend.Dockerfile` (the name `backend/README.md` uses). A pinned `node` stage runs `npm ci` and `vite build`; the Python stage uses uv with `--extra agents --extra api`, non-root, pinned base, and copies in `dist/`. Add what the API needs to the `agents` or `api` extras: `gcsfs`, `opentelemetry-sdk` and the Cloud Trace exporter. Not the whole `pipeline` extra: duckdb, pandas, pandera and psycopg stay out | `docker run ... /health` returns 200 in CI, and `/` serves the app |
 | L8 | **CD:** `cd.yml` builds, tests and pushes `api:<sha>`, and counts it in "already published". The repository's existing cleanup policies (the 5 newest per image kept, the rest deleted after 30 days) already cover `api`, so it needs no new policy | the image is in Artifact Registry after a merge |
 | L9 | **Deploy:** `deploy-api.yml` deploys a sha to Cloud Run with no traffic, runs a smoke test on the new revision's URL (health plus one cached brief), then moves traffic to 100%. A rollback deploys an older sha. WIF uses a new `sa-api-deployer` (`run.developer` on this one service, `actAs sa-api`) | a bad revision never gets traffic; a rollback works |
 | L10 | **The batch step on the VM:** a new DAG `cms_nh_agents`, scheduled on the asset `cms_nh_scores` (which `publish` emits), runs `build-evidence` and then `build-corpus` (when its version changes) in the `pipeline` image. So the idle shutdown waits for it, add it to the `PI_BUSY_DAGS` default in `infra/vm/pi-busy` and to `RUN_DAGS` in `infra/vm/pi-down`. Both ship to the VM as metadata through Terraform, so this is an infra change, picked up on the VM's next boot | after a monthly publish, `agents/evidence/v=<new month>/` and the new `_current.json` appear |
