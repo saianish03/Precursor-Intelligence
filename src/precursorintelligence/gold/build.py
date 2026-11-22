@@ -69,8 +69,6 @@ from .splits import (
 log = logging.getLogger(__name__)
 
 SILVER_INPUTS = ("facility_universe", "facility_presence", "ledger_citations", "ledger_penalties")
-# spec §0.5: vintages from 2021-01; project scope is 2021-2026
-VINTAGE_RANGE = ("2021-01", "2026-12")
 STALE_REFRESH = "stale_refresh"
 CURRENT_KEY = "gold/_current.json"  # which run's spine and labels gold/ holds, written last
 # Spec §11: gold/ holds only validated data. The verification gate is not built yet, so every run marks its
@@ -103,13 +101,25 @@ def published_vintages(sink: ParquetTableSink) -> list[str]:
     return sorted(p["vintage"] for p in sink.list_partitions("provider_by_vintage"))
 
 
-def resolve_v(published: list[str], requested: str | None, spine_start: str) -> str:
-    """V: the latest published vintage, or ``requested`` if it is a valid published vintage (else exit 3)."""
+def resolve_v(
+    published: list[str],
+    requested: str | None,
+    spine_start: str,
+    *,
+    vintage_start: str,
+    run_month: str,
+) -> str:
+    """V: the latest published vintage, or ``requested`` if it is a valid published vintage (else exit 3).
+    Spec §0.5: vintages run from the ingestion scope's ``vintage_start`` to V, so every published vintage must
+    lie between it and ``run_month``, the month the run happens in: no data month can be later than that."""
     if not published:
         raise GoldCheckError("no silver/provider_by_vintage partitions: run silver first")
-    outside = [p for p in published if not VINTAGE_RANGE[0] <= p <= VINTAGE_RANGE[1]]
+    outside = [p for p in published if not vintage_start <= p <= run_month]
     if outside:
-        raise GoldCheckError(f"silver has vintages outside {VINTAGE_RANGE}: {outside}")
+        raise GoldCheckError(
+            f"silver has vintages outside {vintage_start} (the scope's start) to {run_month} "
+            f"(this run's month): {outside}"
+        )
     if requested is None:
         return published[-1]
     check_v(published, requested, spine_start)
@@ -254,7 +264,13 @@ def _run(
     try:
         sink = ParquetTableSink(ctx.object_store, prefix="silver")
         published = published_vintages(sink)
-        result.v = resolve_v(published, v, splits_cfg.spine_start)
+        result.v = resolve_v(
+            published,
+            v,
+            splits_cfg.spine_start,
+            vintage_start=ctx.settings.sources.scope.vintage_start,
+            run_month=now.strftime("%Y-%m"),
+        )
         not_current = stale_silver(ctx, sink, silver_cfg)
         if not_current:
             raise GoldCheckError(
