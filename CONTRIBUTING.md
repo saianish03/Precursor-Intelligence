@@ -18,7 +18,8 @@ and merged. The project itself is described in the [README](README.md).
 1. Create `feat/<name>` from the latest `dev`.
 2. Open a pull request into `dev`.
 3. Merge after review and green CI.
-4. Merge `dev` into `main` for each release.
+4. For a release, the lead fast-forwards `main` to `dev`'s tip (`docs/runbooks/vm.md` section 3), never with a merge
+   button: `main` keeps `dev`'s commits and their images.
 
 ---
 

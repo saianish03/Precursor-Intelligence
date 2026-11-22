@@ -6,7 +6,7 @@ One project, `precursor-intel-mlops`, one environment: `envs/prod`. The reusable
 |---|---|
 | `gcs` | A bucket: versioning, uniform access, public access blocked, optional `quarantine/` or whole-bucket expiry, `prevent_destroy` |
 | `wif` | The GitHub workload identity pool, and the `sa-tf-plan` / `sa-tf-apply` accounts with their bindings ("Which workflow can act as which account") |
-| `artifact_registry` | The Docker repository: immutable tags, keep the 5 newest versions, delete the rest after 7 days (untagged too), `prevent_destroy` |
+| `artifact_registry` | The Docker repository: immutable tags, keep the 5 newest versions and every `main-<sha>` version (main's releases, tagged by CD), delete the rest after 7 days (untagged too), `prevent_destroy` |
 
 `bigquery`, `cloud_run_job`, `cloud_run_service` and `composer` are still empty placeholders.
 
@@ -103,7 +103,8 @@ On-demand list prices, before the $300 trial credit; E2 machines get no sustaine
   6-hour email for a run that keeps the VM up, and the project budget alerts. An open SSH session keeps the VM up:
   close it when done.
 - **Around the VM, the same in every situation:** GCS ≈ 52 GB (root + `ml-dev/`) ≈ $1; Artifact Registry (≤ 5 releases
-  of three images; the MLflow image is about the pipeline image's size) ≈ $1.5–2.5; Secret Manager (9 secrets)
+  of three images; the MLflow image is about the pipeline image's size) ≈ $1.5–2.5, plus ≈ $0.30–0.50 for each kept
+  `main` release (the `main-` rule keeps them until it is dropped); Secret Manager (9 secrets)
   ≈ $0.55; backups cents; together ≈ $3–5 a month.
 - **Not used:** Spot VMs (about half price) can be stopped mid-run; committed-use discounts need a 1- or 3-year term.
 

@@ -762,7 +762,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | ML-7 | Team | 5 people; sequential foundation and integration, parallel middle | §18 |
 | ML-8 | Base model | PR #49's best model (LightGBM + LR); PRs #38/#49 are the baseline for features, transforms and parameters | §4, Appendix A |
 | ML-9 | Unverified gold | allowed and tagged until the data spec's §11 gate exists | §1.3 |
-| ML-10 | Demo | end to end; monitoring may be thin | §18 |
+| ML-10 | Demo | end to end. **Amended by the lead 2026-11-22** (was "monitoring may be thin"): the demo shows the whole product working end to end at production level, the ML pipeline with its monitoring, drift detection and bias slicing included | §18 |
 | ML-11 | Chain roll-up | yes, as an aggregation | §10.3 |
 | ML-12 | MLflow artifacts | a new bucket `precursor-intel-mlops-mlflow`, proxied | §16.1, §16.3 |
 | ML-13 | Bias | report always; block promotion + alert on a material, significant slice regression vs the champion or a calibration limit | §7, §9.1 G7 |
