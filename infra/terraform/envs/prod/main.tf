@@ -141,16 +141,6 @@ resource "google_artifact_registry_repository_iam_member" "deployer_pushes" {
   member     = "serviceAccount:${google_service_account.deployer.email}"
 }
 
-# The old binding on the branch subject (any workflow on these branches): forgotten, not deleted, as apply_from_branch
-# in modules/wif; an Owner removes it by hand (infra/README.md, "Which workflow can act as which account").
-removed {
-  from = google_service_account_iam_member.deployer_from_branch
-
-  lifecycle {
-    destroy = false
-  }
-}
-
 # CD's runs alone (cd.yml).
 resource "google_service_account_iam_member" "deployer_from_workflow" {
   for_each = toset(var.apply_branches)
@@ -162,22 +152,13 @@ resource "google_service_account_iam_member" "deployer_from_workflow" {
 
 # The Deploy workflow (T22, .github/workflows/deploy.yml) points the VM at a release as this account: it sets the
 # instance metadata pi-release. Only runs on apply_branches can act as it, like sa-deployer. A separate account, so a
-# leaked sa-deployer token can't set metadata. release_from_workflow ties it to deploy.yml; the old branch binding
-# (release_from_branch, any workflow on those branches) is forgotten below and removed by hand by an Owner.
+# leaked sa-deployer token can't set metadata. release_from_workflow ties it to deploy.yml alone.
 resource "google_service_account" "release" {
   account_id   = "sa-release"
   display_name = "VM release pointer (Deploy workflow, merged branches only)"
 
   lifecycle {
     prevent_destroy = true
-  }
-}
-
-removed {
-  from = google_service_account_iam_member.release_from_branch
-
-  lifecycle {
-    destroy = false
   }
 }
 

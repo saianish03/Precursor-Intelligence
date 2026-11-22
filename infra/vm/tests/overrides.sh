@@ -88,6 +88,49 @@ check "status: a rollback's trial prefix shows although the file is gone" 'grep 
 printf 'AIRFLOW_DB_PASSWORD=topsecret\n' > "$OVERRIDES"; status
 check "status: an invalid file is reported, its lines never printed" 'grep -q "is invalid: every deploy refuses it" <<< "$OUT" && ! grep -q topsecret <<< "$OUT"'
 
+# stage()'s rollback floors on a fake bundle: `docker cp` copies $BUNDLE, `compose config -q` passes.
+BUNDLE=$T/bundle
+mkdir -p "$BUNDLE"
+docker() { case "$1" in create) echo cid ;; cp) cp -r "$BUNDLE/." "$3" ;; esac; }
+compose() { :; }
+bundle() { # init-db.sh content, docker-compose.vm.yaml content
+  printf '%s\n' "$1" > "$BUNDLE/init-db.sh"; printf '%s\n' "$2" > "$BUNDLE/docker-compose.vm.yaml"; : > "$BUNDLE/docker-compose.yaml"
+  rm -rf "$T/stage" && mkdir "$T/stage"; OUT=$(stage "$SHA" "$T/stage" 2>&1); RC=$?
+}
+rm -f "$OVERRIDES"
+VM_MLFLOW='    image: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/mlflow:${PI_RELEASE_SHA:?}'
+bundle 'PI_TASKS_SUBNET' "$VM_MLFLOW"
+check "stage: a release with MLflow on the VM is staged" '[ $RC = 0 ] && [ -f "$T/stage/.env" ]'
+bundle 'PI_TASKS_SUBNET' '  mlflow:
+    profiles: [phase2]'
+check "stage: a release from before MLflow on the VM is refused" '[ $RC != 0 ] && grep -q "predates MLflow on the VM" <<< "$OUT"'
+bundle 'no task-network rule' "$VM_MLFLOW"
+check "stage: the L11 floor still holds" '[ $RC != 0 ] && grep -q "predates L11" <<< "$OUT"'
+
+# check_running on fakes: the Airflow containers and (when MLFLOW_UP) mlflow run this sha's images, the right env and
+# pg_hba lines. It checks mlflow only when the live files run it (the rollback from the first MLflow release doesn't).
+running() { case "$1" in mlflow) [ -z "${MLFLOW_UP:-}" ] || echo c-mlflow ;; *) echo c-airflow ;; esac; }
+docker() {
+  case "$1" in
+    image) case "$5" in */mlflow:*) echo img-mlflow ;; *) echo img-airflow ;; esac ;;
+    network) echo 172.16.77.0/24 ;;
+    inspect) if [ "$3" = '{{.Image}}' ]; then echo "img-${4#c-}"; else
+      printf 'PI_PIPELINE_IMAGE=%s\nPI_BUCKET_URI=gs://precursor-intel-mlops-data\n' "$REGISTRY/pipeline:$SHA"; fi ;;
+  esac
+}
+live_bucket() { :; }
+dc() { printf 'host %s 172.16.77.0/24 %s\n' "precursor_meta pi_meta" scram-sha-256 "mlflow mlflow" scram-sha-256 "all all" reject; }
+COMPOSE_DIR=$T/live
+mkdir -p "$COMPOSE_DIR"
+checked() { printf '%s\n' "$1" > "$COMPOSE_DIR/docker-compose.vm.yaml"; OUT=$(check_running "$SHA" 2>&1); RC=$?; }
+MLFLOW_UP=1 checked "$VM_MLFLOW"
+check "check_running: Airflow and mlflow on this sha: passes" '[ $RC = 0 ]'
+MLFLOW_UP="" checked "$VM_MLFLOW"
+check "check_running: the live files run mlflow but it is down: fails" '[ $RC != 0 ] && grep -q "mlflow is not running" <<< "$OUT"'
+MLFLOW_UP="" checked "  mlflow:
+    profiles: [phase2]"
+check "check_running: a rollback to the release before MLflow: passes without mlflow" '[ $RC = 0 ]'
+
 OUT=$(bash /repo-vm/pi-deploy bogus 2>&1); RC=$?
 check "run as a command (not sourced): main runs" '[ $RC = 2 ] && grep -q "usage: pi-deploy" <<< "$OUT"'
 OUT=$(/repo-vm/pi-deploy bogus 2>&1); RC=$?

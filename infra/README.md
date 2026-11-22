@@ -6,7 +6,7 @@ One project, `precursor-intel-mlops`, one environment: `envs/prod`. The reusable
 |---|---|
 | `gcs` | A bucket: versioning, uniform access, public access blocked, optional `quarantine/` or whole-bucket expiry, `prevent_destroy` |
 | `wif` | The GitHub workload identity pool, and the `sa-tf-plan` / `sa-tf-apply` accounts with their bindings ("Which workflow can act as which account") |
-| `artifact_registry` | The Docker repository: immutable tags, keep the 5 newest versions, delete the rest after 30 days and untagged after 7, `prevent_destroy` |
+| `artifact_registry` | The Docker repository: immutable tags, keep the 5 newest versions, delete the rest after 7 days (untagged too), `prevent_destroy` |
 
 `bigquery`, `cloud_run_job`, `cloud_run_service` and `composer` are still empty placeholders.
 
@@ -100,7 +100,8 @@ On-demand list prices, before the $300 trial credit; E2 machines get no sustaine
   6-hour email for a run that keeps the VM up, and the project budget alerts. An open SSH session keeps the VM up:
   close it when done.
 - **Around the VM, the same in every situation:** GCS ≈ 52 GB (root + `ml-dev/`) ≈ $1; Artifact Registry (≤ 5 releases
-  of two images) ≈ $1–2; Secret Manager (9 secrets) ≈ $0.55; backups cents; together ≈ $3–5 a month.
+  of three images; the MLflow image is about the pipeline image's size) ≈ $1.5–2.5; Secret Manager (9 secrets)
+  ≈ $0.55; backups cents; together ≈ $3–5 a month.
 - **Not used:** Spot VMs (about half price) can be stopped mid-run; committed-use discounts need a 1- or 3-year term.
 
 ## How changes reach GCP
@@ -112,62 +113,40 @@ On-demand list prices, before the $300 trial credit; E2 machines get no sustaine
 
 ## Which workflow can act as which account
 The provider maps `attribute.workflow` = the token's subject (with GitHub's permanent owner and repository ids) + `:` +
-`job_workflow_ref` (the workflow file and branch that asked for the token), so an account can be bound to one workflow
-file. A compromised action in one workflow then can't act as another workflow's account.
+`job_workflow_ref` (the workflow file and branch that asked for the token), so each CI account is bound to one workflow
+file. A compromised action in one workflow can't act as another workflow's account.
 
-| Account | Bound to (on `dev` and `main`) | Old binding: any workflow on the branch |
-|---|---|---|
-| `sa-tf-apply` | `terraform.yml` (`apply_from_workflow`, `modules/wif`) | `apply_from_branch`: removed last |
-| `sa-deployer` | `cd.yml` (`deployer_from_workflow`) | `deployer_from_branch` |
-| `sa-release` | `deploy.yml` (`release_from_workflow`) | `release_from_branch`: removed first |
-| `sa-tf-plan` | unchanged: any pull request (read-only; a PR controls its own workflow files anyway) | — |
+| Account | Bound to (on `dev` and `main`) |
+|---|---|
+| `sa-tf-apply` | `terraform.yml` (`apply_from_workflow`, `modules/wif`) |
+| `sa-deployer` | `cd.yml` (`deployer_from_workflow`) |
+| `sa-release` | `deploy.yml` (`release_from_workflow`) |
+| `sa-tf-plan` | any pull request (read-only; a PR controls its own workflow files anyway) |
 
-**Removing the old bindings (an Owner, once, by hand).** Terraform no longer manages them (`removed` blocks with
-`destroy = false`: CI refuses deletes), but they stay in GCP, and an IAM binding grants if any member matches, so each
-account is restricted only once its old binding is gone. One account per step, each step only after the previous check
-passed. Putting a binding back by hand (`add-iam-policy-binding`, same arguments) never conflicts with Terraform.
-```bash
-P=precursor-intel-mlops
-S=principal://iam.googleapis.com/projects/852874974077/locations/global/workloadIdentityPools/github/subject/repo:saianish03@89864897/Precursor-Intelligence@1402453226
-drop() { for b in dev main; do gcloud iam service-accounts remove-iam-policy-binding "$1@$P.iam.gserviceaccount.com" \
-  --role=roles/iam.workloadIdentityUser --member="$S:ref:refs/heads/$b" --project=$P --condition=None >/dev/null || return 1; done; }
-left() { gcloud iam service-accounts get-iam-policy "$1@$P.iam.gserviceaccount.com" --project=$P --format='value(bindings.members)'; }
-```
-0. **Before removing anything,** run step 1's check once. The provider computes `attribute.workflow` on every login,
-   so if Google refused the new value (about 155 characters; a length limit is documented only for `google.subject`),
-   every login would fail, through the old bindings too: then use the mapping rollback below. A login that works here
-   proves the value is accepted, and step 1 then tests only that the new binding matches it.
-1. `drop sa-release`, then `left sa-release` shows only the two `principalSet://…/deploy.yml@…` members. **Wait 10
-   minutes** (IAM takes minutes to apply a removal; an earlier check could still pass through the old binding). Check:
-   ```bash
-   PTR=$(gcloud compute instances describe pi-airflow --zone us-central1-a --project $P --format='value(metadata.items.pi-release)')
-   [ -n "$PTR" ] && gh workflow run deploy.yml --ref dev -f sha="$PTR"
-   ```
-   It passes when the run's summary says `pi-release` already names that sha (it logs in, then changes nothing). A failed
-   "Both images in the registry?" step is a refused login only if its log shows a permission error from the token
-   exchange (the auth step itself only prepares the credentials).
-2. `drop sa-deployer`, `left sa-deployer`, wait 10 minutes. Check: rerun dev's last green CD run (it logs in; its sha's
-   images exist, so nothing is pushed). GitHub reruns only runs from the last 30 days; otherwise `gh workflow run cd.yml
-   --ref dev`, which may build and push the tip's images (harmless).
-   ```bash
-   gh run rerun "$(gh run list --workflow cd.yml --branch dev --status success -L 1 --json databaseId -q '.[0].databaseId')"
-   ```
-3. Only after both checks: `drop sa-tf-apply`, `left sa-tf-apply`, wait 10 minutes. Check: rerun the apply of the
-   merge that added these bindings, or of any later commit, **never an older one** (it would apply the old config and
-   put the old bindings back); its plan has no changes. If it can't log in, put the binding back by hand and rerun.
+**How it got here (#106, 2026-11-22).** Before, each account was bound to the branch subject, so any workflow on `dev`
+or `main` could act as any of them. #106 added the workflow bindings and made Terraform forget the branch bindings
+(CI refuses deletes). Its apply could not update the provider (below), so an Owner set the mapping with the command
+below, and the rerun of the apply found no changes. That login also proved Google accepts the ~155-character value.
+Then an Owner removed the branch bindings by hand, one account at a time, waiting 10 minutes after each (IAM takes
+minutes to apply a removal). After each wait, a check logged in through the new binding alone:
+- `sa-release`: a Deploy run that found the pointer already set;
+- `sa-deployer`: a rerun of CD, which found the images and pushed nothing;
+- `sa-tf-apply`: a rerun of the apply, which found no changes.
 
+- **CI can't change the provider or the pool:** `sa-tf-apply` has no `iam.workloadIdentityPoolProviders.update`, which
+  keeps CI from rewriting its own login. An Owner makes such a change with `gcloud` first, exactly as `modules/wif`
+  writes it, and CI's next plan then shows no change. The mapping was set this way:
+  `gcloud iam workload-identity-pools providers update-oidc github-repo --workload-identity-pool=github --location=global --project=precursor-intel-mlops --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.workflow=assertion.sub + ':' + assertion.job_workflow_ref"`
+- **Never drop `attribute.workflow` from the mapping:** every CI account now logs in through it, Terraform's included,
+  so removing it locks CI out until an Owner puts it back.
+- **New CI accounts start workflow-bound:** bind them with `module.wif.workflow_principal_set` (as
+  `deployer_from_workflow` does), never `subject_prefix`. E.g. the agents plan's `sa-api-deployer` (`deploy-api.yml`,
+  L9) and `sa-llm-eval` (`llm-eval.yml`, J3).
+- **Renaming `terraform.yml`, `cd.yml` or `deploy.yml`,** or moving its login into a reusable workflow (whose file
+  `job_workflow_ref` then names), breaks that account's login; for `terraform.yml` CI can't repair it itself. Add the
+  new binding in one PR, rename in the next.
 - **`main` is untested:** it has never run these workflows, so its bindings are first exercised by the first run there
   (do one before relying on `main`, e.g. for the demo).
-- **New CI accounts start workflow-bound:** bind them with `module.wif.workflow_principal_set` (as
-  `deployer_from_workflow` does), never `subject_prefix`, so they never need this migration. E.g. the agents plan's
-  `sa-api-deployer` (`deploy-api.yml`, L9) and `sa-llm-eval` (`llm-eval.yml`, J3).
-- **Renaming `terraform.yml`, `cd.yml` or `deploy.yml`,** or moving its login into a reusable workflow (whose file
-  `job_workflow_ref` then names), breaks that account's login once the old bindings are gone; for `terraform.yml` CI
-  can't repair it itself. Add the new binding in one PR, rename in the next.
-- **If every CI login fails right after the provider change** (the mapping can't be evaluated), an Owner puts the old
-  mapping back, and a PR reverts it in `modules/wif` (else the next apply sets it again). This is safe only while the
-  old subject bindings still exist; after step 3 it would lock out all three accounts:
-  `gcloud iam workload-identity-pools providers update-oidc github-repo --workload-identity-pool=github --location=global --project=precursor-intel-mlops --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository"`
 
 ## Running `plan` locally (read-only)
 

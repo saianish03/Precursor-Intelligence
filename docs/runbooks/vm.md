@@ -6,15 +6,15 @@ restore its databases, and what to do when something goes wrong. The reference d
 the VM's build, its cost) and `airflow-local.md` §5 (the stack's settings on the VM). The timings come from the
 smoke test and the first full backfill on the VM (T23, T25: `airflow-local.md` §8.4, §8.5).
 
-MLflow and `cms_nh_ml` on the VM are ML Phase 2 (`docs/ML_PHASE2_HANDOFF.md` §5.2); their owner adds those parts
-here.
+MLflow runs on the VM since ML Phase 2's item 2 (section 11). `cms_nh_ml` on the VM is item 3
+(`docs/ML_PHASE2_HANDOFF.md` §5.2); its owner adds that part here.
 
 ## 0. At a glance
 | | |
 |---|---|
 | VM | `pi-airflow`, e2-highmem-4 (4 vCPU, 32 GB), zone `us-central1-a`, no external IP (SSH through IAP only) |
 | Disks | 30 GB boot; 10 GB Postgres data disk at `/mnt/disks/pgdata`, which outlives the VM |
-| What runs | the release (one full git sha, two images) that the instance metadata `pi-release` names; `pi-deploy` deploys it at boot and whenever it changes |
+| What runs | the release (one full git sha, three images: pipeline, airflow, mlflow) that the instance metadata `pi-release` names; `pi-deploy` deploys it at boot and whenever it changes |
 | Stack | compose project `pi-airflow` in `/opt/precursor/compose/`; env file `/etc/precursor/.env` (root, mode 600: it holds the secrets, never print it) |
 | Data | `gs://precursor-intel-mlops-data` (the root); database dumps in `gs://precursor-intel-mlops-backups/postgres/<db>/` |
 | Stops itself | about 70–85 minutes after the last SSH session, when no run is going on |
@@ -30,6 +30,10 @@ here.
   sudo docker exec pi-airflow-airflow-apiserver-1 cat /opt/airflow/config/simple_auth_manager_passwords.json   # on the VM
   ```
   The alert emails' log links point at `http://localhost:8080`, so they work through this tunnel.
+- **MLflow UI:** the same way on port 5001 (no login), then open http://localhost:5001:
+  ```bash
+  gcloud compute ssh pi-airflow --zone us-central1-a --tunnel-through-iap -- -L 5001:127.0.0.1:5001
+  ```
 - **Every SSH connection keeps the VM up,** a port forward too: close them when done.
 - **The commands below** assume these two lines in your VM shell (absolute paths, as `pi-deploy` uses, so they work
   from any folder):
@@ -62,19 +66,19 @@ here.
   gh workflow run deploy.yml --ref dev -f sha=<sha>     # a given commit of dev: a rollback is an older sha
   ```
   CD builds images only for merges that change an image input: a docs-only merge has none, and the default picks the
-  newest commit that has them. The workflow refuses a sha older than the floor `35b7c76` (L11) or without both images,
-  and skips the sha `pi-release` already names (`sudo pi-deploy now` redeploys it).
+  newest commit that has them. The workflow refuses a sha older than the floor (MLflow on the VM, ML Phase 2 item 2;
+  before it, `35b7c76` for L11) or without its three images, and skips the sha `pi-release` already names
+  (`sudo pi-deploy now` redeploys it).
 - **A deploy waits for runs:** it doesn't replace the stack while a run of `cms_nh_pipeline`, `cms_nh_ml` or
   `cms_nh_release_check` is running or queued, and emails after 6 hours of waiting.
 - **When it fails,** it emails `[pi-airflow VM] deploy of … failed …`, puts back the last good release if it got
   that far, and doesn't retry until `pi-release` changes or someone runs `sudo pi-deploy now`. Look at
   `sudo pi-deploy status` and `journalctl -u pi-deploy -n 50`.
 - **Rollback limit: the registry deletes old images.** Artifact Registry keeps each image's 5 newest versions and
-  deletes any other version once it is older than 30 days (untagged layers after 7). A sha older than 30 days with
-  5 newer releases is gone, and the VM itself keeps only the current and the previous release's images. A rollback
+  deletes any other version once it is older than 7 days (untagged layers too). A sha older than 7 days with 5 newer
+  releases is gone, and the VM itself keeps only the current and the previous release's images. A rollback
   to such a sha works only by hand while its images are still on the VM (`infra/vm/README.md`, "Deploys"). Fine for
-  the demo; protecting every deployed release would need a `release-<sha>` tag and a KEEP rule for it. (ML Phase 2's
-  MLflow PR shortens the 30 days to 7.)
+  the demo; protecting every deployed release would need a `release-<sha>` tag and a KEEP rule for it.
 - **A release that upgrades Airflow** migrates its database, and a rollback can't undo that: `sudo pi-pg-backup`
   first, and deploy it by hand.
 
@@ -117,11 +121,13 @@ T23 taught:
 - afterwards: remove the override and deploy, reset the databases (section 6), and a person deletes the prefix.
 
 ## 6. Backups, restore and reset
-- **Dumps:** `pi-pg-backup` dumps `airflow` and `precursor_meta` before every stop (and on demand:
+- **Dumps:** `pi-pg-backup` dumps `airflow`, `mlflow` and `precursor_meta` before every stop (and on demand:
   `sudo pi-pg-backup`) to `gs://precursor-intel-mlops-backups/postgres/<db>/<UTC time>-<random>.dump`, the same name
-  for both. The VM can add dumps but not read, list or delete them; they are kept 180 days.
+  for all three. Until a release with MLflow has run, `mlflow` doesn't exist and is skipped (it says so). The VM can
+  add dumps but not read, list or delete them; they are kept 180 days.
 - **Restore** into a new, empty Postgres, by a person with their own login: `infra/vm/README.md`, "Restore" (T23:
-  110 s). It needs a release at least as new as the dump's; task logs are not restored.
+  110 s). It needs a release at least as new as the dump's; task logs are not restored. For `mlflow`, start
+  `postgres-setup` too (it creates the empty database), never `mlflow` (its `db upgrade` fills the database first).
 - **Reset** (empty databases, e.g. after a trial): the restore's step 3 without the two `pi-pg-restore` lines (T24).
   It empties `airflow` too (run history, queued asset events). The old database stays on the data disk as
   `/mnt/disks/pgdata/data.before-…`: check the disk with `sudo du -sh /mnt/disks/pgdata/*` and remove an old copy
@@ -191,3 +197,40 @@ cases: `infra/README.md`, "Cost of the VM". The budget alerts never stop spendin
 | The VM stopped between your runs | the idle shutdown (no SSH for 60 minutes) | start it again (section 4) |
 | `gcloud storage cp` of a large object fails its CRC check | the sliced download | `CLOUDSDK_STORAGE_SLICED_OBJECT_DOWNLOAD_THRESHOLD=0 gcloud storage cp …` |
 | The boot disk fills | images of two releases, Airflow task logs (not pruned yet) | `df -h /`, `sudo docker system df` |
+
+## 11. MLflow
+- **What runs:** the `mlflow` service of the release (image `…/precursor/mlflow:<sha>`, 1 GB memory limit), its
+  Postgres database `mlflow`, and its artifacts in `gs://precursor-intel-mlops-mlflow/artifacts/vm/`, beside this
+  VM's model packages in `packages/vm/` (#85). It writes as `sa-pipeline`, the VM's identity, through the metadata
+  server; no key file. Task containers reach it as `http://mlflow:5000`. In prod an ML task without that address
+  exits 3 instead of running and registering nothing (#73 B16).
+- **Is it healthy?** `sudo $dc ps mlflow` shows `healthy`; `sudo $dc logs --tail 50 mlflow` shows why not.
+- **Does a run reach the bucket?** On the VM (the pipeline image of the running release, on the task network):
+  ```bash
+  img=$(sudo docker inspect --format '{{.Config.Image}}' pi-airflow-mlflow-1 | sed 's|/mlflow:|/pipeline:|')
+  sudo docker run --rm --network pi-airflow-tasks -e MLFLOW_TRACKING_URI=http://mlflow:5000 "$img" python -c "
+  import mlflow
+  mlflow.set_experiment('vm-smoke')
+  with mlflow.start_run() as run:
+      mlflow.log_text('hello', 'hello.txt')
+  print(run.info.experiment_id, run.info.run_id)" </dev/null
+  gcloud storage ls gs://precursor-intel-mlops-mlflow/artifacts/vm/<experiment id>/<run id>/artifacts/
+  ```
+  `hello.txt` is listed. Delete the `vm-smoke` experiment in the UI afterwards.
+- **The first deploy with MLflow** (once). The merge's Terraform apply puts the new VM scripts in the instance
+  metadata, but the VM installs them only at boot, and CD pushes the three images:
+  1. Before it, check that Postgres's first `pg_hba.conf` lines are `pi_meta`, `mlflow`, reject
+     (`docs/ML_PHASE2_HANDOFF.md`, "`pg_hba` (item 2)"); `pi-deploy` fails the deploy otherwise.
+  2. **With the VM stopped,** run the Deploy workflow (section 3), then start the VM: the startup script installs the
+     new scripts before `pi-deploy` deploys. If the VM is running, first install them by hand while no deploy runs
+     (`sudo pi-deploy status`), so the old `pi-deploy` doesn't deploy it and the old `pi-pg-backup` doesn't leave
+     `mlflow` out of the next dumps: `sudo google_metadata_script_runner startup && sudo systemctl restart pi-deploy`.
+     `postgres-setup` creates the `mlflow` role and database, then `mlflow` starts.
+  3. **Required:** the "Does a run reach the bucket?" check above. `/health` and CI's fake GCS don't test the VM's
+     credentials, so this is the first real write as `sa-pipeline`.
+  4. If the VM boots with the new scripts while `pi-release` still names the old release, `pi-deploy` refuses it (an
+     email at every boot); the stack keeps running it and `pi-pg-backup` skips the missing `mlflow` database. Run
+     the Deploy workflow then.
+  5. If this first deploy fails after `up`, it rolls back to the release before MLflow, which runs no `mlflow`.
+- **An MLflow version bump** runs `mlflow db upgrade` at start, which can't be undone: `sudo pi-pg-backup` before
+  deploying it, and a rollback below it needs the `mlflow` dump restored.

@@ -13,15 +13,16 @@ can read its metadata.
 | `pi-deploy.service` | Runs `pi-deploy watch`: deploys at boot, after the startup script, and whenever `pi-release` changes. Log: `journalctl -u pi-deploy` |
 | `pi-busy` | Exit 0 while a run of `PI_BUSY_DAGS` (default `cms_nh_pipeline cms_nh_ml`) is running or queued, an asset event is queued for one, or one of their tasks runs; runs of a paused DAG count only by a running task. 1 when idle (also when no scheduler runs); 2 when it can't tell. Used by `pi-deploy` (which adds the release check) and by `pi-down`. |
 | `pi-alert` | `pi-alert SUBJECT < BODY`: emails the alert recipients from the VM itself (subject prefix `[pi-airflow VM]`), with the settings in `/etc/precursor/.env`, or straight from Secret Manager when that file is missing or lacks them (e.g. before the first deploy). For failures outside Airflow. |
-| `pi-pg-backup` | Dumps `airflow` and `precursor_meta` (`pg_dump -Fc`, over the Postgres container's local socket) to `gs://precursor-intel-mlops-backups/postgres/<db>/<UTC time>-<random>.dump`, the same name for both. Prints each dump's MD5. Exits 0 only when both uploaded. |
-| `pi-pg-restore` | `pi-pg-restore airflow\|precursor_meta <file.dump>`: restores a dump of that database into an **empty** database; refuses anything else (exit 2). |
+| `pi-pg-backup` | Dumps `airflow`, `mlflow` and `precursor_meta` (`pg_dump -Fc`, over the Postgres container's local socket) to `gs://precursor-intel-mlops-backups/postgres/<db>/<UTC time>-<random>.dump`, the same name for all. Skips `mlflow` (and says so) while no release with MLflow has created it. Prints each dump's MD5. Exits 0 only when every dump uploaded. |
+| `pi-pg-restore` | `pi-pg-restore airflow\|mlflow\|precursor_meta <file.dump>`: restores a dump of that database into an **empty** database; refuses anything else (exit 2). |
 | `pi-pg-backup.service` | Runs `pi-pg-backup` whenever the OS shuts down or Docker stops, while both are still up. A backstop: best effort within GCE's ~90 s. |
 | `pi-down` | `sudo pi-down [--force]`: dumps the databases (`pi-pg-backup`), then stops the VM; refuses during a run unless `--force`. `pi-down --if-idle` is the idle shutdown (below, "Up and down"). |
 | `pi-idle-shutdown.timer` / `.service` | Run `pi-down --if-idle` every 15 minutes (:07, :22, :37, :52). Log: `journalctl -u pi-idle-shutdown` (after a stop: `journalctl -b -1 -u pi-idle-shutdown`) |
-| `tests/` | Offline tests in Debian 12 containers: `pi-down` with fake commands, and `pi-deploy`'s smoke-test overrides. `bash infra/vm/tests/run.sh` (needs Docker; not run by CI). Rerun them after any change to `pi-down` or to `pi-deploy`'s env file. |
+| `tests/` | Offline tests in Debian 12 containers: `pi-down` with fake commands, and `pi-deploy`'s smoke-test overrides. `bash infra/vm/tests/run.sh` (needs Docker). CI runs them (job `vm-scripts`) on every pull request that touches `infra/vm/`; run them locally after a change to `pi-down` or to `pi-deploy`'s env file. |
 
 ## Deploys (T20)
-- **A release is one full git sha** whose two images CD pushed (`precursor/airflow:<sha>`, `precursor/pipeline:<sha>`).
+- **A release is one full git sha** whose three images CD pushed (`precursor/airflow:<sha>`, `precursor/pipeline:<sha>`,
+  `precursor/mlflow:<sha>`).
   The instance metadata key `pi-release` names the release the VM runs. **The Deploy workflow (T22,
   `.github/workflows/deploy.yml`) sets it**, as `sa-release`; a stopped VM picks it up at its next boot. From a laptop:
   ```bash
@@ -29,7 +30,8 @@ can read its metadata.
   gh workflow run deploy.yml --ref dev -f sha=<sha>     # a given commit of dev: a rollback is an older sha
   ```
   - It refuses a commit that isn't on the run's branch (`dev`, or `main` once dev is merged into it), one older than
-    the floor below (checked on `init-db.sh`'s task-network rule, as `pi-deploy` does) and one without both images.
+    the floor below (checked on content, as `pi-deploy` does: `init-db.sh`'s task-network rule, and
+    `docker-compose.vm.yaml` naming the mlflow image) and one without its three images.
     It skips the sha `pi-release` already names (to redeploy that one: `sudo pi-deploy now`).
   - It sets only that key and never runs alongside a Terraform run, whose apply would put back the value it planned
     with. It stops at once while a Terraform run is queued or running (start it again once that is done). GitHub keeps
@@ -37,12 +39,12 @@ can read its metadata.
     the reverse): check `gh run list --workflow terraform.yml -L 3` and rerun a cancelled one.
   - With the VM running or starting, the run waits up to 15 minutes for the VM's result (deployed, failed or rolled
     back). No result yet (the deploy waits for a pipeline run, or deploys are paused) ends green with a warning.
-  - By hand, only when the workflow can't run and no Terraform run is going on, after checking both images and the
+  - By hand, only when the workflow can't run and no Terraform run is going on, after checking the three images and the
     floor yourself: `gcloud compute instances add-metadata pi-airflow --zone us-central1-a --metadata pi-release=<sha>`.
-    E.g. a rollback to a release whose registry images are gone (older than 30 days, with 5 newer) but still on the
+    E.g. a rollback to a release whose registry images are gone (older than 7 days, with 5 newer) but still on the
     VM, which keeps the current and the previous release's images.
 - **What a deploy does:**
-  1. pulls both images (unless they are already on the VM) and checks that each one's revision label is the sha;
+  1. pulls the three images (unless they are already on the VM) and checks that each one's revision label is the sha;
   2. takes the compose bundle out of the Airflow image and writes the env file from Secret Manager, then checks them
      with `docker compose config -q`;
   3. waits while a run of `cms_nh_pipeline`, `cms_nh_ml` or `cms_nh_release_check` is running or queued (`pi-busy`),
@@ -97,10 +99,10 @@ can read its metadata.
   - **When the test is done:**
     1. pause every DAG, then `sudo rm /etc/precursor/overrides.env && sudo pi-deploy now`. Keep the DAGs paused until
        step 2 is done, however much later (on the GCP VM, with T24's bucket clean-up);
-    2. reset `precursor_meta`: a new, empty Postgres, as in "Restore" step 3 below without the two `pi-pg-restore`
+    2. reset `precursor_meta`: a new, empty Postgres, as in "Restore" step 3 below without the `pi-pg-restore`
        lines (`pi-pg-backup` first if the run history matters). That empties every database, not only
        `precursor_meta`: `airflow` loses its run history and any asset events queued during the trial, and `mlflow`
-       (once it runs) its runs and registry. That is what a fresh start before production wants;
+       its runs and registry. That is what a fresh start before production wants;
     3. a person deletes the prefix, from a laptop:
        `gcloud storage rm -r --all-versions gs://precursor-intel-mlops-data/trial-<date>/`.
 - **Secrets:** no value may hold a quote, a backslash or a line break; database passwords only letters, digits,
@@ -154,9 +156,11 @@ the one that made the dump (`airflow db migrate` can't go backwards). Task logs 
    ```bash
    B=gs://precursor-intel-mlops-backups/postgres
    gcloud storage ls -l $B/airflow/ | grep -v '^TOTAL' | sort -k2 | tail -3          # size, creation time, name
+   gcloud storage ls -l $B/mlflow/ | grep -v '^TOTAL' | sort -k2 | tail -3
    gcloud storage ls -l $B/precursor_meta/ | grep -v '^TOTAL' | sort -k2 | tail -3
    ```
-   - The same name must exist for both databases. A name listed for only one is a failed run.
+   - The same name must exist for every database (`mlflow` only for dumps made after a release with MLflow ran). A
+     name missing for one is a failed run.
    - The time in the name must match the creation time to within a minute.
    - If the VM's journal is still there, its `pi-pg-backup` lines show each dump's MD5; compare it with
      `gcloud storage ls -L <object>` ("Hash (MD5)").
@@ -164,6 +168,7 @@ the one that made the dump (`airflow db migrate` can't go backwards). Task logs 
    ```bash
    N=<name>   # e.g. 20261107T183000Z-1a2b3c4d
    gcloud storage cp $B/airflow/$N.dump ./airflow-$N.dump
+   gcloud storage cp $B/mlflow/$N.dump ./mlflow-$N.dump
    gcloud storage cp $B/precursor_meta/$N.dump ./precursor_meta-$N.dump
    gcloud compute scp --zone us-central1-a --tunnel-through-iap ./*-$N.dump pi-airflow:/tmp/
    ```
@@ -180,6 +185,8 @@ the one that made the dump (`airflow db migrate` can't go backwards). Task logs 
    sudo $dc up -d --wait postgres            # a new, empty Postgres: init-db.sh runs
    until sudo $dc exec -T postgres pg_isready -q -h 127.0.0.1; do sleep 1; done   # the real server, not the init one
    sudo pi-pg-restore airflow /tmp/airflow-$N.dump
+   sudo $dc run --rm postgres-setup </dev/null   # the empty mlflow database and its role, never mlflow itself
+   sudo pi-pg-restore mlflow /tmp/mlflow-$N.dump
    sudo pi-pg-restore precursor_meta /tmp/precursor_meta-$N.dump
    sudo $dc up -d --wait                     # the rest
    sudo $dc exec airflow-scheduler airflow dags list-runs cms_nh_pipeline   # the run history is back

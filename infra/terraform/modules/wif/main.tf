@@ -14,6 +14,9 @@ resource "google_iam_workload_identity_pool" "github" {
   }
 }
 
+# sa-tf-apply can't update this provider (no iam.workloadIdentityPoolProviders.update): a change to it is made by an
+# Owner with gcloud first, exactly as written here, and CI's next plan then shows no change (infra/README.md, "Which
+# workflow can act as which account").
 resource "google_iam_workload_identity_pool_provider" "github_repo" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.github.workload_identity_pool_id
   workload_identity_pool_provider_id = "github-repo"
@@ -80,17 +83,6 @@ resource "google_service_account_iam_member" "plan_from_pull_request" {
   # is standing on, so the plan fails instead; changing them is a deliberate, hand-reviewed edit.
   lifecycle {
     prevent_destroy = true
-  }
-}
-
-# The old binding on the branch subject let any workflow on dev or main act as the apply account. Terraform forgets it
-# without deleting it (CI refuses deletes): it stays in GCP until an Owner removes it by hand, after the checks in
-# infra/README.md ("Which workflow can act as which account"), and putting it back by hand never conflicts with Terraform.
-removed {
-  from = google_service_account_iam_member.apply_from_branch
-
-  lifecycle {
-    destroy = false
   }
 }
 
