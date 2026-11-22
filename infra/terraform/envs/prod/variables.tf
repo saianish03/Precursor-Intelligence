@@ -38,7 +38,7 @@ variable "zone" {
 }
 
 variable "vm_machine_type" {
-  description = "Spec §14 decision 26: e2-standard-4 (16 GB), since gold holds the whole dataset in memory."
+  description = "Spec §14 decision 26: e2-highmem-4 (4 vCPU, 32 GB) since T25 (2026-11-20), whose full-archive gold was OOM-killed at 10.46 GB under the 16 GB e2-standard-4's 10g task limit; gold holds the whole dataset in memory. Change it only while the VM is stopped."
   type        = string
-  default     = "e2-standard-4"
+  default     = "e2-highmem-4"
 }

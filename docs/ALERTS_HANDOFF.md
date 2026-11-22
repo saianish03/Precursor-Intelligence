@@ -35,8 +35,8 @@
 - **A failed `release_lock`, which the run state does NOT show.** A teardown never decides the run's state, so a run whose lock release failed still shows **success**. The next run's `acquire_lock` then fails (exit 1), or takes the lock over only after 12 h. This needs a **task-level** callback on `release_lock`.
 - **Error anomalies on a run that still succeeded.** `no_vintage` and `download_*` (see §1). Query `anomalies` for `run_id = R and severity = 'error'`.
   - **Keep the DAG thin:** do it in a pipeline CLI command (for example `precursor-ingest anomalies --run-id R --severity error`, run as a teardown or after `resolve_report`), not in DAG code.
-- **Out-of-memory kills.** Exit 137 is treated like exit 1 today, so it is retried twice (≈ 15 more minutes) and rarely helps. Alert on 137, and consider making it no-retry in `PipelineDockerOperator` (`NO_RETRY_EXIT_CODES`).
-- **A run that hangs.** `build_gold` has no `execution_timeout`. A hanging run holds the lock, and with `max_active_runs=1` the next runs queue.
+- **Out-of-memory kills.** Exit 137 is treated like exit 1 today, so it is retried twice (≈ 15 more minutes) and rarely helps. Alert on 137, and consider making it no-retry in `PipelineDockerOperator` (`NO_RETRY_EXIT_CODES`). **Fixed** (ticket 2): no-retry, and the alert names it.
+- **A run that hangs.** `build_gold` has no `execution_timeout`. A hanging run holds the lock, and with `max_active_runs=1` the next runs queue. **Fixed:** every task has one since L5 (2026-11-21; `AIRFLOW_PIPELINE.md` §9.4).
   - Airflow 3 removed SLA-miss callbacks.
   - Use `execution_timeout`; the failure callback then fires. Or check Airflow 3.1.8's deadline alerts.
 - **A partial CMS release stuck for N days** (from the ticket): `check_release` (spec §2.0) alerts once per partial streak, after `release_check.partial_alert_days` (3), through `cms_nh_release_check`'s `alert` task (built 2026-11-07). The same task alerts once when 3 proceeds in a row start no pipeline run.
@@ -66,16 +66,16 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
 | # | Problem | Status | Owner | Ticket 2? |
 |---|---|---|---|---|
 | 1 | The image did not pass the commit to gold (`PI_GIT_COMMIT`), so every container-built gold manifest had `git_commit: null` | **Fixed** in the Airflow PR; the manifest now records the full SHA | — | no |
-| 2 | **Gold's peak memory:** about 2.1 GB on 237k rows (measured); ≈ 5 GB on the full archive's ≈ 590k rows (scaled). Too tight for an 8 GB VM with a 6g task limit. The VM is now an e2-standard-4 (16 GB, 10g limit; spec §14 #26), so the fix is only needed to go back to 8 GB | Open, low: gold-side fix (§9.1) | gold | alert on exit 137 |
+| 2 | **Gold's peak memory:** about 2.1 GB on 237k rows (measured); ≈ 5 GB on the full archive's ≈ 590k rows (scaled). Too tight for an 8 GB VM with a 6g task limit. T25 (2026-11-20) measured more: the full-archive gold (775,400 rows × 148 columns) was OOM-killed at 10.46 GB under the old 10g limit, so the VM is now an e2-highmem-4 (32 GB, 20g limit; spec §14 #26), and the fix is needed only to go back to 16 GB | Open, low: gold-side fix (§9.1) | gold | alert on exit 137 |
 | 3 | Every run re-publishes gold, even unchanged; `gold/_staging/run=<id>/` and old object versions are never deleted (≈ 10 GB more per month on GCS) | Open: lifecycle rules + skip-unchanged publish (§9.2) | gold + Terraform | no |
 | 4 | Gold manifest commit: the build arg defaulted to `"unknown"`; no dirty flag | **Default fixed:** the build fails without `PI_GIT_SHA`. The dirty flag is still open (§9.3) | image + gold | no |
-| 5 | Out-of-memory kills (exit 137) are retried twice | Open (§9.4) | operator | **yes** |
-| 6 | No `execution_timeout` on `build_gold`: a hung run holds the lock | Open (§9.4) | DAG | **yes** |
-| 7 | A failed `release_lock` leaves the run green (teardowns don't set the run state) | By design; needs an alert | alerts | **yes** |
+| 5 | Out-of-memory kills (exit 137) are retried twice | **Fixed** (ticket 2): no-retry, and the alert names it (§9.4) | operator | **yes** |
+| 6 | No `execution_timeout` on `build_gold`: a hung run holds the lock | **Fixed:** `build_gold` 2 h (ticket 2); every other task 60 min and the run 8 h (L5, 2026-11-21; §9.4) | DAG | **yes** |
+| 7 | A failed `release_lock` leaves the run green (teardowns don't set the run state) | By design; **alert built** (ticket 2: `release_lock`'s own callback) | alerts | **yes** |
 | 8 | `cms_nh_gold` means published, not verified (`verified: false` until spec §11) | Open: downstream training must check `_current.json` | ML phase | no |
-| 9 | Error anomalies `no_vintage` / `download_*` don't fail the run | By design; needs an alert | alerts | **yes** |
+| 9 | Error anomalies `no_vintage` / `download_*` don't fail the run | By design; **alert built** (ticket 2: `check_anomalies` → `alert_anomalies`) | alerts | **yes** |
 | 10 | `check_release` not built: the DAG runs daily and rebuilds gold each time, and "partial release stuck" can't be detected | **Fixed** 2026-11-07: `cms_nh_release_check` starts the pipeline only on READY / RESUME / CHANGED, and alerts once on a stuck partial release | pipeline | done |
-| 11 | Not run on GCP yet: the VM (T19) and its deploy script (T20, which emails its own failures through `infra/vm/pi-alert`) exist, but no pipeline run has happened there; the GCS path with credentials from the VM's metadata server is untested end to end (T23) | Open | infra | no |
+| 11 | Not run on GCP yet: the VM (T19) and its deploy script (T20, which emails its own failures through `infra/vm/pi-alert`) exist, but no pipeline run has happened there; the GCS path with credentials from the VM's metadata server is untested end to end (T23) | **Done** 2026-11-20/21: T23's smoke test and T25's full backfill ran on the VM as `sa-pipeline` (`runbooks/airflow-local.md` §8.4, §8.5) | infra | no |
 | 12 | Two variables carry the commit (`PI_GIT_SHA` for ingestion, `PI_GIT_COMMIT` for gold) | Open, cosmetic | image | no |
 
 ## 5. Definition of done (from the ticket)
@@ -90,7 +90,7 @@ Details, sizes and fixes are in `AIRFLOW_PIPELINE.md` §9.
   - **Failed `release_lock`:** task-level `on_failure_callback`.
   - **New error anomalies:** `precursor-ingest anomalies --run-id R --severity error --new-only` (`ingestion/anomalies.py`) runs as `ingestion.check_anomalies` after `resolve_report`; `ingestion.alert_anomalies` posts it. "New" = an (entry_id, kind) the previous run with a successful resolve did not have, because resolve re-records an unfixed problem on every run.
   - **New CMS columns** (additive schema drift, spec §3.2; added 2026-10-29): `precursor-pipeline silver` prints the partitions this DAG run built without headers the column map doesn't know as its last output line, and `silver.alert_new_headers` emails them. The dropped headers are stored with the partition (`silver_partitions.stats`), so a retried `build_silver` still alerts. The alert fires once per build of a partition: each new month that still has the column alerts again, until the column is mapped or added to `ignored:`. If silver exits 2, the alert task can't run (the failure email goes out instead), so the next silver run reports those partitions too: the list covers every run since the last silver step that ended ok. The dropped columns also stay listed in `reports/step2/latest/02_unmapped_headers.csv`.
-  - **Exit 137:** no-retry, named in the alert. **Hang:** `build_gold` `execution_timeout` 2 h (`PI_GOLD_TIMEOUT_MINUTES`).
+  - **Exit 137:** no-retry, named in the alert. **Hang:** `build_gold` `execution_timeout` 2 h (`PI_GOLD_TIMEOUT_MINUTES`); since L5, every other task 60 min and the run 8 h.
   - **Destination:** email over SMTP with the standard library's `smtplib` (no provider; TLS always), settings `PI_ALERT_EMAIL_TO` / `PI_ALERT_SMTP_*` in `.env`, e.g. Gmail with an app password. Empty `PI_ALERT_EMAIL_TO` = nothing sent. Slack was set aside for now; `send()` is the one place to add it.
 - **Tests:** `tests/alerts/test_alerts.py` (messages and sending, fake SMTP delivery, offline in CI), `tests/dags/test_alerts.py` (the callbacks), `tests/dags/test_dag_integrity.py` (wiring), `tests/dags/test_pipeline_operator.py` (137, XCom), `tests/ingestion/test_anomalies.py`.
 - **Verified in the local stack** (`runbooks/airflow-local.md` §8.3): run G → 1 failure email; a forced `no_vintage` → 1 anomaly email, and 0 on the repeat; `stop_after` and clean runs → 0.

@@ -1,19 +1,21 @@
 #!/bin/bash
 # Restore one database from a pi-pg-backup dump into the running stack's Postgres. The target must be empty: a new
 # data disk or volume, with only the postgres service started (infra/vm/README.md has the steps). The VM cannot read
-# the backups bucket, so a person downloads the dump with their own login and copies it to the VM first.
+# the backups bucket, so a person downloads the dump with their own login and copies it to the VM first. For mlflow,
+# start postgres-setup as well (it creates the empty database and its role), never mlflow itself: its `db upgrade`
+# fills the database, and the restore then refuses.
 #
-#   pi-pg-restore airflow|precursor_meta <file.dump>
+#   pi-pg-restore airflow|mlflow|precursor_meta <file.dump>
 #
 # Exit 0 restored, 1 error, 2 refused (bad arguments, a dump of another database, or a database that is not empty).
 # PI_COMPOSE_PROJECT (default pi-airflow) exists for tests on a laptop.
 set -euo pipefail
 
-usage="usage: pi-pg-restore airflow|precursor_meta <file.dump>"
+usage="usage: pi-pg-restore airflow|mlflow|precursor_meta <file.dump>"
 db="${1:-}"
 file="${2:-}"
 case "$db" in
-  airflow | precursor_meta) ;;
+  airflow | mlflow | precursor_meta) ;;
   *) echo "pi-pg-restore: $usage" >&2; exit 2 ;;
 esac
 if [ ! -s "$file" ]; then
@@ -29,8 +31,8 @@ if [ -z "$container" ]; then
   exit 1
 fi
 
-# The file must be a readable dump of this database: swapping the two files would otherwise restore Airflow's
-# tables into precursor_meta (and leave the pipeline state empty).
+# The file must be a readable dump of this database: swapping two files would otherwise restore Airflow's tables
+# into precursor_meta (and leave the pipeline state empty).
 if ! toc=$(docker exec -i "$container" pg_restore --list < "$file"); then
   echo "pi-pg-restore: '$file' is not a readable pg_dump archive" >&2
   exit 2

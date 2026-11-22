@@ -1,7 +1,7 @@
 name: Deploy
 
 # Points the VM at a release (task T22; VM plan D5): sets the instance metadata pi-release of pi-airflow to one full
-# git sha whose two images CD pushed. pi-deploy on the VM then deploys it, at once if the VM runs (after any pipeline
+# git sha whose three images CD pushed. pi-deploy on the VM then deploys it, at once if the VM runs (after any pipeline
 # run), else at its next start (infra/vm/README.md, "Deploys"). A rollback is the same run with an older sha. Start it
 # from a laptop (the Actions tab's button needs this file on the default branch, main):
 #   gh workflow run deploy.yml --ref dev                  # dev's newest commit with images
@@ -28,9 +28,9 @@ defaults:
     shell: bash # -eo pipefail
 
 env:
-  # The two images CD pushes per sha (cd.yml); MLflow adds a third (VM plan §9)
+  # The three images CD pushes per sha (cd.yml)
   REGISTRY: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor
-  IMAGES: pipeline airflow
+  IMAGES: pipeline airflow mlflow
   WIF_PROVIDER: projects/852874974077/locations/global/workloadIdentityPools/github/providers/github-repo
   RELEASE_SA: sa-release@precursor-intel-mlops.iam.gserviceaccount.com
   PROJECT: precursor-intel-mlops
@@ -38,24 +38,25 @@ env:
   VM: pi-airflow
 
 jobs:
-  # A deploy stops at once while a Terraform run is queued or running, so it almost never waits in the shared
+  # A deploy stops at once while a Terraform apply is queued or running, so it almost never waits in the shared
   # `terraform` group below, where it could replace a pending apply of a merge that nobody is watching.
   guard:
-    name: no Terraform run going on
+    name: no Terraform apply going on
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: read
     steps:
-      - name: Stop if terraform.yml has a run that isn't finished
+      # Only applies (runs on a push to dev or main) write the VM's metadata; a pull request's read-only plan doesn't.
+      - name: Stop if terraform.yml has an apply that isn't finished
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          n=$(gh run list --workflow terraform.yml --limit 20 --json status -q '[.[] | select(.status != "completed")] | length')
+          n=$(gh run list --workflow terraform.yml --event push --limit 20 --json status -q '[.[] | select(.status != "completed")] | length')
           if [ "$n" != 0 ]; then
-            echo "::error::a Terraform run is queued or running: start this deploy again once it has finished"
+            echo "::error::a Terraform apply is queued or running: start this deploy again once it has finished"
             exit 1
           fi
 
@@ -66,9 +67,9 @@ jobs:
     if: ${{ !cancelled() && (needs.guard.result == 'success' || (needs.guard.result == 'skipped' && github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # A deploy never runs alongside a Terraform run: an apply writes the VM's whole metadata map back, pi-release with
+    # A deploy never runs alongside a Terraform apply: it writes the VM's whole metadata map back, pi-release with
     # the value it read when it planned. GitHub keeps one pending run per group and a newer one replaces it, either
-    # way: a deploy that waits can cancel a queued Terraform run, and the reverse (the guard above makes this rare;
+    # way: a deploy that waits can cancel a queued apply, and the reverse (the guard above makes this rare;
     # rerun whichever shows as cancelled). So a dry run, or a dispatch from anything but the dev or main branch, stays
     # out of the group.
     concurrency:
@@ -84,7 +85,7 @@ jobs:
       status: ${{ steps.point.outputs.status }}
       at: ${{ steps.point.outputs.at }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the ancestry check below
           persist-credentials: false # nothing here pushes to git
@@ -114,25 +115,30 @@ jobs:
           init=$(git show "$sha:docker/airflow-local/init-db.sh" 2> /dev/null) || init=""
           grep -q PI_TASKS_SUBNET <<< "$init" \
             || { echo "::error::$sha is older than the oldest release the VM accepts (L11, #46: init-db.sh's task-network rule)"; exit 1; }
+          # And MLflow on the VM (ML Phase 2 item 2): an older release has no mlflow image, and its compose files would
+          # drop the server (--remove-orphans). pi-deploy's stage() checks the same line.
+          vm=$(git show "$sha:docker/airflow-local/docker-compose.vm.yaml" 2> /dev/null) || vm=""
+          grep -q 'precursor/mlflow:' <<< "$vm" \
+            || { echo "::error::$sha is older than the oldest release the VM accepts (ML Phase 2 item 2: MLflow on the VM)"; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Release \`$sha\`: $(git log -1 --format='%cs %s' "$sha") (branch $branch)" >> "$GITHUB_STEP_SUMMARY"
 
       # A pull request stops here: it can't log in (only dev and main can), and it must not deploy.
-      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         if: github.event_name == 'workflow_dispatch'
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.RELEASE_SA }}
 
       # A pointer to a sha without images fails on the VM three times and is then marked failed (infra/vm/README.md).
-      - name: Both images in the registry?
+      - name: All three images in the registry?
         if: github.event_name == 'workflow_dispatch'
         env:
           SHA: ${{ steps.pick.outputs.sha }}
         run: |
           for image in $IMAGES; do
             gcloud artifacts docker images describe "$REGISTRY/$image:$SHA" --quiet > /dev/null || {
-              echo "::error::no $image image for $SHA: never built (no CD run), or deleted (the registry drops versions older than 30 days beyond the 5 newest)"
+              echo "::error::no $image image for $SHA: never built (no CD run), or deleted (the registry drops versions older than 7 days beyond the 5 newest)"
               exit 1
             }
           done
@@ -175,7 +181,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.RELEASE_SA }}

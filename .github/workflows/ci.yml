@@ -1,8 +1,8 @@
 name: CI
 
 # Runs on every pull request into dev (feature work) and main (releases): lint and tests when the PR touches code,
-# configs or tests (only the ML tests when it touches only ML code), plus the three images and the DAG tests when the
-# PR touches them.
+# configs or tests (only the ML tests when it touches only ML code), plus the three images and the DAG tests, the
+# frontend, and the VM's own scripts (infra/vm/) when the PR touches them.
 # Make the "ci-ok" check required in the branch rulesets: a PR can then merge only when every job passes.
 on:
   pull_request:
@@ -27,19 +27,20 @@ jobs:
         python-version: ["3.11", "3.12"]
     steps:
       - name: Check out the merge commit and its base
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 
       # On a PR, HEAD is the merge commit and HEAD^1 the base branch, so this diff is exactly the PR's changes.
       # none: nothing that can change a test result (docs, infra, docker/: the images job builds those);
       # ml: only ML code, configs or tests. ML code imports gold, bias and ingestion, so a change there runs
-      # everything; the data packages import no ML code except the precursor-pipeline CLI (harmonize/cli.py), so the
-      # ML set keeps tests/harmonize (and tests/alerts: the ML run email). all: everything else, and every manual run.
+      # everything; the data packages import no ML code except the precursor-pipeline CLI (harmonize/cli.py) and
+      # build-evidence (evidence/build.py reads the scores and ml_runs), so the ML set keeps tests/harmonize and
+      # tests/evidence (and tests/alerts: the ML run email). all: everything else, and every manual run.
       - name: Which tests does the change need?
         id: scope
         env:
-          CODE: '^(src/|tests/|configs/|scripts/|dags/|backend/|frontend/|pyproject\.toml$|uv\.lock$|requirements\.txt$|\.python-version$|dvc\.(yaml|lock)$|metrics/|\.github/workflows/ci\.yml$)'
+          CODE: '^(src/|tests/|configs/|scripts/|dags/|backend/|pyproject\.toml$|uv\.lock$|requirements\.txt$|\.python-version$|dvc\.(yaml|lock)$|metrics/|\.github/workflows/ci\.yml$)'
           ML: '^(src/precursorintelligence/(training|evaluation|serving|monitoring)/|tests/(training|evaluation|serving|monitoring|ml)/|tests/leakage/test_ml_[a-z_]+\.py$|configs/(ml|reason_labels)\.yaml$|scripts/(dvc_toy_ml|ml_checkpoint_reasons)\.py$|dags/cms_nh_ml\.py$|dvc\.lock$|metrics/toy_ml\.json$)'
         run: |
           if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
@@ -59,7 +60,7 @@ jobs:
 
       - name: Set up uv and Python
         if: steps.scope.outputs.scope != 'none'
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           # pinned: uv export's marker format changes between releases, and requirements.txt is checked against it
           version: "0.13.9"
@@ -102,7 +103,7 @@ jobs:
           paths=()
           if [ "$SCOPE" = ml ]; then
             paths=(tests/training tests/evaluation tests/serving tests/monitoring tests/leakage/test_ml_*.py
-                   tests/harmonize tests/common tests/contracts tests/alerts)
+                   tests/harmonize tests/evidence tests/common tests/contracts tests/alerts)
           fi
           uv run pytest -q -n logical --dist loadfile "${paths[@]}"
           code=$?
@@ -115,8 +116,9 @@ jobs:
       # The toy pipelines are network-free, so CI can rebuild them from scratch (no GCS credentials: nothing is
       # pushed or pulled). toy_ml is the ML smoke run: train, validate, bias-check, gate, register (a SQLite
       # MLflow store on the runner), score and publish on every PR; a failed step, or a gate that holds the
-      # model (validation or bias), fails this step. It is forced: its only output is committed, so a plain
-      # repro skips it whenever dvc.lock is current. A PR that changed a toy stage's inputs (its deps: the code and
+      # model (validation or bias), fails this step. toy_evidence then builds the agents' evidence from toy_ml's
+      # published month and reads it back (docs/AGENTS_PLAN.md E2). Both are forced: each one's only output is
+      # committed, so a plain repro skips them whenever dvc.lock is current. A PR that changed a toy stage's inputs (its deps: the code and
       # configs it imports and loads) or command without committing the refreshed dvc.lock fails (#73 B14), after
       # the toy run, so the log shows both; metrics that differ after the repro stay a warning. Once, on 3.12 (the
       # images' Python): the toy run is the same on both.
@@ -127,6 +129,7 @@ jobs:
           # exit 1 with stage names = stale (reported after the toy run); a crash prints nothing and fails here
           stale=$(uv run python scripts/dvc_stale_deps.py < "$RUNNER_TEMP/dvc-status.json") || [ -n "$stale" ]
           uv run dvc repro --force --single-item toy_ml
+          uv run dvc repro --force --single-item toy_evidence
           uv run dvc repro
           if ! git diff --exit-code --quiet metrics; then
             echo "::warning::metrics/ changed after dvc repro; run 'uv run dvc repro' and commit them."
@@ -146,7 +149,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the merge commit and its base
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 
@@ -223,13 +226,29 @@ jobs:
 
       # The bundle really runs on a new database: airflow-init (migrate + the pool `heavy`), postgres-setup's SQL, the
       # server's command and health check, a client on the task network logging a run and reading its artifact back,
-      # and the task network's limits (L11): no airflow login, and mlflow only on its own database.
+      # and the task network's limits (L11): no airflow login, and mlflow only on its own database. Artifacts go to a
+      # gs:// prefix as on the VM (#73 B15), here on a fake GCS server, with the VM's empty credentials setting.
       - name: MLflow and airflow-init run in the compose bundle, within the task network's limits
         if: steps.changes.outputs.build == 'true'
         run: |
           export AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x \
             MLFLOW_DB_PASSWORD=x PI_MLFLOW_IMAGE=precursor-mlflow:ci PI_AIRFLOW_IMAGE=precursor-airflow:ci
-          compose() { docker compose -f bundle/docker-compose.yaml "$@"; }
+          cat > gcs.yaml <<'YAML'
+          services:
+            fake-gcs:
+              image: fsouza/fake-gcs-server:1.52.2@sha256:d47b4cf8b87006cab8fbbecfa5f06a2a3c5722e464abddc0d107729663d40ec4
+              command: ["-scheme", "http", "-port", "4443", "-public-host", "fake-gcs:4443", "-backend", "memory"]
+              networks: [tasks]
+            mlflow:
+              environment:
+                PI_MLFLOW_ARTIFACTS: gs://ci-bucket/vm
+                STORAGE_EMULATOR_HOST: http://fake-gcs:4443
+                GOOGLE_APPLICATION_CREDENTIALS: ""
+              depends_on:
+                fake-gcs:
+                  condition: service_started
+          YAML
+          compose() { docker compose -f bundle/docker-compose.yaml -f gcs.yaml "$@"; }
           trap 'compose logs --tail 50 airflow-init postgres-setup mlflow; compose down -v' EXIT
           compose up -d --wait --wait-timeout 300 mlflow airflow-init
           # as the airflow user (airflow-init runs as root, whose Python has no airflow)
@@ -242,13 +261,18 @@ jobs:
           login mlflow mlflow || { echo "::error::mlflow can't reach its own database"; exit 1; }
           docker run --rm --network pi-airflow-tasks -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
             precursor-pipeline:ci python -c "
-          import mlflow, urllib.request
+          import json, mlflow, urllib.request
+          gcs = 'http://fake-gcs:4443/storage/v1/b'
+          bucket = json.dumps({'name': 'ci-bucket'}).encode()
+          urllib.request.urlopen(urllib.request.Request(f'{gcs}?project=ci', data=bucket, headers={'Content-Type': 'application/json'}))
           assert urllib.request.urlopen('http://mlflow:5000/health').status == 200
           mlflow.set_experiment('ci-smoke')
           with mlflow.start_run() as run:
               mlflow.log_metric('ok', 1)
               mlflow.log_text('hello', 'hello.txt')
           assert mlflow.artifacts.load_text(f'runs:/{run.info.run_id}/hello.txt') == 'hello'
+          names = [o['name'] for o in json.load(urllib.request.urlopen(f'{gcs}/ci-bucket/o?prefix=vm/')).get('items', [])]
+          assert f'vm/{run.info.experiment_id}/{run.info.run_id}/artifacts/hello.txt' in names, names
           "
 
       - name: Image sizes
@@ -260,16 +284,89 @@ jobs:
             docker image ls --filter reference='precursor-*:ci' --format '| {{.Repository}} | {{.Size}} |'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # The React app (frontend/): lint, typecheck, tests on the recorded fixtures, and the production build. Like images,
+  # it always runs for ci-ok and skips its steps when the PR doesn't touch frontend/.
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out the merge commit and its base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+
+      - name: Does the change touch the frontend?
+        id: changes
+        working-directory: .
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
+              || git diff --name-only HEAD^1 HEAD | grep -qE '^(frontend/|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No frontend changes: nothing to check." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Set up Node
+        if: steps.changes.outputs.run == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install, lint, typecheck, test and build
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+
+  # The VM's own scripts (infra/vm/): pi-down's cases and pi-deploy's smoke-test overrides, each in a Debian 12
+  # container like the VM, with fake commands and no gcloud or metadata server (infra/vm/tests/run.sh). Like images,
+  # it always runs for ci-ok and skips its steps when the PR doesn't touch infra/vm/.
+  vm-scripts:
+    name: VM scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # about 3.5 min on a laptop's Docker
+    steps:
+      - name: Check out the merge commit and its base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+
+      - name: Does the change touch the VM scripts?
+        id: changes
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
+              || git diff --name-only HEAD^1 HEAD | grep -qE '^(infra/vm/|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No VM script changes: nothing to check." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: pi-down's cases and pi-deploy's overrides
+        if: steps.changes.outputs.run == 'true'
+        run: bash infra/vm/tests/run.sh
+
   # Single stable check name to require in the branch rulesets (independent of the Python matrix).
   ci-ok:
     name: ci-ok
-    needs: [tests, images]
+    needs: [tests, images, frontend, vm-scripts]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: All required jobs passed
         run: |
-          if [ "${{ needs.tests.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ]; then
-            echo "tests job result: ${{ needs.tests.result }}; images job result: ${{ needs.images.result }}"
+          if [ "${{ needs.tests.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ] \
+              || [ "${{ needs.frontend.result }}" != "success" ] || [ "${{ needs.vm-scripts.result }}" != "success" ]; then
+            echo "tests: ${{ needs.tests.result }}; images: ${{ needs.images.result }}; frontend: ${{ needs.frontend.result }}; vm-scripts: ${{ needs.vm-scripts.result }}"
             exit 1
           fi

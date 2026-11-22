@@ -98,7 +98,8 @@ decide ─► prepare ─┬─ RETUNE ─► tune ─────────�
 | `promote` + `version` + `reason` | moves `@champion` to that version: Checkpoint ML-A, or a rollback to any earlier version |
 
 `train`, `tune` and `evaluate` share the Airflow pool `heavy` (one slot, also taken by gold's build) with timeouts
-of 45, 90 and 60 minutes and no retry. Behaviour lives in `configs/ml.yaml`; the code is in
+of 45, 90 and 60 minutes and no retry. Every other task stops after 60 minutes, and the run after 4 hours.
+Behaviour lives in `configs/ml.yaml`; the code is in
 `src/precursorintelligence/{training,evaluation,serving,monitoring}`.
 
 ---
@@ -217,7 +218,7 @@ features):
 - The three candidates are within each other's CIs; selection on OOF picked lgbm (by 0.0013 over the ensemble).
 - Within a state, PR-AUC is 0.397 and precision@10 % is 0.425: the model ranks homes inside a state, not only states.
 - **2025-02 is a development month** (PR #49 chose its window and parameters on it). Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far (spec §17.3 asks for non-development months
-  *where available*); it is re-read on 2025-03 when the late-November release brings it in. G5 on v2 and v3 was also
+  *where available*); it is re-read on 2025-03 when the next CMS release (due 2026-12-02) brings it in. G5 on v2 and v3 was also
   decided on 2025-02.
 - PR #49's window is 7 months more recent than the production window (its data ends 15 months before 2025-02
   instead of 22), hence its slightly higher PR-AUC (0.481 against 0.470): the cost of evaluating with the same lag
@@ -539,7 +540,7 @@ recipients are redacted. Click a screenshot for the full size.
 
 - **Labels lag 20 months**, so the newest test month is 2025-02 at `V_L` = 2026-10, and it is a development month.
   Checkpoint ML-A (2026-11-17) read 2025-02, the only test month so far (spec §17.3 asks for non-development months
-  *where available*); it is re-read on 2025-03 when the late-November release brings it in. G5 on v2 and v3 was also
+  *where available*); it is re-read on 2025-03 when the next CMS release (due 2026-12-02) brings it in. G5 on v2 and v3 was also
   decided on 2025-02. The threshold review (spec O2) also waits for 2025-03.
 - **Unverified gold is allowed** (`allow_unverified: true`, tagged on every run) until the data spec's §11
   verification gate exists.

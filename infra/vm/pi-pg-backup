@@ -1,12 +1,13 @@
 #!/bin/bash
-# Dump both Postgres databases of the Airflow stack to the backups bucket (spec §14 decision 27). pi-down and the
-# idle shutdown run it before they stop the VM, and stop only if it exits 0; pi-pg-backup.service runs it again at
-# OS shutdown as a backstop. Runs as root on the VM, where gcloud uses the VM's identity (sa-pipeline).
+# Dump the Postgres databases of the Airflow stack (airflow, mlflow, precursor_meta) to the backups bucket (spec §14
+# decision 27). pi-down and the idle shutdown run it before they stop the VM, and stop only if it exits 0;
+# pi-pg-backup.service runs it again at OS shutdown as a backstop. Runs as root on the VM, where gcloud uses the VM's
+# identity (sa-pipeline).
 #
 # The VM may create objects in the backups bucket but not read, list, overwrite or delete them. `gcloud storage cp`
 # reads the destination's metadata, which that refuses, so each dump goes up in one Storage JSON API request:
 # ifGenerationMatch=0 fails on an existing name, and the MD5 the bucket reports back must equal the local file's.
-# Names carry a random suffix, so nobody can pre-create the next one; both databases of one run share it.
+# Names carry a random suffix, so nobody can pre-create the next one; the databases of one run share it.
 #
 #   pi-pg-backup
 #
@@ -39,10 +40,20 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # airflow first: the pipeline state (precursor_meta) is then never older than what Airflow thinks has finished, so
-# a task caught mid-run is simply run again (tasks are idempotent). Inside the container, over the local socket:
-# Postgres refuses airflow from the task network (init-db.sh). A lock held by a migration fails the dump after 30 s
-# instead of hanging the stop.
-for db in airflow precursor_meta; do
+# a task caught mid-run is simply run again (tasks are idempotent). mlflow before precursor_meta: a registry version
+# missing from ml_runs is found again by a retried gate, an ml_runs row naming a missing version is not. Inside the
+# container, over the local socket: Postgres refuses airflow from the task network (init-db.sh). A lock held by a
+# migration fails the dump after 30 s instead of hanging the stop.
+dbs="airflow mlflow precursor_meta"
+# mlflow exists once a release with MLflow on the VM has started (postgres-setup creates it); until then, skip it
+# rather than keep the VM up because a backup failed. A failed query stops the script (set -e), never skips mlflow.
+has_mlflow=$(docker exec "$container" psql --username airflow --dbname airflow -Atc \
+  "select 1 from pg_database where datname = 'mlflow'")
+if [ -z "$has_mlflow" ]; then
+  echo "pi-pg-backup: no mlflow database yet (no release with MLflow has run here): not dumped" >&2
+  dbs="airflow precursor_meta"
+fi
+for db in $dbs; do
   docker exec "$container" pg_dump --username airflow --format custom --lock-wait-timeout=30s --dbname "$db" \
     > "$tmp/$db.dump"
 done
@@ -69,6 +80,6 @@ upload() { # <local file> <object name>
   echo "pi-pg-backup: gs://${bucket}/$2 ($(wc -c < "$1" | tr -d ' ') bytes, MD5 ${local_md5})"
 }
 
-for db in airflow precursor_meta; do
+for db in $dbs; do
   upload "$tmp/$db.dump" "${prefix:+$prefix/}$db/$name.dump"
 done

@@ -57,6 +57,7 @@ ml-extra = [
 ]
 agents = [
     "google-auth>=2.61.0",
+    "polars>=2.0.0",
     "pydantic-ai-slim[openai]>=2.55.0",
     "rank-bm25>=0.2.2",
 ]
@@ -65,10 +66,6 @@ api = [
     "google-cloud-bigquery>=3.46.1",
     "google-cloud-secret-manager>=2.31.0",
     "uvicorn[standard]>=0.54.0",
-]
-ui = [
-    "httpx>=0.28.1",
-    "streamlit>=1.65.0",
 ]
 mlflow-server = [
     "google-cloud-storage>=3.17.0",
