@@ -7,10 +7,14 @@ the validators below before it is accepted; a failing answer gets one retry with
 second failure, a model error or a usage limit gives the deterministic fallback, marked ``fallback=True``.
 
 Validators run here:
-- evidence IDs (B3): every cited passage ID was returned by a tool in this run;
+- evidence IDs (B3): every cited passage ID was returned by a tool in this run, and is a wording the run's search
+  covers (in force in ``as_of``, or current when it is None; never a legacy tag). ``get_passage`` refuses the others;
 - quote fidelity (B6): every quote is an exact substring of its stored passage text, at least ``MIN_QUOTE_CHARS``;
-- structure (B7): an abstention has a reason and no quotes or claims; an answer has 1 to ``MAX_QUOTES`` quotes,
-  and every claim cites at least one quoted passage.
+- structure (B7): an abstention has a reason of at most ``MAX_ABSTAIN_REASON_CHARS`` and no quotes or claims; an
+  answer has no abstain_reason, 1 to ``MAX_QUOTES`` quotes, and every claim cites at least one quoted passage.
+
+The question and ``as_of`` are checked before any model call (B1). A run is capped by ``USAGE_LIMITS`` and
+``MAX_TOKENS`` (D4).
 
 What waits for the shared runtime (A1-A5, B, C, D): the model factory (A2) and settings (A1) are passed in or are
 module constants here; the prompt loader is local until A4; ``EvidenceSet``'s ``data_as_of``, caveat and
@@ -20,7 +24,6 @@ the log line (C2), the trace (C1), the cache (D1) and the daily cap (D3) come fr
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -30,10 +33,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent, ModelRetry, RunContext, UsageLimits
 from pydantic_ai.exceptions import AgentRunError, UnexpectedModelBehavior
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
 
 from ..common.config import project_root
-from .corpus import Corpus
-from .retrieval import DEFAULT_K, MAX_K, tags_in
+from .corpus import Corpus, Passage
+from .retrieval import DEFAULT_K, MAX_K, in_force, passages_in_force, tags_in
 from .retrieval import search as bm25_search
 
 AGENT_NAME = "evidence_retriever"
@@ -42,11 +46,19 @@ PROMPT_FILE = Path("configs") / "prompts" / f"{AGENT_NAME}.yaml"
 MIN_QUOTE_CHARS = 10
 MAX_QUOTES = 5
 MAX_CLAIM_CHARS = 300
+MAX_ABSTAIN_REASON_CHARS = 300  # one sentence, like a claim (B7)
 MAX_QUESTION_CHARS = 500
 FALLBACK_QUOTES = 3
-# one Agent 2 run: the first answer and one retry, a few searches between (D4)
-USAGE_LIMITS = UsageLimits(request_limit=6, tool_calls_limit=8)
-OUTPUT_RETRIES = 1
+# one Agent 2 run: the first answer and one retry, a few searches between (D4's starting values)
+USAGE_LIMITS = UsageLimits(
+    request_limit=6,
+    tool_calls_limit=8,
+    input_tokens_limit=200_000,
+    output_tokens_limit=12_000,
+)
+MAX_TOKENS = 2_000  # per model call: D4's 12,000 output tokens over its 6 requests
+OUTPUT_RETRIES = 1  # a rejected answer gets one retry (B9)
+TOOL_RETRIES = 2  # a refused tool call (a bad ID, a bad search) gets two, counted per tool
 
 CAVEAT = (
     "Quotes are CMS's short deficiency-tag descriptions, not the full regulation text (42 CFR Part 483 and "
@@ -176,22 +188,43 @@ def get_passage(ctx: RunContext[RetrieverDeps], passage_id: str) -> PassageRecor
         raise ModelRetry(
             f"no passage {passage_id!r}; use a passage_id that search_passages returned"
         )
+    problem = _out_of_scope(p, ctx.deps.as_of)
+    if problem:
+        raise ModelRetry(f"{problem}; use a passage_id that search_passages returned")
     ctx.deps.ledger.add(p.passage_id)
     return _record(p)
+
+
+def _out_of_scope(p: Passage, as_of: str | None) -> str | None:
+    """Why this run's search could not return the passage, or None when it could (the search's own rule)."""
+    if in_force(p, as_of):
+        return None
+    if p.legacy:
+        return f"{p.passage_id} is a tag retired in 2017"
+    return f"{p.passage_id} is not a wording in force in {as_of or 'the current vintage'}"
 
 
 # ---------------------------------------------------------------- validators (B3, B6, B7 for Agent 2)
 
 
-def validate_answer(answer: EvidenceAnswer, corpus: Corpus, ledger: set[str]) -> list[str]:
+def validate_answer(
+    answer: EvidenceAnswer, corpus: Corpus, ledger: set[str], as_of: str | None = None
+) -> list[str]:
     """Every reason the answer is not acceptable; empty when it passes."""
     failures: list[str] = []
+    reason = answer.abstain_reason or ""
     if answer.abstained:
-        if not (answer.abstain_reason or "").strip():
+        if not reason.strip():
             failures.append("an abstention needs abstain_reason")
+        elif len(reason) > MAX_ABSTAIN_REASON_CHARS:
+            failures.append(
+                f"abstain_reason is one sentence of at most {MAX_ABSTAIN_REASON_CHARS} characters"
+            )
         if answer.quotes or answer.claims:
             failures.append("an abstention has no quotes and no claims")
         return failures
+    if reason:
+        failures.append("abstain_reason is null unless abstained")
     if not answer.quotes:
         failures.append("give at least one quote, or abstain")
     if len(answer.quotes) > MAX_QUOTES:
@@ -204,6 +237,10 @@ def validate_answer(answer: EvidenceAnswer, corpus: Corpus, ledger: set[str]) ->
         p = corpus.get(q.passage_id)
         if p is None:  # pragma: no cover - the ledger holds only IDs the corpus has
             failures.append(f"{q.passage_id} is not in the corpus")
+            continue
+        problem = _out_of_scope(p, as_of)
+        if problem:
+            failures.append(problem)
             continue
         if len(q.text.strip()) < MIN_QUOTE_CHARS:
             failures.append(
@@ -265,13 +302,13 @@ def build_agent(prompt: Prompt) -> Agent[RetrieverDeps, EvidenceAnswer]:
         instructions=prompt.instructions,
         name=AGENT_NAME,
         tools=[search_passages, get_passage],
-        retries=OUTPUT_RETRIES,
+        retries={"tools": TOOL_RETRIES, "output": OUTPUT_RETRIES},
         defer_model_check=True,
     )
 
     @agent.output_validator
     def _validate(ctx: RunContext[RetrieverDeps], answer: EvidenceAnswer) -> EvidenceAnswer:
-        failures = validate_answer(answer, ctx.deps.corpus, ctx.deps.ledger)
+        failures = validate_answer(answer, ctx.deps.corpus, ctx.deps.ledger, ctx.deps.as_of)
         if failures:
             ctx.deps.last_failures = failures
             raise ModelRetry(
@@ -292,12 +329,13 @@ def _data_as_of(corpus: Corpus) -> str:
 
 def fallback_answer(question: str, corpus: Corpus, as_of: str | None = None) -> EvidenceAnswer:
     """The deterministic answer from the search alone: the top passages quoted whole, no claims; or an
-    abstention with the search's reason."""
+    abstention with the search's reason. Raises only for a question or as_of the input checks refuse."""
     res = bm25_search(corpus, question[:MAX_QUESTION_CHARS], k=FALLBACK_QUOTES, as_of=as_of)
     if res.abstained:
-        return EvidenceAnswer(
-            abstained=True, abstain_reason=f"the search found no answer: {res.reason}"
-        )
+        reason = f"the search found no answer: {res.reason}"
+        if len(reason) > MAX_ABSTAIN_REASON_CHARS:
+            reason = reason[: MAX_ABSTAIN_REASON_CHARS - 3] + "..."
+        return EvidenceAnswer(abstained=True, abstain_reason=reason)
     return EvidenceAnswer(
         abstained=False,
         quotes=[Quote(passage_id=h.passage.passage_id, text=h.passage.text) for h in res.hits],
@@ -319,6 +357,12 @@ def check_question(question: str) -> str:
     return q
 
 
+def check_as_of(as_of: str | None, corpus: Corpus) -> str | None:
+    """Input check (B1): None, or a YYYY-MM vintage with passages in force; raises ValueError (the API's 400)."""
+    passages_in_force(corpus, as_of)
+    return as_of
+
+
 def run_evidence_retriever(
     question: str,
     corpus: Corpus,
@@ -329,13 +373,18 @@ def run_evidence_retriever(
 ) -> EvidenceSet:
     """Answer one question. Never raises for a model failure: the fallback answers instead."""
     question = check_question(question)
+    as_of = check_as_of(as_of, corpus)
     prompt = prompt or load_prompt()
     agent = agent or build_agent(prompt)
     deps = RetrieverDeps(corpus=corpus, as_of=as_of)
     fallback = False
     try:
         result = agent.run_sync(
-            _user_prompt(question, as_of), deps=deps, model=model, usage_limits=USAGE_LIMITS
+            _user_prompt(question, as_of),
+            deps=deps,
+            model=model,
+            usage_limits=USAGE_LIMITS,
+            model_settings=ModelSettings(max_tokens=MAX_TOKENS),
         )
         answer = result.output
     except (UnexpectedModelBehavior, AgentRunError):
@@ -365,11 +414,3 @@ def _user_prompt(question: str, as_of: str | None) -> str:
     if as_of:
         lines.append(f"Use the wordings in force in {as_of}.")
     return "\n".join(lines)
-
-
-def quoted_tags(es: EvidenceSet) -> Sequence[str]:
-    """The tags an answer quotes, first-quoted first (for the golden-set scorer)."""
-    seen: dict[str, None] = {}
-    for pid in es.evidence:
-        seen.setdefault(pid.split(":")[2], None)
-    return list(seen)
