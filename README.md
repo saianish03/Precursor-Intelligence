@@ -537,6 +537,7 @@ Windows file names).
 
 ```bash
 uv run dvc repro --force --single-item toy_ml    # the whole ML chain offline on a synthetic gold: no credentials
+uv run dvc repro --force --single-item toy_evidence  # then the agents' evidence from its published month (E2)
 ```
 
 On the real gold step by step (`precursor-pipeline ml prepare | train | evaluate | gate ...`), and in Airflow
@@ -578,7 +579,7 @@ file `data/toy/gold/facility_month_dataset.parquet`, and `uv.lock` is one of its
 uv sync --all-extras        # includes dvc[gs]
 uv run dvc repro            # runs only the stages whose code, configs or inputs changed
 uv run dvc status           # "Data and pipelines are up to date" when nothing is stale
-uv run dvc dag              # toy_gold -> toy_summary; toy_ml
+uv run dvc dag              # toy_gold -> toy_summary; toy_ml -> toy_evidence
 uv run dvc metrics show     # row and file counts per gold table
 ```
 

@@ -2,20 +2,10 @@
 where the data lives. ``ParquetEvidenceSource`` reads the files that ``build-evidence`` (E2) writes; a BigQuery
 source can follow with the same methods (every query setting ``maximum_bytes_billed``).
 
-Layout under ``prefix`` (e.g. ``agents/evidence/``)::
-
-    _current.json                         written last: {"schema_version", "v", "scores_manifest_sha256",
-                                                         "evidence_manifest_sha256"}
-    v=YYYY-MM/evidence_manifest.json      what the month's files are: v, gold_run_id, model_version, built_at,
-                                          and per file its key, row count and sha256
-    v=YYYY-MM/<table>.parquet             one file per name in TABLE_COLUMNS
-    v=YYYY-MM/<other files>               e.g. the ops evidence of Agent 3 (E2, I1); listed in the manifest, not
-                                          read here
-
-The month comes only from ``_current.json``: never from ``status/latest.json`` (its ``v`` can be a month with
-nothing scored) and never from listing the prefix. The pointer must match the manifest's sha256, and each file its
-manifest entry, or the read refuses (``EvidenceError``): a half-written month is never served. ``citations`` and
-``penalties`` have no ``gold_run_id`` column: the manifest's sha256 is what ties them to its gold run.
+The layout, pointer and manifest are in ``evidence.contract``. The pointer must match the manifest's sha256, and
+each file its manifest entry, or the read refuses (``EvidenceError``): a half-written month is never served. ``citations`` and
+``penalties`` have no ``gold_run_id`` column: they come from the silver of vintage ``v``, not from the gold run, and
+the manifest's sha256 ties them to this build.
 ``scores_manifest_sha256`` is not checked here. The source keeps the pointer it read (``pointer``), so the answer
 cache's key (D1) comes from the same read as the evidence; the runner reopens the source when ``_current.json``
 changes.
@@ -25,89 +15,25 @@ from __future__ import annotations
 
 import hashlib
 import io
-import re
 from collections.abc import Sequence
-from typing import Literal, Protocol
+from typing import Protocol
 
 import polars as pl
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import ValidationError
 
 from ...common.io.object_store import ObjectStore
-
-CURRENT = "_current.json"
-EVIDENCE_MANIFEST = "evidence_manifest.json"
-V_PATTERN = re.compile(r"^20\d\d-(0[1-9]|1[0-2])$")  # YYYY-MM; the monthly run goes past 2026
-
-Table = Literal["facility_scores", "facility_reasons", "citations", "penalties", "chain_scores"]
-
-# The columns each table must have; a file may carry more. ``p`` is the calibrated probability of the champion's
-# label (``p_<label>`` in scores/); build-evidence renames it so the tools need not know the label.
-TABLE_COLUMNS: dict[Table, tuple[str, ...]] = {
-    "facility_scores": (
-        "ccn",
-        "state",
-        "chain_id",
-        "p",
-        "risk_percentile",
-        "risk_decile",
-        "model_version",
-        "gold_run_id",
-    ),
-    "facility_reasons": (
-        "ccn",
-        "direction",
-        "rank",
-        "feature",
-        "feature_value",
-        "contribution_logodds",
-        "label",
-        "model_version",
-        "gold_run_id",
-    ),
-    "citations": (
-        "ccn",
-        "survey_date",
-        "ftag",
-        "deficiency_category",
-        "scope_severity",
-        "is_standard",
-        "is_complaint",
-        "correction_date",
-    ),
-    "penalties": (
-        "ccn",
-        "penalty_date",
-        "penalty_type",
-        "fine_amount",
-        "payment_denial_start_date",
-        "payment_denial_length_days",
-        "dup_seq",
-    ),
-    "chain_scores": (
-        "chain_id",
-        "n_facilities",
-        "beds",
-        "expected_facilities_with_event",
-        "p_any_event",
-        "bed_weighted_mean_p",
-        "max_p",
-        "worst_ccn",
-        "share_top_decile",
-        "model_version",
-        "gold_run_id",
-    ),
-}
-
-# Columns whose type the tools rely on: a CCN read as a number loses its leading zeros and matches nothing.
-COLUMN_TYPES: dict[str, type[pl.DataType]] = {
-    "ccn": pl.String,
-    "worst_ccn": pl.String,
-    "chain_id": pl.String,
-    "survey_date": pl.Date,
-    "correction_date": pl.Date,
-    "penalty_date": pl.Date,
-    "payment_denial_start_date": pl.Date,
-}
+from ...evidence.contract import (
+    BUILD_PATTERN,
+    COLUMN_TYPES,
+    CURRENT,
+    EVIDENCE_MANIFEST,
+    TABLE_COLUMNS,
+    V_PATTERN,
+    CurrentPointer,
+    EvidenceManifest,
+    Table,
+    build_dir,
+)
 
 # The columns of each table that may hold nulls: the optional fields of the tools' records. A null anywhere else
 # is refused at ``open``, so a record never fails to build inside a tool.
@@ -124,32 +50,6 @@ NULLABLE: dict[Table, frozenset[str]] = {
 
 class EvidenceError(RuntimeError):
     """The evidence is missing, inconsistent or does not match its manifest."""
-
-
-class CurrentPointer(BaseModel):
-    """``_current.json``: the month the agents serve."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal[1] = 1
-    v: str
-    scores_manifest_sha256: str
-    evidence_manifest_sha256: str
-
-
-class EvidenceManifest(BaseModel):
-    """``v=YYYY-MM/evidence_manifest.json``."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal[1] = 1
-    v: str
-    gold_run_id: str
-    model_version: int
-    built_at: str
-    files: dict[str, str]  # table -> object key
-    rows: dict[str, int]
-    sha256: dict[str, str]
 
 
 class EvidenceSource(Protocol):
@@ -198,10 +98,13 @@ class ParquetEvidenceSource:
             raise EvidenceError(
                 f"{pointer_key} is not a valid pointer: {exc.error_count()} error(s)"
             ) from None
-        if not V_PATTERN.match(pointer.v):
-            raise EvidenceError(f"{pointer_key} names month {pointer.v!r}, not YYYY-MM")
+        if not V_PATTERN.match(pointer.v) or not BUILD_PATTERN.match(pointer.build):
+            raise EvidenceError(
+                f"{pointer_key} names month {pointer.v!r} build {pointer.build!r}: not YYYY-MM and 12 "
+                "hex characters"
+            )
 
-        directory = f"{prefix}v={pointer.v}/"
+        directory = build_dir(prefix, pointer.v, pointer.build)
         manifest_key = f"{directory}{EVIDENCE_MANIFEST}"
         raw = _read(store, manifest_key)
         if _sha256(raw) != pointer.evidence_manifest_sha256:
@@ -220,7 +123,9 @@ class ParquetEvidenceSource:
         for name, key in manifest.files.items():
             expected = f"{directory}{name}.parquet" if name in TABLE_COLUMNS else None
             inside = key.startswith(directory) and "/" not in key[len(directory) :]
-            if (expected and key != expected) or not inside:  # never another month's file
+            if (
+                expected and key != expected
+            ) or not inside:  # never another month's or build's file
                 raise EvidenceError(f"{manifest_key} points {name} at {key}, outside {directory}")
         tables = {t: _load(store, manifest, t) for t in TABLE_COLUMNS}
         return cls(pointer, manifest, tables)

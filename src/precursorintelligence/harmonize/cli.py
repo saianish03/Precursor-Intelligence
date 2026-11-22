@@ -6,6 +6,7 @@ One command per DAG task (docs/DATA_PIPELINE_SPEC.md §15.3), all sharing the DA
   precursor-pipeline validate --layer silver --run-id R   (read-only data checks; validation/cli.py)
   precursor-pipeline check-release --run-id R   (the hourly release check; last stdout line: JSON decision)
   precursor-pipeline ml prepare --run-id R   (the ML tasks: training/cli.py, docs/ML_PIPELINE_SPEC.md §15.3)
+  precursor-pipeline agents build-evidence --v YYYY-MM   (the agents' evidence: evidence/cli.py, AGENTS_PLAN.md E2)
 
 Exit codes follow the pipeline contract: 0 ok, 1 error (retried), 2 data or validation failure,
 3 config or usage error. The DAG fails 2 and 3 without retry.
@@ -24,6 +25,7 @@ import typer
 from ..bias.cli import bias_report
 from ..common.config import ConfigError
 from ..common.io.run_lock import RunLockHeldError, RunLockNotHeldError
+from ..evidence.cli import agents_app
 from ..gold.cli import gold, snapshot_gold_command
 from ..ingestion.cli import ENV_FILE_OPT, ENV_OPT, RUN_ID_OPT, _init, _ship_log
 from ..ingestion.context import build_context
@@ -61,6 +63,8 @@ app.command("bias-report")(bias_report)
 app.command()(validate)
 # the ML pipeline's tasks (docs/ML_PIPELINE_SPEC.md §15.3); src/precursorintelligence/training/cli.py
 app.add_typer(ml_app, name="ml")
+# the agents' batch jobs (docs/AGENTS_PLAN.md); src/precursorintelligence/evidence/cli.py
+app.add_typer(agents_app, name="agents")
 
 
 @app.callback()
