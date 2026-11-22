@@ -5,7 +5,7 @@ laptop stack against GCS. Phase 2 puts it in production on the VM: MLflow there,
 BigQuery, then monitoring, fairness and tuning (`ML_PIPELINE_SPEC.md` §18.1). **The VM itself** (its smoke test, the
 bucket clean-up, the full backfill, production start and the VM runbook) **stays with the lead's team**; your ML work
 on the VM builds on it (§5.1). The rules stay in the spec; this file gives the starting state, the order of work, the
-decisions already made and the traps. State as of `dev` `b1b1d96` (2026-11-20).
+decisions already made and the traps. State as of `dev` `e04fb12` (2026-11-22).
 
 ---
 

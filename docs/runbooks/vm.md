@@ -201,7 +201,7 @@ Emails go to the `alert-email-to` secret's recipients, from the Gmail account in
 | `[cms_nh_pipeline] run failed: see the run`, body `Reason: timed_out` | the run hit its 8 h limit | the run lock stays held: free it (below) or let the next run take it over after 12 h |
 | `[cms_nh_pipeline] release_lock failed (the run may still show success)` | `release_lock`'s callback | free the lock (below) |
 | `[cms_nh_pipeline] N new error anomalies` / `new CMS columns in N silver partitions` | the run, which goes on | read the listed lines (`ALERTS_HANDOFF.md` §6) |
-| `[cms_nh_ml] <DECISION> <V>`, e.g. `SKIP 2026-10`, `PROMOTE 2026-10: 2 flag(s)` | `notify`, after every ML run | read it; a `held (…)`, a flag or `re-tune requested` in the subject needs a look (section 14) |
+| `[cms_nh_ml] <DECISION> <V>`, e.g. `SKIP 2026-10`, `PROMOTE 2026-10: 2 flag(s)` | `notify`, after every ML run that doesn't fail | read it; a `held (…)`, `re-tune requested`, or a flag other than the two known skew flags (section 14) needs a look |
 | `[cms_nh_ml] run failed: <tasks>` | the DAG's failure callback | open the log links; a REFUSE is exit 2 and isn't retried (section 14) |
 | `[cms_nh_release_check] …` | the release check | a CMS release partial for days, or proceeds that start no run (`airflow-local.md` §5) |
 | `[pi-airflow VM] deploy of … failed …` / `… runs on a trial prefix` | `pi-deploy` | section 3 / section 5 |
@@ -347,6 +347,9 @@ next release is due 2026-12-02.
   ```bash
   af dags trigger cms_nh_ml --run-id my-promote-1 --conf '{"mode": "promote", "version": 1, "reason": "<who approved it, when, after reading what>"}'
   ```
+- **A REFUSE** fails the run (exit 2, no retry, the failure email in section 8): the gold is older than the last
+  scored month, or it isn't verified and `allow_unverified` is false (`monitoring/decide.py`). `decide` records the
+  decision and stops; fix the cause, then run it again.
 - **Took on the VM** (item 3, 2026-11-22, gold V 2026-10):
 
   | Run | Took | Result |
@@ -370,14 +373,20 @@ next release is due 2026-12-02.
   ```bash
   gcloud compute scp scripts/ml_checkpoint_reasons.py pi-airflow:/tmp/ --zone us-central1-a --tunnel-through-iap
   ```
-  On the VM, one line at a time. The database URL goes through a root-only file, never a command line (`sudo` logs
-  those):
+  On the VM, as section 8 runs a task's command: the database URL, the bucket and the package store come from the
+  scheduler (so a trial prefix is right too) and stay in root's environment, never on a command line or on disk:
   ```bash
-  img=$(sudo docker inspect --format '{{.Config.Image}}' pi-airflow-mlflow-1 | sed 's|/mlflow:|/pipeline:|')
-  sudo ${dc} exec -T airflow-scheduler printenv PI_DATABASE_URL | sudo sh -c 'umask 077; sed "s/^/PI_DATABASE_URL=/" > /root/reasons.env'
-  sudo docker run --rm --network pi-airflow-tasks --env-file /root/reasons.env -e PI_BUCKET_URI=gs://precursor-intel-mlops-data -e PI_PACKAGES_URI=gs://precursor-intel-mlops-mlflow/packages/vm -v /tmp/ml_checkpoint_reasons.py:/app/scripts/ml_checkpoint_reasons.py:ro "${img}" python scripts/ml_checkpoint_reasons.py --run-id <the retrain's run id> --version <its version> </dev/null > /tmp/reasons.txt
-  sudo rm /root/reasons.env
+  sudo bash -c 'sch=$(docker ps -q --filter label=com.docker.compose.project=pi-airflow --filter label=com.docker.compose.service=airflow-scheduler)
+  export PI_DATABASE_URL=$(docker exec "$sch" printenv PI_DATABASE_URL) PI_BUCKET_URI=$(docker exec "$sch" printenv PI_BUCKET_URI) PI_PACKAGES_URI=$(docker exec "$sch" printenv PI_PACKAGES_URI)
+  docker run --rm --network pi-airflow-tasks -e PI_DATABASE_URL -e PI_BUCKET_URI -e PI_PACKAGES_URI \
+    -v /tmp/ml_checkpoint_reasons.py:/app/scripts/ml_checkpoint_reasons.py:ro "$(docker exec "$sch" printenv PI_PIPELINE_IMAGE)" \
+    python scripts/ml_checkpoint_reasons.py --run-id <the retrain run id> --version <its version> </dev/null > /tmp/reasons.txt'
   ```
   Copy `/tmp/reasons.txt` back with `gcloud compute scp` and send it to the lead with the model card.
-- **The flags:** v1's runs flag skew on `state_gplus_rate_12m` and `staffing_rating_fn`, the same two as on the
-  laptop stack's `ml-dev`. They are information: the run still scores and publishes.
+- **The flags:** the runs that score (promote, score_only) flag skew on `state_gplus_rate_12m` and
+  `staffing_rating_fn`, the same two as on `ml-dev`. A run that doesn't score has no `score/key_features.json`, so
+  `monitor` checks fewer features: `vm-retrain-1` flagged only `staffing_rating_fn`. Neither flag stops a run.
+  - `state_gplus_rate_12m` is the model's #3 feature (mean |SHAP| 0.119) and its PSI is 0.49: its mean moved from
+    0.233 in the refit window (2024-02 to 2025-02) to 0.214 in 2026-10. That is expected, since the labels lag about
+    20 months, and it shrinks as retraining moves to newer months. It was accepted at Checkpoint ML-A.
+  - `staffing_rating_fn` (PSI 0.405) isn't a model feature, so it can't move the scores.
