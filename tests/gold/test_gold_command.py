@@ -3,6 +3,7 @@
 import hashlib
 import json
 import sys
+from datetime import UTC, datetime, timedelta
 
 import polars as pl
 import pytest
@@ -190,6 +191,32 @@ def test_an_earlier_v_builds_the_spine_only_up_to_it(toy, monkeypatch, capsys):
     assert toy.gold(monkeypatch, "--v", "2024-06") == EXIT_OK
     assert "V=2024-06 labels measured from 2024-06" in capsys.readouterr().out
     assert toy.read("spine")["t"].max() == "2024-06"
+
+
+def test_a_2027_vintage_is_v_once_the_run_is_in_2027():
+    # L7: a fixed range ending at 2026-12 stopped gold at the first 2027 release (spec §0.5: 2021-01 to V)
+    published = ["2026-11", "2026-12", "2027-01"]
+    v = build.resolve_v(published, None, "2023-01", vintage_start="2021-01", run_month="2027-02")
+    assert v == "2027-01"
+
+
+@pytest.mark.parametrize("vintage", ["2020-12", "2027-03"])
+def test_a_vintage_before_the_scope_or_after_the_runs_month_stops_gold(vintage):
+    published = sorted(["2026-12", "2027-01", vintage])
+    with pytest.raises(GoldCheckError, match=vintage):
+        build.resolve_v(published, None, "2023-01", vintage_start="2021-01", run_month="2027-02")
+
+
+def test_gold_takes_the_bounds_from_the_scope_and_the_runs_clock(toy):
+    # the toy silver ends at VINTAGES[-1]; a run dated the month before must refuse it, and publish nothing
+    ctx = build_context(load_settings(env_path=toy.env_file))
+    last = VINTAGES[-1]
+    before = datetime(int(last[:4]), int(last[5:]), 1, tzinfo=UTC) - timedelta(days=1)
+    splits_cfg = load_splits_config(toy.root / TOY_SPLITS)
+    result = run_gold(ctx, labels_cfg=load_labels_config(), splits_cfg=splits_cfg, now=before)
+    assert result.exit_code == EXIT_VALIDATION and not result.promoted
+    assert f"to {before:%Y-%m} (this run's month): ['{last}']" in result.failures[0]
+    assert not (toy.root / "gold" / "_current.json").exists()
 
 
 def test_a_failed_check_leaves_gold_untouched(toy, monkeypatch, capsys):
