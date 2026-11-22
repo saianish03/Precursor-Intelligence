@@ -1,4 +1,4 @@
-"""configs/agents.yaml and agents/settings.py (docs/AGENTS_PLAN.md A1)."""
+"""configs/agents_runtime.yaml and agents/settings.py (docs/AGENTS_PLAN.md A1)."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ import yaml
 from precursorintelligence.agents.settings import load_agents_settings
 from precursorintelligence.common.config import ConfigError, project_root
 
-REPO_FILE = project_root() / "configs" / "agents.yaml"
+REPO_FILE = project_root() / "configs" / "agents_runtime.yaml"
 
 
 def _write(tmp_path: Path, data: dict) -> Path:
-    path = tmp_path / "agents.yaml"
+    path = tmp_path / "agents_runtime.yaml"
     path.write_text(yaml.safe_dump(data), encoding="utf-8")
     return path
 

@@ -1,4 +1,6 @@
-"""The agents' runtime settings, from ``configs/agents.yaml`` (docs/AGENTS_PLAN.md A1).
+"""The agents' runtime settings, from ``configs/agents_runtime.yaml`` (docs/AGENTS_PLAN.md A1).
+
+``configs/agents.yaml`` holds the evidence build's settings (E2), loaded by ``common/config.py``.
 
 Loaded like ``configs/ml.yaml``: ``${VAR}`` placeholders are expanded from the environment, and an unknown or
 misspelled key is a ``ConfigError``. Every value is in the file; the models below have no defaults to fall back on.
@@ -67,7 +69,7 @@ class PriceCfg(_Strict):
 
 
 class AgentsSettings(_Strict):
-    """``configs/agents.yaml``."""
+    """``configs/agents_runtime.yaml``."""
 
     version: Literal[1]
     gcp: GcpCfg
@@ -92,7 +94,7 @@ class AgentsSettings(_Strict):
             return self.agents[name]
         except KeyError:
             raise ConfigError(
-                f"configs/agents.yaml has no settings for agent {name!r}; known: {sorted(self.agents)}"
+                f"configs/agents_runtime.yaml has no settings for agent {name!r}; known: {sorted(self.agents)}"
             ) from None
 
     def price(self, model_name: str) -> PriceCfg:
@@ -112,5 +114,5 @@ class AgentsSettings(_Strict):
 
 
 def load_agents_settings(path: str | Path | None = None) -> AgentsSettings:
-    """Load and validate ``configs/agents.yaml``."""
-    return _load_model(AgentsSettings, path or project_root() / "configs" / "agents.yaml")
+    """Load and validate ``configs/agents_runtime.yaml``."""
+    return _load_model(AgentsSettings, path or project_root() / "configs" / "agents_runtime.yaml")
