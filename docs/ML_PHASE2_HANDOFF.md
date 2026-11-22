@@ -85,7 +85,7 @@ log sink). Its fallbacks: the laptop stack's 2026-10 scores, and GCS without Big
 | ✅ **T25 full backfill** (2026-11-20/21, `runbooks/airflow-local.md` §8.5) | node by node; every layer matches the official run (`ml-dev/`); gold V 2026-10, 52 months, 775,400 rows, published at the root. The first gold attempt was OOM-killed at 10.46 GB, so the VM became an e2-highmem-4 with a 20g task limit (#90) | — |
 | **T26 production start** | the team's go: unpause `cms_nh_pipeline`, then `cms_nh_release_check` | — (later gold events start `cms_nh_ml` while it is unpaused) |
 | ✅ **T27 VM runbook** (2026-11-21) | `docs/runbooks/vm.md`: access, start and stop, deploy and rollback, a manual run and a full backfill, the trial prefix, backups and restore, another database for task containers, alerts, costs, troubleshooting | add the MLflow parts (item 2), and item 2's 7-day registry rule in its section 3 |
-| **`VINTAGE_RANGE`** | ends at 2026-12 (`gold/build.py:73`): gold fails on the first 2027 vintage; fixed before late January 2027 | — |
+| ✅ **`VINTAGE_RANGE`** (L7, 2026-11-21) | it ended at 2026-12, so gold would have failed on the first 2027 vintage. Now every silver vintage must lie between the ingestion scope's `vintage_start` and the run's month (`gold/build.py: resolve_v`) | — |
 
 ### 5.2 Yours
 

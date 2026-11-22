@@ -3529,6 +3529,7 @@ dependencies = [
 agents = [
     { name = "google-auth", extra = ["requests"] },
     { name = "httpx2" },
+    { name = "polars" },
     { name = "pydantic-ai-slim", extra = ["openai"] },
     { name = "rank-bm25" },
 ]
@@ -3636,6 +3637,7 @@ requires-dist = [
     { name = "optuna", marker = "extra == 'ml'", specifier = ">=5.0.0" },
     { name = "pandas", marker = "extra == 'pipeline'", specifier = ">=3.0.6" },
     { name = "pandera", marker = "extra == 'pipeline'", specifier = ">=0.34.1" },
+    { name = "polars", marker = "extra == 'agents'", specifier = ">=2.0.0" },
     { name = "polars", marker = "extra == 'pipeline'", specifier = ">=2.0.0" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'pipeline'", specifier = ">=3.3.6" },
     { name = "psycopg2-binary", marker = "extra == 'mlflow-server'", specifier = ">=2.9.13" },
