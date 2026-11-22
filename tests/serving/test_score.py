@@ -762,6 +762,17 @@ def test_a_failed_load_records_nothing(trained):
     assert last_scored_v(trained.meta()) is None
 
 
+def test_a_load_bigquery_rejects_is_refused_not_retried(trained):
+    # a 400 (a null in a REQUIRED column, a schema the table doesn't have) fails again on every retry: exit 2, while a
+    # temporary error (5xx, 429; RuntimeError above) still raises for Airflow to retry
+    from google.api_core.exceptions import BadRequest
+
+    score(trained, setup_champion(trained, 1))
+    with pytest.raises(MlInputError, match="rejected"):
+        bq_publish(trained, FakeBigQuery(fail=BadRequest("Required field state cannot be null")))
+    assert last_scored_v(trained.meta()) is None
+
+
 def test_a_load_that_wrote_other_rows_is_refused(trained):
     score(trained, setup_champion(trained, 1))
     with pytest.raises(MlInputError, match="rows"):

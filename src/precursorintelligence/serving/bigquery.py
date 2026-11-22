@@ -46,7 +46,9 @@ def make_client(cfg: BigQueryCfg) -> Any:
 def load_month(
     client: Any, cfg: BigQueryCfg, v: str, frames: dict[str, pl.DataFrame]
 ) -> dict[str, int]:
-    """Load each table's frame into its month partition; refuse (``MlInputError``) if BigQuery wrote other rows."""
+    """Load each table's frame into its month partition. Refuse (``MlInputError``, exit 2: a retry can't fix it) when
+    BigQuery rejects the load (400) or wrote other rows; a temporary error (5xx, 429) raises, so Airflow retries."""
+    from google.api_core.exceptions import BadRequest
     from google.cloud import bigquery
 
     loaded: dict[str, int] = {}
@@ -62,10 +64,15 @@ def load_month(
             schema=[bigquery.SchemaField.from_api_repr(f) for f in schema(table)],
         )
         destination = f"{cfg.project}.{cfg.dataset}.{table}${v.replace('-', '')}"
-        job = client.load_table_from_file(
-            buf, destination, job_config=job_config, location=cfg.location
-        )
-        rows = job.result().output_rows
+        try:
+            job = client.load_table_from_file(
+                buf, destination, job_config=job_config, location=cfg.location
+            )
+            rows = job.result().output_rows
+        except BadRequest as exc:
+            raise MlInputError(
+                f"BigQuery rejected the load into {destination}: {exc.message}"
+            ) from None
         if rows != df.height:
             raise MlInputError(
                 f"BigQuery loaded {rows} rows into {destination}, the scores have {df.height}"

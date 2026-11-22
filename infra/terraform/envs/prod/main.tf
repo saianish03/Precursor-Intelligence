@@ -102,7 +102,9 @@ resource "google_project_iam_member" "pipeline_runtime" {
 # The month's scores for SQL readers (ML spec §11 Phase 2, ML-4): `ml publish` loads each month into its partition,
 # WRITE_TRUNCATE, so a rerun replaces exactly that month. The schemas are configs/bigquery/*.json, which the load
 # reads too (a test checks them against the score files). Every query must filter on score_month, so nobody scans
-# every month by accident.
+# every month by accident. dataEditor also lets sa-pipeline alter or drop these tables (deletion_protection only stops
+# Terraform): acceptable, since the GCS score files stay the source, a rerun of publish rebuilds a month, and the next
+# apply recreates a dropped table.
 resource "google_bigquery_dataset" "scores" {
   dataset_id  = "precursorintelligence_scores"
   location    = var.region
