@@ -1,0 +1,1334 @@
+{
+ "data_as_of": {
+  "v": "2026-10",
+  "score_month": "2026-10-01",
+  "model_version": 1,
+  "gold_run_id": "20261112T020010Z-543cdc"
+ },
+ "facility": {
+  "ccn": "145584",
+  "name": "PALM GARDEN OF MATTOON",
+  "city": "MATTOON",
+  "state": "IL",
+  "chain_id": "776",
+  "chain_name": "POINTE MANAGEMENT",
+  "beds": 178.0,
+  "p": 0.9100457203063013,
+  "risk_percentile": 100.0,
+  "risk_decile": 1,
+  "address": "1000 PALM",
+  "zip": "61938"
+ },
+ "score": {
+  "evidence_id": "score:145584:2026-10",
+  "p": 0.9100457203063013,
+  "risk_percentile": 100.0,
+  "risk_decile": 1
+ },
+ "reasons": [
+  {
+   "evidence_id": "reason:145584:2026-10:raises:1",
+   "direction": "raises",
+   "rank": 1,
+   "feature": "state",
+   "label": "state",
+   "feature_value": "IL",
+   "contribution_logodds": 0.700159919041239
+  },
+  {
+   "evidence_id": "reason:145584:2026-10:raises:2",
+   "direction": "raises",
+   "rank": 2,
+   "feature": "n_complaint_surveys_cited_24m",
+   "label": "complaint surveys with citations in the last 24 months",
+   "feature_value": "19",
+   "contribution_logodds": 0.43114265919738376
+  },
+  {
+   "evidence_id": "reason:145584:2026-10:raises:3",
+   "direction": "raises",
+   "rank": 3,
+   "feature": "n_gplus_surveys_36m",
+   "label": "surveys with harm-level (G–L) citations in the last 36 months",
+   "feature_value": "8",
+   "contribution_logodds": 0.31413501733419336
+  },
+  {
+   "evidence_id": "reason:145584:2026-10:raises:4",
+   "direction": "raises",
+   "rank": 4,
+   "feature": "certified_beds",
+   "label": "certified beds",
+   "feature_value": "178",
+   "contribution_logodds": 0.30508526983586065
+  },
+  {
+   "evidence_id": "reason:145584:2026-10:raises:5",
+   "direction": "raises",
+   "rank": 5,
+   "feature": "state_gplus_rate_12m",
+   "label": "share of the state's facilities with harm-level citations in the last 12 months",
+   "feature_value": "55%",
+   "contribution_logodds": 0.19410846713817204
+  },
+  {
+   "evidence_id": "reason:145584:2026-10:lowers:1",
+   "direction": "lowers",
+   "rank": 1,
+   "feature": "qm_ls_falls_major_injury",
+   "label": "long-stay residents with falls causing major injury (%)",
+   "feature_value": "7.8%",
+   "contribution_logodds": -0.023958607830405564
+  },
+  {
+   "evidence_id": "reason:145584:2026-10:lowers:2",
+   "direction": "lowers",
+   "rank": 2,
+   "feature": "sev_points_per_bed_24m",
+   "label": "citation severity points per certified bed in the last 24 months",
+   "feature_value": "3.81",
+   "contribution_logodds": -0.021351237432920507
+  },
+  {
+   "evidence_id": "reason:145584:2026-10:lowers:3",
+   "direction": "lowers",
+   "rank": 3,
+   "feature": "max_fine_24m",
+   "label": "largest single fine in the last 24 months ($)",
+   "feature_value": "$150,385",
+   "contribution_logodds": -0.018938747291050138
+  }
+ ],
+ "citations": [
+  {
+   "evidence_id": "citation:145584:2026-08-20:F0600",
+   "survey_date": "2026-08-20",
+   "ftag": "F0600",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "G",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-08-31"
+  },
+  {
+   "evidence_id": "citation:145584:2026-07-07:F0602",
+   "survey_date": "2026-07-07",
+   "ftag": "F0602",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-07-08"
+  },
+  {
+   "evidence_id": "citation:145584:2026-06-05:F0550",
+   "survey_date": "2026-06-05",
+   "ftag": "F0550",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-06-23"
+  },
+  {
+   "evidence_id": "citation:145584:2026-06-05:F0584",
+   "survey_date": "2026-06-05",
+   "ftag": "F0584",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-06-23"
+  },
+  {
+   "evidence_id": "citation:145584:2026-06-05:F0600",
+   "survey_date": "2026-06-05",
+   "ftag": "F0600",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-06-22"
+  },
+  {
+   "evidence_id": "citation:145584:2026-06-05:F0609",
+   "survey_date": "2026-06-05",
+   "ftag": "F0609",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-06-16"
+  },
+  {
+   "evidence_id": "citation:145584:2026-06-05:F0842",
+   "survey_date": "2026-06-05",
+   "ftag": "F0842",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-06-23"
+  },
+  {
+   "evidence_id": "citation:145584:2026-05-13:F0550",
+   "survey_date": "2026-05-13",
+   "ftag": "F0550",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-06-23"
+  },
+  {
+   "evidence_id": "citation:145584:2026-05-13:F0600",
+   "survey_date": "2026-05-13",
+   "ftag": "F0600",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-06-22"
+  },
+  {
+   "evidence_id": "citation:145584:2026-05-13:F0760",
+   "survey_date": "2026-05-13",
+   "ftag": "F0760",
+   "deficiency_category": "Pharmacy Service Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-05-18"
+  },
+  {
+   "evidence_id": "citation:145584:2026-05-13:F0761",
+   "survey_date": "2026-05-13",
+   "ftag": "F0761",
+   "deficiency_category": "Pharmacy Service Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-05-18"
+  },
+  {
+   "evidence_id": "citation:145584:2026-05-13:F0880",
+   "survey_date": "2026-05-13",
+   "ftag": "F0880",
+   "deficiency_category": "Infection Control Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-05-18"
+  },
+  {
+   "evidence_id": "citation:145584:2026-04-20:F0600",
+   "survey_date": "2026-04-20",
+   "ftag": "F0600",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-04-21"
+  },
+  {
+   "evidence_id": "citation:145584:2026-04-02:F0656",
+   "survey_date": "2026-04-02",
+   "ftag": "F0656",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-04-03"
+  },
+  {
+   "evidence_id": "citation:145584:2026-04-02:F0689",
+   "survey_date": "2026-04-02",
+   "ftag": "F0689",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "J",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2026-04-10"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0550",
+   "survey_date": "2026-01-29",
+   "ftag": "F0550",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0584",
+   "survey_date": "2026-01-29",
+   "ftag": "F0584",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "E",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0600",
+   "survey_date": "2026-01-29",
+   "ftag": "F0600",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "G",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0602",
+   "survey_date": "2026-01-29",
+   "ftag": "F0602",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0609",
+   "survey_date": "2026-01-29",
+   "ftag": "F0609",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0627",
+   "survey_date": "2026-01-29",
+   "ftag": "F0627",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0641",
+   "survey_date": "2026-01-29",
+   "ftag": "F0641",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0645",
+   "survey_date": "2026-01-29",
+   "ftag": "F0645",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0686",
+   "survey_date": "2026-01-29",
+   "ftag": "F0686",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "G",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0688",
+   "survey_date": "2026-01-29",
+   "ftag": "F0688",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0689",
+   "survey_date": "2026-01-29",
+   "ftag": "F0689",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "G",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0695",
+   "survey_date": "2026-01-29",
+   "ftag": "F0695",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0700",
+   "survey_date": "2026-01-29",
+   "ftag": "F0700",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0725",
+   "survey_date": "2026-01-29",
+   "ftag": "F0725",
+   "deficiency_category": "Nursing and Physician Services Deficiencies",
+   "scope_severity": "F",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0740",
+   "survey_date": "2026-01-29",
+   "ftag": "F0740",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0741",
+   "survey_date": "2026-01-29",
+   "ftag": "F0741",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0801",
+   "survey_date": "2026-01-29",
+   "ftag": "F0801",
+   "deficiency_category": "Nutrition and Dietary Deficiencies",
+   "scope_severity": "F",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0804",
+   "survey_date": "2026-01-29",
+   "ftag": "F0804",
+   "deficiency_category": "Nutrition and Dietary Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2026-01-29:F0812",
+   "survey_date": "2026-01-29",
+   "ftag": "F0812",
+   "deficiency_category": "Nutrition and Dietary Deficiencies",
+   "scope_severity": "F",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2026-02-11"
+  },
+  {
+   "evidence_id": "citation:145584:2025-11-30:F0727",
+   "survey_date": "2025-11-30",
+   "ftag": "F0727",
+   "deficiency_category": "Nursing and Physician Services Deficiencies",
+   "scope_severity": "F",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-12-10"
+  },
+  {
+   "evidence_id": "citation:145584:2025-11-30:F0755",
+   "survey_date": "2025-11-30",
+   "ftag": "F0755",
+   "deficiency_category": "Pharmacy Service Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-12-15"
+  },
+  {
+   "evidence_id": "citation:145584:2025-11-30:F0806",
+   "survey_date": "2025-11-30",
+   "ftag": "F0806",
+   "deficiency_category": "Nutrition and Dietary Deficiencies",
+   "scope_severity": "F",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-12-11"
+  },
+  {
+   "evidence_id": "citation:145584:2025-10-15:F0657",
+   "survey_date": "2025-10-15",
+   "ftag": "F0657",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-10-20"
+  },
+  {
+   "evidence_id": "citation:145584:2025-10-15:F0689",
+   "survey_date": "2025-10-15",
+   "ftag": "F0689",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "G",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-10-20"
+  },
+  {
+   "evidence_id": "citation:145584:2025-09-24:F0695",
+   "survey_date": "2025-09-24",
+   "ftag": "F0695",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-11-16"
+  },
+  {
+   "evidence_id": "citation:145584:2025-09-24:F0842",
+   "survey_date": "2025-09-24",
+   "ftag": "F0842",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-09-30"
+  },
+  {
+   "evidence_id": "citation:145584:2025-09-05:F0550",
+   "survey_date": "2025-09-05",
+   "ftag": "F0550",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-09-23"
+  },
+  {
+   "evidence_id": "citation:145584:2025-09-05:F0690",
+   "survey_date": "2025-09-05",
+   "ftag": "F0690",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-09-23"
+  },
+  {
+   "evidence_id": "citation:145584:2025-08-06:F0580",
+   "survey_date": "2025-08-06",
+   "ftag": "F0580",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-08-15"
+  },
+  {
+   "evidence_id": "citation:145584:2025-08-06:F0760",
+   "survey_date": "2025-08-06",
+   "ftag": "F0760",
+   "deficiency_category": "Pharmacy Service Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-08-15"
+  },
+  {
+   "evidence_id": "citation:145584:2025-05-30:F0584",
+   "survey_date": "2025-05-30",
+   "ftag": "F0584",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-06-12"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-25:F0600",
+   "survey_date": "2025-04-25",
+   "ftag": "F0600",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "G",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-05-19"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-25:F0609",
+   "survey_date": "2025-04-25",
+   "ftag": "F0609",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-05-13"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-25:F0610",
+   "survey_date": "2025-04-25",
+   "ftag": "F0610",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "G",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-05-13"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-19:F0725",
+   "survey_date": "2025-04-19",
+   "ftag": "F0725",
+   "deficiency_category": "Nursing and Physician Services Deficiencies",
+   "scope_severity": "F",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-05-02"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-19:F0759",
+   "survey_date": "2025-04-19",
+   "ftag": "F0759",
+   "deficiency_category": "Pharmacy Service Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-05-02"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-09:F0623",
+   "survey_date": "2025-04-09",
+   "ftag": "F0623",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-04-28"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-09:F0625",
+   "survey_date": "2025-04-09",
+   "ftag": "F0625",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-04-28"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-09:F0689",
+   "survey_date": "2025-04-09",
+   "ftag": "F0689",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-04-28"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-09:F0690",
+   "survey_date": "2025-04-09",
+   "ftag": "F0690",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "G",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-04-28"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-09:F0725",
+   "survey_date": "2025-04-09",
+   "ftag": "F0725",
+   "deficiency_category": "Nursing and Physician Services Deficiencies",
+   "scope_severity": "F",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-05-02"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-09:F0727",
+   "survey_date": "2025-04-09",
+   "ftag": "F0727",
+   "deficiency_category": "Nursing and Physician Services Deficiencies",
+   "scope_severity": "F",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-04-28"
+  },
+  {
+   "evidence_id": "citation:145584:2025-04-09:F0881",
+   "survey_date": "2025-04-09",
+   "ftag": "F0881",
+   "deficiency_category": "Infection Control Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-04-28"
+  },
+  {
+   "evidence_id": "citation:145584:2025-02-24:F0578",
+   "survey_date": "2025-02-24",
+   "ftag": "F0578",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-03-07"
+  },
+  {
+   "evidence_id": "citation:145584:2025-02-24:F0678",
+   "survey_date": "2025-02-24",
+   "ftag": "F0678",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-03-07"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-24:F0609",
+   "survey_date": "2025-01-24",
+   "ftag": "F0609",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-01-31"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-24:F0644",
+   "survey_date": "2025-01-24",
+   "ftag": "F0644",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-01-28"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-24:F0645",
+   "survey_date": "2025-01-24",
+   "ftag": "F0645",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-02-26"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-24:F0686",
+   "survey_date": "2025-01-24",
+   "ftag": "F0686",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-01-29"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-24:F0689",
+   "survey_date": "2025-01-24",
+   "ftag": "F0689",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "G",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-01-31"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-24:F0690",
+   "survey_date": "2025-01-24",
+   "ftag": "F0690",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-01-29"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-24:F0727",
+   "survey_date": "2025-01-24",
+   "ftag": "F0727",
+   "deficiency_category": "Nursing and Physician Services Deficiencies",
+   "scope_severity": "F",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-01-28"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-24:F0758",
+   "survey_date": "2025-01-24",
+   "ftag": "F0758",
+   "deficiency_category": "Pharmacy Service Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2025-01-29"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-07:F0600",
+   "survey_date": "2025-01-07",
+   "ftag": "F0600",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-01-13"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-07:F0677",
+   "survey_date": "2025-01-07",
+   "ftag": "F0677",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-01-14"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-07:F0684",
+   "survey_date": "2025-01-07",
+   "ftag": "F0684",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-01-14"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-07:F0686",
+   "survey_date": "2025-01-07",
+   "ftag": "F0686",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-01-29"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-07:F0689",
+   "survey_date": "2025-01-07",
+   "ftag": "F0689",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "G",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-01-31"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-07:F0690",
+   "survey_date": "2025-01-07",
+   "ftag": "F0690",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-01-14"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-07:F0727",
+   "survey_date": "2025-01-07",
+   "ftag": "F0727",
+   "deficiency_category": "Nursing and Physician Services Deficiencies",
+   "scope_severity": "F",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-01-28"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-07:F0839",
+   "survey_date": "2025-01-07",
+   "ftag": "F0839",
+   "deficiency_category": "Administration Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-01-15"
+  },
+  {
+   "evidence_id": "citation:145584:2025-01-07:F0842",
+   "survey_date": "2025-01-07",
+   "ftag": "F0842",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2025-01-14"
+  },
+  {
+   "evidence_id": "citation:145584:2024-12-02:F0585",
+   "survey_date": "2024-12-02",
+   "ftag": "F0585",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-12-18"
+  },
+  {
+   "evidence_id": "citation:145584:2024-12-02:F0609",
+   "survey_date": "2024-12-02",
+   "ftag": "F0609",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-12-18"
+  },
+  {
+   "evidence_id": "citation:145584:2024-09-12:F0725",
+   "survey_date": "2024-09-12",
+   "ftag": "F0725",
+   "deficiency_category": "Nursing and Physician Services Deficiencies",
+   "scope_severity": "F",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-09-25"
+  },
+  {
+   "evidence_id": "citation:145584:2024-06-26:F0686",
+   "survey_date": "2024-06-26",
+   "ftag": "F0686",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-07-12"
+  },
+  {
+   "evidence_id": "citation:145584:2024-06-12:F0600",
+   "survey_date": "2024-06-12",
+   "ftag": "F0600",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-07-08"
+  },
+  {
+   "evidence_id": "citation:145584:2024-05-21:F0604",
+   "survey_date": "2024-05-21",
+   "ftag": "F0604",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-06-14"
+  },
+  {
+   "evidence_id": "citation:145584:2024-05-21:F0610",
+   "survey_date": "2024-05-21",
+   "ftag": "F0610",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-06-11"
+  },
+  {
+   "evidence_id": "citation:145584:2024-05-21:F0689",
+   "survey_date": "2024-05-21",
+   "ftag": "F0689",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-06-11"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0550",
+   "survey_date": "2024-03-15",
+   "ftag": "F0550",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "E",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-09"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0553",
+   "survey_date": "2024-03-15",
+   "ftag": "F0553",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-17"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0568",
+   "survey_date": "2024-03-15",
+   "ftag": "F0568",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-09"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0577",
+   "survey_date": "2024-03-15",
+   "ftag": "F0577",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "C",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0584",
+   "survey_date": "2024-03-15",
+   "ftag": "F0584",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "E",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0600",
+   "survey_date": "2024-03-15",
+   "ftag": "F0600",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "E",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0609",
+   "survey_date": "2024-03-15",
+   "ftag": "F0609",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "E",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0640",
+   "survey_date": "2024-03-15",
+   "ftag": "F0640",
+   "deficiency_category": "Resident Assessment and Care Planning Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0686",
+   "survey_date": "2024-03-15",
+   "ftag": "F0686",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0689",
+   "survey_date": "2024-03-15",
+   "ftag": "F0689",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0690",
+   "survey_date": "2024-03-15",
+   "ftag": "F0690",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0695",
+   "survey_date": "2024-03-15",
+   "ftag": "F0695",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "E",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-03"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0732",
+   "survey_date": "2024-03-15",
+   "ftag": "F0732",
+   "deficiency_category": "Nursing and Physician Services Deficiencies",
+   "scope_severity": "C",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0756",
+   "survey_date": "2024-03-15",
+   "ftag": "F0756",
+   "deficiency_category": "Pharmacy Service Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0759",
+   "survey_date": "2024-03-15",
+   "ftag": "F0759",
+   "deficiency_category": "Pharmacy Service Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0761",
+   "survey_date": "2024-03-15",
+   "ftag": "F0761",
+   "deficiency_category": "Pharmacy Service Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0801",
+   "survey_date": "2024-03-15",
+   "ftag": "F0801",
+   "deficiency_category": "Nutrition and Dietary Deficiencies",
+   "scope_severity": "F",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-15"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0812",
+   "survey_date": "2024-03-15",
+   "ftag": "F0812",
+   "deficiency_category": "Nutrition and Dietary Deficiencies",
+   "scope_severity": "F",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-15"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0825",
+   "survey_date": "2024-03-15",
+   "ftag": "F0825",
+   "deficiency_category": "Quality of Life and Care Deficiencies",
+   "scope_severity": "E",
+   "is_standard": true,
+   "is_complaint": true,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0880",
+   "survey_date": "2024-03-15",
+   "ftag": "F0880",
+   "deficiency_category": "Infection Control Deficiencies",
+   "scope_severity": "F",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0909",
+   "survey_date": "2024-03-15",
+   "ftag": "F0909",
+   "deficiency_category": "Environmental Deficiencies",
+   "scope_severity": "D",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-03-15:F0919",
+   "survey_date": "2024-03-15",
+   "ftag": "F0919",
+   "deficiency_category": "Environmental Deficiencies",
+   "scope_severity": "E",
+   "is_standard": true,
+   "is_complaint": false,
+   "correction_date": "2024-04-02"
+  },
+  {
+   "evidence_id": "citation:145584:2024-02-20:F0600",
+   "survey_date": "2024-02-20",
+   "ftag": "F0600",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-03-07"
+  },
+  {
+   "evidence_id": "citation:145584:2024-02-20:F0607",
+   "survey_date": "2024-02-20",
+   "ftag": "F0607",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-03-07"
+  },
+  {
+   "evidence_id": "citation:145584:2024-02-20:F0609",
+   "survey_date": "2024-02-20",
+   "ftag": "F0609",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-03-07"
+  },
+  {
+   "evidence_id": "citation:145584:2024-02-02:F0584",
+   "survey_date": "2024-02-02",
+   "ftag": "F0584",
+   "deficiency_category": "Resident Rights Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-02-20"
+  },
+  {
+   "evidence_id": "citation:145584:2024-02-02:F0727",
+   "survey_date": "2024-02-02",
+   "ftag": "F0727",
+   "deficiency_category": "Nursing and Physician Services Deficiencies",
+   "scope_severity": "F",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-02-20"
+  },
+  {
+   "evidence_id": "citation:145584:2024-02-02:F0761",
+   "survey_date": "2024-02-02",
+   "ftag": "F0761",
+   "deficiency_category": "Pharmacy Service Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-02-20"
+  },
+  {
+   "evidence_id": "citation:145584:2024-01-17:F0602",
+   "survey_date": "2024-01-17",
+   "ftag": "F0602",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-01-26"
+  },
+  {
+   "evidence_id": "citation:145584:2024-01-17:F0607",
+   "survey_date": "2024-01-17",
+   "ftag": "F0607",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "E",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2024-01-26"
+  },
+  {
+   "evidence_id": "citation:145584:2023-11-05:F0604",
+   "survey_date": "2023-11-05",
+   "ftag": "F0604",
+   "deficiency_category": "Freedom from Abuse, Neglect, and Exploitation Deficiencies",
+   "scope_severity": "D",
+   "is_standard": false,
+   "is_complaint": true,
+   "correction_date": "2023-11-25"
+  }
+ ],
+ "penalties": [
+  {
+   "evidence_id": "penalty:145584:2026-01-29:fine:1",
+   "penalty_date": "2026-01-29",
+   "penalty_type": "Fine",
+   "fine_amount": 150385.0,
+   "payment_denial_start_date": null,
+   "payment_denial_length_days": null
+  },
+  {
+   "evidence_id": "penalty:145584:2026-01-29:payment_denial:1",
+   "penalty_date": "2026-01-29",
+   "penalty_type": "Payment Denial",
+   "fine_amount": null,
+   "payment_denial_start_date": "2026-02-25",
+   "payment_denial_length_days": 44.0
+  },
+  {
+   "evidence_id": "penalty:145584:2025-09-05:fine:1",
+   "penalty_date": "2025-09-05",
+   "penalty_type": "Fine",
+   "fine_amount": 47405.0,
+   "payment_denial_start_date": null,
+   "payment_denial_length_days": null
+  },
+  {
+   "evidence_id": "penalty:145584:2025-09-05:payment_denial:1",
+   "penalty_date": "2025-09-05",
+   "penalty_type": "Payment Denial",
+   "fine_amount": null,
+   "payment_denial_start_date": "2025-11-13",
+   "payment_denial_length_days": 3.0
+  },
+  {
+   "evidence_id": "penalty:145584:2025-04-09:payment_denial:1",
+   "penalty_date": "2025-04-09",
+   "penalty_type": "Payment Denial",
+   "fine_amount": null,
+   "payment_denial_start_date": "2025-05-06",
+   "payment_denial_length_days": 37.0
+  },
+  {
+   "evidence_id": "penalty:145584:2025-01-07:fine:1",
+   "penalty_date": "2025-01-07",
+   "penalty_type": "Fine",
+   "fine_amount": 47115.0,
+   "payment_denial_start_date": null,
+   "payment_denial_length_days": null
+  },
+  {
+   "evidence_id": "penalty:145584:2025-01-07:payment_denial:1",
+   "penalty_date": "2025-01-07",
+   "penalty_type": "Payment Denial",
+   "fine_amount": null,
+   "payment_denial_start_date": "2025-02-06",
+   "payment_denial_length_days": 29.0
+  }
+ ],
+ "chain": {
+  "evidence_id": "chain:776:2026-10",
+  "chain_id": "776",
+  "n_facilities": 12,
+  "beds": 1196.0,
+  "expected_facilities_with_event": 6.950121213993876,
+  "p_any_event": 0.9999953358139646,
+  "bed_weighted_mean_p": 0.5999593779390369,
+  "max_p": 0.9100457203063013,
+  "worst_ccn": "145584",
+  "share_top_decile": 0.75
+ }
+}

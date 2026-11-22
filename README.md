@@ -630,7 +630,7 @@ Precursor-Intelligence/
 ├── src/
 │   └── precursorintelligence/  # shared Python package
 ├── backend/                    # FastAPI service
-├── frontend/                   # Streamlit dashboard
+├── frontend/                   # React app (Vite, TypeScript)
 ├── dags/                       # Airflow DAGs
 ├── docker/                     # Dockerfiles and local Airflow compose
 ├── infra/terraform/            # GCP infrastructure as code
@@ -651,7 +651,7 @@ Precursor-Intelligence/
 | `configs/` | base / dev / prod config, dataset registry, versioned schema contracts, LLM prompts |
 | `src/precursorintelligence/` | Shared Python package: `common`, `ingestion`, `harmonize` (bronze, silver), `gold`, `validation`, `bias`, `alerts`, `features`, `training`, `evaluation`, `serving`, `monitoring`, `agents` |
 | `backend/` | FastAPI service, using the agents in `src/precursorintelligence/agents`; deployed to Cloud Run |
-| `frontend/` | Streamlit dashboard; deployed to Cloud Run |
+| `frontend/` | The React app underwriters use (`frontend/README.md`); FastAPI serves its build on Cloud Run (`docs/adr/0001-ui-hosting-and-auth.md`) |
 | `dags/` | Thin Airflow DAGs that only trigger jobs (no business logic) |
 | `docker/` | One Dockerfile per image, plus the local Airflow compose file |
 | `infra/terraform/` | GCP infrastructure: `envs/{dev,prod}` and reusable modules |
