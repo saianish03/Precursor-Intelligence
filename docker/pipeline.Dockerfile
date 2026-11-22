@@ -3,9 +3,10 @@
 #
 #   docker build -f docker/pipeline.Dockerfile --build-arg PI_GIT_SHA=$(git rev-parse HEAD) \
 #     -t precursor-pipeline:<tag> .
-FROM python:3.12.12-slim-bookworm
+# Base images by tag and digest (L10): rebuilds start from the same bytes; Dependabot proposes digest updates.
+FROM python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c
 
-COPY --from=ghcr.io/astral-sh/uv:0.13.0 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.0@sha256:cdc6093146eb3ff6a40107b38f008b789e050e77ad87865e381d9917da55a168 /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \

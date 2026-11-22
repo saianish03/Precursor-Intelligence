@@ -90,12 +90,55 @@ resource "google_storage_bucket_iam_member" "pipeline_mlflow" {
 }
 
 # The VM's logging and monitoring agents write as sa-pipeline; without these its logs and metrics are dropped.
+# bigquery.jobUser: `ml publish` runs its load jobs in the project (ML spec §16.3); the data rights are the dataset's.
 resource "google_project_iam_member" "pipeline_runtime" {
-  for_each = toset(["roles/logging.logWriter", "roles/monitoring.metricWriter"])
+  for_each = toset(["roles/logging.logWriter", "roles/monitoring.metricWriter", "roles/bigquery.jobUser"])
 
   project = var.project_id
   role    = each.key
   member  = "serviceAccount:${google_service_account.pipeline.email}"
+}
+
+# The month's scores for SQL readers (ML spec §11 Phase 2, ML-4): `ml publish` loads each month into its partition,
+# WRITE_TRUNCATE, so a rerun replaces exactly that month. The schemas are configs/bigquery/*.json, which the load
+# reads too (a test checks them against the score files). Every query must filter on score_month, so nobody scans
+# every month by accident. dataEditor also lets sa-pipeline alter or drop these tables (deletion_protection only stops
+# Terraform): acceptable, since the GCS score files stay the source, a rerun of publish rebuilds a month, and the next
+# apply recreates a dropped table.
+resource "google_bigquery_dataset" "scores" {
+  dataset_id  = "precursorintelligence_scores"
+  location    = var.region
+  description = "Monthly facility and chain scores, loaded by ml publish (docs/ML_PIPELINE_SPEC.md §11)"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "google_bigquery_table" "scores" {
+  for_each = {
+    facility_scores  = ["state"]
+    facility_reasons = []
+    chain_scores     = []
+  }
+
+  dataset_id               = google_bigquery_dataset.scores.dataset_id
+  table_id                 = each.key
+  schema                   = file("${path.module}/../../../../configs/bigquery/${each.key}.json")
+  clustering               = length(each.value) > 0 ? each.value : null
+  require_partition_filter = true
+  deletion_protection      = true
+
+  time_partitioning {
+    type  = "MONTH"
+    field = "score_month"
+  }
+}
+
+resource "google_bigquery_dataset_iam_member" "pipeline_scores" {
+  dataset_id = google_bigquery_dataset.scores.dataset_id
+  role       = "roles/bigquery.dataEditor"
+  member     = "serviceAccount:${google_service_account.pipeline.email}"
 }
 
 module "wif" {
@@ -141,16 +184,6 @@ resource "google_artifact_registry_repository_iam_member" "deployer_pushes" {
   member     = "serviceAccount:${google_service_account.deployer.email}"
 }
 
-# The old binding on the branch subject (any workflow on these branches): forgotten, not deleted, as apply_from_branch
-# in modules/wif; an Owner removes it by hand (infra/README.md, "Which workflow can act as which account").
-removed {
-  from = google_service_account_iam_member.deployer_from_branch
-
-  lifecycle {
-    destroy = false
-  }
-}
-
 # CD's runs alone (cd.yml).
 resource "google_service_account_iam_member" "deployer_from_workflow" {
   for_each = toset(var.apply_branches)
@@ -162,22 +195,13 @@ resource "google_service_account_iam_member" "deployer_from_workflow" {
 
 # The Deploy workflow (T22, .github/workflows/deploy.yml) points the VM at a release as this account: it sets the
 # instance metadata pi-release. Only runs on apply_branches can act as it, like sa-deployer. A separate account, so a
-# leaked sa-deployer token can't set metadata. release_from_workflow ties it to deploy.yml; the old branch binding
-# (release_from_branch, any workflow on those branches) is forgotten below and removed by hand by an Owner.
+# leaked sa-deployer token can't set metadata. release_from_workflow ties it to deploy.yml alone.
 resource "google_service_account" "release" {
   account_id   = "sa-release"
   display_name = "VM release pointer (Deploy workflow, merged branches only)"
 
   lifecycle {
     prevent_destroy = true
-  }
-}
-
-removed {
-  from = google_service_account_iam_member.release_from_branch
-
-  lifecycle {
-    destroy = false
   }
 }
 

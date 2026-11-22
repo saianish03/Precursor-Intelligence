@@ -8,6 +8,7 @@ must not get files outside ``outputs.root_prefix``.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
@@ -117,10 +118,23 @@ def _run_task(
     log_level: str | None,
     run_id: str | None,
     body: Callable[[Any, str], dict[str, Any]],
+    *,
+    needs_tracking: bool = True,
 ) -> None:
     """The shared frame of the W1 commands: init, run ``body(ctx, run_id)``, map errors to exit codes, print the
     summary JSON as the last stdout line."""
     settings, run_id, _ = _init(env, env_file, log_level, run_id, label=label)
+    # #73 B16: without tracking nothing is registered, so a prod run would hold every model; refuse instead.
+    if (
+        needs_tracking
+        and settings.env.env == "prod"
+        and not os.environ.get("MLFLOW_TRACKING_URI", "").strip()
+    ):
+        typer.echo(
+            "config error: MLFLOW_TRACKING_URI is not set: prod ML tasks need the MLflow server",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG)
     try:
         ctx = build_context(settings, run_id=run_id)
         summary = body(ctx, run_id)
@@ -448,14 +462,22 @@ def publish(
     ml_config: Path | None = ML_CONFIG_OPT,
     mode: ModeOpt = typer.Option(ModeOpt.auto, help="the DAG run's mode, recorded in ml_runs"),
 ) -> None:
-    """Verify scores_manifest.json against the month's files and record the published scores in ml_runs (§11,
-    Phase 1; the DAG emits the cms_nh_scores asset). Last stdout line: a JSON summary."""
+    """Verify scores_manifest.json against the month's files, load them into BigQuery when the env has a bigquery
+    block (§11 Phase 2), then record the published scores in ml_runs (the DAG emits the cms_nh_scores asset). Last
+    stdout line: a JSON summary."""
 
     def body(ctx: Any, rid: str) -> dict[str, Any]:
         from ..serving.publish import run_publish
 
         cfg = load_ml_config(ml_config)
-        out = run_publish(ctx.object_store, ctx.metadata, ml_run_id=rid, cfg=cfg, mode=mode.value)
+        out = run_publish(
+            ctx.object_store,
+            ctx.metadata,
+            ml_run_id=rid,
+            cfg=cfg,
+            mode=mode.value,
+            bigquery=ctx.settings.env.bigquery,
+        )
         typer.echo(
             f"run {rid}: publish {out.reason}" + (f" ({out.v}: {out.rows})" if out.v else "")
         )

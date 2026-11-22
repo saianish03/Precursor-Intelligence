@@ -24,13 +24,16 @@ check() { # name, condition (a bash expression)
   fi
 }
 bucket_lines() { grep -c '^PI_BUCKET_URI=' "$T/env"; }
+no_bigquery() { grep -qx "PI_BIGQUERY_DATASET=''" "$T/env"; } # a trial run must never load the real dataset
 refused() { [ "$RC" != 0 ] && grep -q "allows only PI_BUCKET_URI" <<< "$OUT"; }
 
 rm -f "$OVERRIDES"; envfile
 check "no override file: the secrets and the sha, no PI_BUCKET_URI" '[ $RC = 0 ] && [ "$(wc -l < "$T/env")" = 10 ] && [ "$(bucket_lines)" = 0 ] && [ "$(tail -n 1 "$T/env")" = "PI_RELEASE_SHA='"'"'$SHA'"'"'" ]'
+check "no override file: BigQuery stays on (the compose default)" '! grep -q "^PI_BIGQUERY_DATASET=" "$T/env"'
 
 with "PI_BUCKET_URI=$TRIAL\n"
-check "a trial prefix: written quoted, before the sha" '[ $RC = 0 ] && grep -qx "PI_BUCKET_URI='"'"'$TRIAL'"'"'" "$T/env" && [ "$(sed -n 10p "$T/env")" = "PI_BUCKET_URI='"'"'$TRIAL'"'"'" ] && [ "$(wc -l < "$T/env")" = 11 ]'
+check "a trial prefix: written quoted, before the sha" '[ $RC = 0 ] && grep -qx "PI_BUCKET_URI='"'"'$TRIAL'"'"'" "$T/env" && [ "$(sed -n 10p "$T/env")" = "PI_BUCKET_URI='"'"'$TRIAL'"'"'" ] && [ "$(wc -l < "$T/env")" = 12 ]'
+check "a trial prefix: BigQuery off, so publish never loads trial scores" 'no_bigquery'
 check "a trial prefix: logged, with how to undo it" 'grep -q "override: PI_BUCKET_URI=$TRIAL" <<< "$OUT" && grep -q "pi-deploy now" <<< "$OUT"'
 
 with "# smoke test T23\n\n   \nPI_BUCKET_URI=$TRIAL\n# done\n"
@@ -87,6 +90,49 @@ rm -f "$OVERRIDES"; status
 check "status: a rollback's trial prefix shows although the file is gone" 'grep -q "^bucket: *$TRIAL\$" <<< "$OUT" && grep -q "^overrides: *none" <<< "$OUT"'
 printf 'AIRFLOW_DB_PASSWORD=topsecret\n' > "$OVERRIDES"; status
 check "status: an invalid file is reported, its lines never printed" 'grep -q "is invalid: every deploy refuses it" <<< "$OUT" && ! grep -q topsecret <<< "$OUT"'
+
+# stage()'s rollback floors on a fake bundle: `docker cp` copies $BUNDLE, `compose config -q` passes.
+BUNDLE=$T/bundle
+mkdir -p "$BUNDLE"
+docker() { case "$1" in create) echo cid ;; cp) cp -r "$BUNDLE/." "$3" ;; esac; }
+compose() { :; }
+bundle() { # init-db.sh content, docker-compose.vm.yaml content
+  printf '%s\n' "$1" > "$BUNDLE/init-db.sh"; printf '%s\n' "$2" > "$BUNDLE/docker-compose.vm.yaml"; : > "$BUNDLE/docker-compose.yaml"
+  rm -rf "$T/stage" && mkdir "$T/stage"; OUT=$(stage "$SHA" "$T/stage" 2>&1); RC=$?
+}
+rm -f "$OVERRIDES"
+VM_MLFLOW='    image: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor/mlflow:${PI_RELEASE_SHA:?}'
+bundle 'PI_TASKS_SUBNET' "$VM_MLFLOW"
+check "stage: a release with MLflow on the VM is staged" '[ $RC = 0 ] && [ -f "$T/stage/.env" ]'
+bundle 'PI_TASKS_SUBNET' '  mlflow:
+    profiles: [phase2]'
+check "stage: a release from before MLflow on the VM is refused" '[ $RC != 0 ] && grep -q "predates MLflow on the VM" <<< "$OUT"'
+bundle 'no task-network rule' "$VM_MLFLOW"
+check "stage: the L11 floor still holds" '[ $RC != 0 ] && grep -q "predates L11" <<< "$OUT"'
+
+# check_running on fakes: the Airflow containers and (when MLFLOW_UP) mlflow run this sha's images, the right env and
+# pg_hba lines. It checks mlflow only when the live files run it (the rollback from the first MLflow release doesn't).
+running() { case "$1" in mlflow) [ -z "${MLFLOW_UP:-}" ] || echo c-mlflow ;; *) echo c-airflow ;; esac; }
+docker() {
+  case "$1" in
+    image) case "$5" in */mlflow:*) echo img-mlflow ;; *) echo img-airflow ;; esac ;;
+    network) echo 172.16.77.0/24 ;;
+    inspect) if [ "$3" = '{{.Image}}' ]; then echo "img-${4#c-}"; else
+      printf 'PI_PIPELINE_IMAGE=%s\nPI_BUCKET_URI=gs://precursor-intel-mlops-data\n' "$REGISTRY/pipeline:$SHA"; fi ;;
+  esac
+}
+live_bucket() { :; }
+dc() { printf 'host %s 172.16.77.0/24 %s\n' "precursor_meta pi_meta" scram-sha-256 "mlflow mlflow" scram-sha-256 "all all" reject; }
+COMPOSE_DIR=$T/live
+mkdir -p "$COMPOSE_DIR"
+checked() { printf '%s\n' "$1" > "$COMPOSE_DIR/docker-compose.vm.yaml"; OUT=$(check_running "$SHA" 2>&1); RC=$?; }
+MLFLOW_UP=1 checked "$VM_MLFLOW"
+check "check_running: Airflow and mlflow on this sha: passes" '[ $RC = 0 ]'
+MLFLOW_UP="" checked "$VM_MLFLOW"
+check "check_running: the live files run mlflow but it is down: fails" '[ $RC != 0 ] && grep -q "mlflow is not running" <<< "$OUT"'
+MLFLOW_UP="" checked "  mlflow:
+    profiles: [phase2]"
+check "check_running: a rollback to the release before MLflow: passes without mlflow" '[ $RC = 0 ]'
 
 OUT=$(bash /repo-vm/pi-deploy bogus 2>&1); RC=$?
 check "run as a command (not sourced): main runs" '[ $RC = 2 ] && grep -q "usage: pi-deploy" <<< "$OUT"'

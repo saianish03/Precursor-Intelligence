@@ -1,9 +1,10 @@
 name: CD
 
-# After a merge into dev or main that changes what goes into an image: build both images once, test them, and push
-# them to Artifact Registry tagged with the full commit sha. Tags are immutable there and nothing is ever tagged
-# latest, so a VM told to run a sha runs exactly those bytes. Logs in keylessly as sa-deployer, which only runs on
-# dev and main can act as, with push rights on that one repository (infra/terraform/envs/prod/main.tf).
+# After a merge into dev or main that changes what goes into an image: build the three images (pipeline, airflow,
+# mlflow) once, test them, and push them to Artifact Registry tagged with the full commit sha. Tags are immutable
+# there and nothing is ever tagged latest, so a VM told to run a sha runs exactly those bytes. Logs in keylessly as
+# sa-deployer, which only cd.yml's runs on dev and main can act as (#106), with push rights on that one repository
+# (infra/terraform/envs/prod/main.tf).
 on:
   push:
     branches: [dev, main]
@@ -44,12 +45,12 @@ jobs:
       contents: read
       id-token: write # the OIDC token that workload identity federation exchanges for Google credentials
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false # nothing here pushes to git
 
       - id: auth
-        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: sa-deployer@precursor-intel-mlops.iam.gserviceaccount.com
@@ -65,16 +66,14 @@ jobs:
       - name: Already published?
         id: published
         run: |
-          if docker manifest inspect "$REGISTRY/pipeline:$GITHUB_SHA" >/dev/null 2>&1 \
-              && docker manifest inspect "$REGISTRY/airflow:$GITHUB_SHA" >/dev/null 2>&1; then
-            echo "both=true" >> "$GITHUB_OUTPUT"
-            echo "Both images for \`$GITHUB_SHA\` are already in the registry: nothing to build or push." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "both=false" >> "$GITHUB_OUTPUT"
-          fi
+          for image in pipeline airflow mlflow; do
+            docker manifest inspect "$REGISTRY/$image:$GITHUB_SHA" >/dev/null 2>&1 || { echo "all=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          done
+          echo "all=true" >> "$GITHUB_OUTPUT"
+          echo "All three images for \`$GITHUB_SHA\` are already in the registry: nothing to build or push." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build both images
-        if: steps.published.outputs.both == 'false'
+      - name: Build the three images
+        if: steps.published.outputs.all == 'false'
         run: |
           # No provenance or SBOM attachments: one plain manifest per tag, so the registry's keep-the-5-newest
           # cleanup counts releases, not attachments.
@@ -82,13 +81,16 @@ jobs:
             --build-arg PI_GIT_SHA="$GITHUB_SHA" -t "$REGISTRY/pipeline:$GITHUB_SHA" .
           docker build --provenance=false --sbom=false -f docker/airflow.Dockerfile \
             --build-arg PI_GIT_SHA="$GITHUB_SHA" -t "$REGISTRY/airflow:$GITHUB_SHA" .
+          docker build --provenance=false --sbom=false -f docker/mlflow.Dockerfile \
+            --build-arg PI_GIT_SHA="$GITHUB_SHA" -t "$REGISTRY/mlflow:$GITHUB_SHA" .
 
-      # The same checks as CI's images job (ci.yml), on the exact images about to be pushed, plus the commit label on
-      # both. Keep the two in step: a check added to one must be added to the other.
+      # The per-image checks of CI's images job (ci.yml), on the exact images about to be pushed, plus the commit label
+      # on each. Keep the two in step: a check added to one must be added to the other. CI's compose smoke run (MLflow
+      # against a fake GCS) stays CI-only: it tests the same commit's files.
       - name: Test the images
-        if: steps.published.outputs.both == 'false'
+        if: steps.published.outputs.all == 'false'
         run: |
-          for image in pipeline airflow; do
+          for image in pipeline airflow mlflow; do
             label=$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$REGISTRY/$image:$GITHUB_SHA")
             test "$label" = "$GITHUB_SHA" || { echo "::error::$image image is labelled '$label', not $GITHUB_SHA"; exit 1; }
           done
@@ -96,6 +98,11 @@ jobs:
           docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" precursor-pipeline --help > /dev/null
           docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" python -c "import fairlearn, lightgbm, mlflow, optuna, shap, sklearn"
           test "$(docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" printenv PI_GIT_SHA)" = "$GITHUB_SHA"
+          help=$(docker run --rm "$REGISTRY/mlflow:$GITHUB_SHA" mlflow server --help)
+          for flag in --allowed-hosts --serve-artifacts --artifacts-destination --workers; do
+            grep -q -- "$flag" <<< "$help" || { echo "::error::mlflow server has no $flag"; exit 1; }
+          done
+          docker run --rm "$REGISTRY/mlflow:$GITHUB_SHA" python -c "import google.cloud.storage, psycopg2"
           docker run --rm --entrypoint "" -v "$PWD/tests/dags:/opt/airflow/tests/dags:ro" \
             "$REGISTRY/airflow:$GITHUB_SHA" python -m pytest -q -p no:cacheprovider /opt/airflow/tests/dags
           # the compose bundle the VM deploys from: the base file alone (a laptop's five secrets) and with the VM file
@@ -113,16 +120,16 @@ jobs:
             exit 1
           fi
 
-      # Push each image only if its tag is still free: after a run that pushed one image and then failed, the rerun
-      # pushes only the other one.
+      # Push each image only if its tag is still free: after a run that pushed some images and then failed, the rerun
+      # pushes only the rest.
       - name: Push
-        if: steps.published.outputs.both == 'false'
+        if: steps.published.outputs.all == 'false'
         run: |
           {
             echo "| image | digest |"
             echo "|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
-          for image in pipeline airflow; do
+          for image in pipeline airflow mlflow; do
             ref="$REGISTRY/$image:$GITHUB_SHA"
             if docker manifest inspect "$ref" >/dev/null 2>&1; then
               echo "| \`$ref\` | already published |" >> "$GITHUB_STEP_SUMMARY"
@@ -130,4 +137,25 @@ jobs:
             fi
             docker push "$ref"
             echo "| \`$ref\` | \`$(docker image inspect -f '{{ index .RepoDigests 0 }}' "$ref")\` |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      # main's releases get a second tag, main-<sha>, which the registry's cleanup keeps whatever its age
+      # (infra/terraform/modules/artifact_registry), so main can always deploy or roll back to them. Also on a run
+      # that built nothing (main fast-forwarded to a commit dev already published). --prefer-index=false adds the tag
+      # to the same manifest; without it buildx wraps the manifest in a new index with another digest, and the
+      # cleanup would keep that index instead of the version the sha tag names. The digests are compared on every
+      # run, a rerun with the tag already there too, and an empty one (a failed inspect) fails.
+      - name: Tag main's release
+        if: github.ref == 'refs/heads/main'
+        run: |
+          digest() { docker buildx imagetools inspect "$1" | awk '/^Digest:/ {print $2}'; }
+          for image in pipeline airflow mlflow; do
+            src="$REGISTRY/$image:$GITHUB_SHA" dst="$REGISTRY/$image:main-$GITHUB_SHA"
+            docker manifest inspect "$dst" >/dev/null 2>&1 \
+              || docker buildx imagetools create --prefer-index=false --tag "$dst" "$src"
+            want=$(digest "$src") got=$(digest "$dst")
+            if [ -z "$want" ] || [ "$got" != "$want" ]; then
+              echo "::error::$dst is not the manifest $src names"; exit 1
+            fi
+            echo "\`$dst\` = \`$want\`" >> "$GITHUB_STEP_SUMMARY"
           done

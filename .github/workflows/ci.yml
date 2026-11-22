@@ -1,8 +1,8 @@
 name: CI
 
 # Runs on every pull request into dev (feature work) and main (releases): lint and tests when the PR touches code,
-# configs or tests (only the ML tests when it touches only ML code), plus the three images and the DAG tests when the
-# PR touches them.
+# configs or tests (only the ML tests when it touches only ML code), plus the three images and the DAG tests, the
+# frontend, and the VM's own scripts (infra/vm/) when the PR touches them.
 # Make the "ci-ok" check required in the branch rulesets: a PR can then merge only when every job passes.
 on:
   pull_request:
@@ -27,7 +27,7 @@ jobs:
         python-version: ["3.11", "3.12"]
     steps:
       - name: Check out the merge commit and its base
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 
@@ -60,7 +60,7 @@ jobs:
 
       - name: Set up uv and Python
         if: steps.scope.outputs.scope != 'none'
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           # pinned: uv export's marker format changes between releases, and requirements.txt is checked against it
           version: "0.13.9"
@@ -149,7 +149,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the merge commit and its base
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 
@@ -226,13 +226,29 @@ jobs:
 
       # The bundle really runs on a new database: airflow-init (migrate + the pool `heavy`), postgres-setup's SQL, the
       # server's command and health check, a client on the task network logging a run and reading its artifact back,
-      # and the task network's limits (L11): no airflow login, and mlflow only on its own database.
+      # and the task network's limits (L11): no airflow login, and mlflow only on its own database. Artifacts go to a
+      # gs:// prefix as on the VM (#73 B15), here on a fake GCS server, with the VM's empty credentials setting.
       - name: MLflow and airflow-init run in the compose bundle, within the task network's limits
         if: steps.changes.outputs.build == 'true'
         run: |
           export AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x \
             MLFLOW_DB_PASSWORD=x PI_MLFLOW_IMAGE=precursor-mlflow:ci PI_AIRFLOW_IMAGE=precursor-airflow:ci
-          compose() { docker compose -f bundle/docker-compose.yaml "$@"; }
+          cat > gcs.yaml <<'YAML'
+          services:
+            fake-gcs:
+              image: fsouza/fake-gcs-server:1.52.2@sha256:d47b4cf8b87006cab8fbbecfa5f06a2a3c5722e464abddc0d107729663d40ec4
+              command: ["-scheme", "http", "-port", "4443", "-public-host", "fake-gcs:4443", "-backend", "memory"]
+              networks: [tasks]
+            mlflow:
+              environment:
+                PI_MLFLOW_ARTIFACTS: gs://ci-bucket/vm
+                STORAGE_EMULATOR_HOST: http://fake-gcs:4443
+                GOOGLE_APPLICATION_CREDENTIALS: ""
+              depends_on:
+                fake-gcs:
+                  condition: service_started
+          YAML
+          compose() { docker compose -f bundle/docker-compose.yaml -f gcs.yaml "$@"; }
           trap 'compose logs --tail 50 airflow-init postgres-setup mlflow; compose down -v' EXIT
           compose up -d --wait --wait-timeout 300 mlflow airflow-init
           # as the airflow user (airflow-init runs as root, whose Python has no airflow)
@@ -245,13 +261,18 @@ jobs:
           login mlflow mlflow || { echo "::error::mlflow can't reach its own database"; exit 1; }
           docker run --rm --network pi-airflow-tasks -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
             precursor-pipeline:ci python -c "
-          import mlflow, urllib.request
+          import json, mlflow, urllib.request
+          gcs = 'http://fake-gcs:4443/storage/v1/b'
+          bucket = json.dumps({'name': 'ci-bucket'}).encode()
+          urllib.request.urlopen(urllib.request.Request(f'{gcs}?project=ci', data=bucket, headers={'Content-Type': 'application/json'}))
           assert urllib.request.urlopen('http://mlflow:5000/health').status == 200
           mlflow.set_experiment('ci-smoke')
           with mlflow.start_run() as run:
               mlflow.log_metric('ok', 1)
               mlflow.log_text('hello', 'hello.txt')
           assert mlflow.artifacts.load_text(f'runs:/{run.info.run_id}/hello.txt') == 'hello'
+          names = [o['name'] for o in json.load(urllib.request.urlopen(f'{gcs}/ci-bucket/o?prefix=vm/')).get('items', [])]
+          assert f'vm/{run.info.experiment_id}/{run.info.run_id}/artifacts/hello.txt' in names, names
           "
 
       - name: Image sizes
@@ -274,7 +295,7 @@ jobs:
         working-directory: frontend
     steps:
       - name: Check out the merge commit and its base
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 
@@ -292,7 +313,7 @@ jobs:
 
       - name: Set up Node
         if: steps.changes.outputs.run == 'true'
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -307,17 +328,45 @@ jobs:
           npm test
           npm run build
 
+  # The VM's own scripts (infra/vm/): pi-down's cases and pi-deploy's smoke-test overrides, each in a Debian 12
+  # container like the VM, with fake commands and no gcloud or metadata server (infra/vm/tests/run.sh). Like images,
+  # it always runs for ci-ok and skips its steps when the PR doesn't touch infra/vm/.
+  vm-scripts:
+    name: VM scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # about 3.5 min on a laptop's Docker
+    steps:
+      - name: Check out the merge commit and its base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+
+      - name: Does the change touch the VM scripts?
+        id: changes
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
+              || git diff --name-only HEAD^1 HEAD | grep -qE '^(infra/vm/|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No VM script changes: nothing to check." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: pi-down's cases and pi-deploy's overrides
+        if: steps.changes.outputs.run == 'true'
+        run: bash infra/vm/tests/run.sh
+
   # Single stable check name to require in the branch rulesets (independent of the Python matrix).
   ci-ok:
     name: ci-ok
-    needs: [tests, images, frontend]
+    needs: [tests, images, frontend, vm-scripts]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: All required jobs passed
         run: |
           if [ "${{ needs.tests.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ] \
-              || [ "${{ needs.frontend.result }}" != "success" ]; then
-            echo "tests: ${{ needs.tests.result }}; images: ${{ needs.images.result }}; frontend: ${{ needs.frontend.result }}"
+              || [ "${{ needs.frontend.result }}" != "success" ] || [ "${{ needs.vm-scripts.result }}" != "success" ]; then
+            echo "tests: ${{ needs.tests.result }}; images: ${{ needs.images.result }}; frontend: ${{ needs.frontend.result }}; vm-scripts: ${{ needs.vm-scripts.result }}"
             exit 1
           fi

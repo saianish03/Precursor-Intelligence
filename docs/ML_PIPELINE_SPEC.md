@@ -441,6 +441,7 @@ All four files go to `<prefix>scores/v=YYYY-MM/` with `scores_manifest.json` (mo
 ## 11. Step M11: publish (task `publish`)
 - **Phase 1:** verifies `scores_manifest.json` against the files (each file present at `<month folder>/<name>.parquet`, its sha256 and row count, one model version; `v`, `gold_run_id` and `dataset_version` equal to the run's input manifest) and emits the Airflow asset **`cms_nh_scores`**. It then appends one `ml_runs` row, `action: score`, `scores_published: true`, with `v`, `dataset_version` and `champion_version_after` = the scoring version. That row is what `decide` reads as "published scores for (`V`, `dataset_version`, champion version)" and what `last_scored_v` reads; a retried publish writes no second row.
 - **Phase 2 (BigQuery, ML-4):** dataset `precursorintelligence_scores` (us-central1, Terraform), tables `facility_scores`, `facility_reasons`, `chain_scores`, monthly-partitioned on `score_month`, clustered by `state` where present. Loaded with a **load job** from the parquet files (never streaming inserts; data spec D6), `WRITE_TRUNCATE` on the month's partition (decorator `table$YYYYMM`), so a rerun replaces exactly that month. The SHAP matrix stays in GCS.
+  **Built (ML Phase 2 item 4):** `serving/bigquery.py`, called by `publish` before its `ml_runs` row (a failed load records nothing, and the retried task loads again; a load whose row count differs from the manifest is refused). The schemas are `configs/bigquery/*.json`, read by Terraform and by the load, and tested against the score files. In BigQuery, `facility_scores`' `p_<label>` is `p` plus a `target` column, so a new champion label never changes the schema, and `scored_at` is a `TIMESTAMP`. Every table requires a `score_month` filter. The env's `bigquery` block has no default dataset (`PI_BIGQUERY_DATASET`, set only on the VM), so a laptop stack on `ml-dev/` loads nothing.
 
 ---
 
@@ -761,7 +762,7 @@ Before the first promotion (and after any change to the gates or mitigation), a 
 | ML-7 | Team | 5 people; sequential foundation and integration, parallel middle | §18 |
 | ML-8 | Base model | PR #49's best model (LightGBM + LR); PRs #38/#49 are the baseline for features, transforms and parameters | §4, Appendix A |
 | ML-9 | Unverified gold | allowed and tagged until the data spec's §11 gate exists | §1.3 |
-| ML-10 | Demo | end to end; monitoring may be thin | §18 |
+| ML-10 | Demo | end to end. **Amended by the lead 2026-11-22** (was "monitoring may be thin"): the demo shows the whole product working end to end at production level, the ML pipeline with its monitoring, drift detection and bias slicing included | §18 |
 | ML-11 | Chain roll-up | yes, as an aggregation | §10.3 |
 | ML-12 | MLflow artifacts | a new bucket `precursor-intel-mlops-mlflow`, proxied | §16.1, §16.3 |
 | ML-13 | Bias | report always; block promotion + alert on a material, significant slice regression vs the champion or a calibration limit | §7, §9.1 G7 |

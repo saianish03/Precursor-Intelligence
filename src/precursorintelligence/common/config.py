@@ -251,6 +251,16 @@ class RunLockCfg(BaseModel):
         return None if self.stale_after_hours is None else timedelta(hours=self.stale_after_hours)
 
 
+class BigQueryCfg(BaseModel):
+    """Where ``publish`` loads the month's scores (ML spec §11 Phase 2); the dataset and tables are Terraform's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str
+    dataset: str
+    location: str
+
+
 class EnvConfig(BaseModel):
     env: str
     object_store: ObjectStoreCfg
@@ -260,6 +270,8 @@ class EnvConfig(BaseModel):
     table_sink: TableSinkCfg = Field(default_factory=TableSinkCfg)
     logging: LoggingCfg = Field(default_factory=LoggingCfg)
     run_lock: RunLockCfg = Field(default_factory=RunLockCfg)
+    # the scores' BigQuery dataset: prod only; without it publish loads nothing (dev, the toy chain)
+    bigquery: BigQueryCfg | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -269,6 +281,10 @@ class EnvConfig(BaseModel):
         store = data.get("package_store") if isinstance(data, dict) else None
         if isinstance(store, dict) and not str(store.get("root") or "").strip():
             data = {**data, "package_store": None}
+        # likewise prod.yaml's dataset ${PI_BIGQUERY_DATASET:-}: unset means publish loads nothing
+        bq = data.get("bigquery") if isinstance(data, dict) else None
+        if isinstance(bq, dict) and not str(bq.get("dataset") or "").strip():
+            data = {**data, "bigquery": None}
         return data
 
 
