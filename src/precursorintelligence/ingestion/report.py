@@ -154,7 +154,8 @@ def _header_sets(inv: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     for (table, _), s in per.items():
         out[table].append(s)
     for sets in out.values():
-        sets.sort(key=lambda s: min(s["vintages"]))
+        # by first month; a tie (a month's duplicate file with other columns) by hash, never by read order
+        sets.sort(key=lambda s: (min(s["vintages"]), s["hash"]))
         prev = None
         for s in sets:
             if prev is not None:

@@ -107,6 +107,26 @@ def test_the_checkpoint_summary_does_not_depend_on_row_order(fake_cms, make_ctx,
     assert body(reordered) == body(as_stored)
 
 
+def test_header_sets_starting_in_the_same_month_keep_one_order():
+    # A month's duplicate file (e.g. a partial re-release) can bring a second header set that starts in the same month;
+    # the tie, and "change vs previous set" with it, must not follow the read order.
+    def row(header_hash, columns, status):
+        return {
+            "table_name": "provider_info",
+            "header_hash": header_hash,
+            "header_json": json.dumps(columns),
+            "n_columns": len(columns),
+            "status": status,
+            "vintage_month": "2026-07",
+        }
+
+    rows = [row("bbbb", ["ccn", "beds"], "selected"), row("aaaa", ["ccn"], "duplicate_vintage")]
+    as_read = report_mod._header_sets(rows)["provider_info"]
+    reversed_ = report_mod._header_sets(rows[::-1])["provider_info"]
+    assert [s["hash"] for s in as_read] == [s["hash"] for s in reversed_] == ["aaaa", "bbbb"]
+    assert as_read[1]["added"] == reversed_[1]["added"] == ["beds"]
+
+
 def test_rerun_is_idempotent(fake_cms, make_ctx, tmp_path):
     build_archive(fake_cms)
     first = make_ctx(fake_cms, root=tmp_path)
