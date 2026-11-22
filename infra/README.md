@@ -133,6 +133,10 @@ drop() { for b in dev main; do gcloud iam service-accounts remove-iam-policy-bin
   --role=roles/iam.workloadIdentityUser --member="$S:ref:refs/heads/$b" --project=$P --condition=None >/dev/null || return 1; done; }
 left() { gcloud iam service-accounts get-iam-policy "$1@$P.iam.gserviceaccount.com" --project=$P --format='value(bindings.members)'; }
 ```
+0. **Before removing anything,** run step 1's check once. The provider computes `attribute.workflow` on every login,
+   so if Google refused the new value (about 155 characters; a length limit is documented only for `google.subject`),
+   every login would fail, through the old bindings too: then use the mapping rollback below. A login that works here
+   proves the value is accepted, and step 1 then tests only that the new binding matches it.
 1. `drop sa-release`, then `left sa-release` shows only the two `principalSet://…/deploy.yml@…` members. **Wait 10
    minutes** (IAM takes minutes to apply a removal; an earlier check could still pass through the old binding). Check:
    ```bash
@@ -154,6 +158,9 @@ left() { gcloud iam service-accounts get-iam-policy "$1@$P.iam.gserviceaccount.c
 
 - **`main` is untested:** it has never run these workflows, so its bindings are first exercised by the first run there
   (do one before relying on `main`, e.g. for the demo).
+- **New CI accounts start workflow-bound:** bind them with `module.wif.workflow_principal_set` (as
+  `deployer_from_workflow` does), never `subject_prefix`, so they never need this migration. E.g. the agents plan's
+  `sa-api-deployer` (`deploy-api.yml`, L9) and `sa-llm-eval` (`llm-eval.yml`, J3).
 - **Renaming `terraform.yml`, `cd.yml` or `deploy.yml`,** or moving its login into a reusable workflow (whose file
   `job_workflow_ref` then names), breaks that account's login once the old bindings are gone; for `terraform.yml` CI
   can't repair it itself. Add the new binding in one PR, rename in the next.

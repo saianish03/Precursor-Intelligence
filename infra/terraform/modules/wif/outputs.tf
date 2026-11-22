@@ -17,6 +17,6 @@ output "workflow_principal_set" {
 }
 
 output "subject_prefix" {
-  description = "principal:// prefix of this repository's GitHub token subjects; append :ref:refs/heads/<branch> or :pull_request."
+  description = "principal:// prefix of this repository's GitHub token subjects (only sa-tf-plan's :pull_request binding uses it); bind new CI accounts with workflow_principal_set."
   value       = local.subject
 }
