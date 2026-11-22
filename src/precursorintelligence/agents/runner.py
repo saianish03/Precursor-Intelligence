@@ -38,6 +38,7 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 from .cache import AnswerCache, CacheKey
 from .counter import DailyCapReached, DailyCounter
 from .ledger import EvidenceLedger, check_evidence_ids, with_ledger
+from .model import configured_model_name
 from .prompts import Prompt, load_prompt
 from .settings import AgentsSettings
 
@@ -251,9 +252,11 @@ def _parse_cached(output_type: type[OutT], cached: dict[str, Any] | None) -> Out
 
 
 def _answered_by(messages: Sequence[ModelMessage], model_name: str) -> bool:
-    """True when every model response in the run came from ``model_name``."""
+    """True when the configured model ``model_name`` wrote every response in the run. Decided from which model
+    object answered (``ConfiguredModel``'s tag), not the name the endpoint reports, which may be spelled
+    differently."""
     responses = [m for m in messages if isinstance(m, ModelResponse)]
-    return bool(responses) and all(r.model_name == model_name for r in responses)
+    return bool(responses) and all(configured_model_name(r) == model_name for r in responses)
 
 
 def _set_fallback_flag(output: OutT) -> OutT:
@@ -379,7 +382,7 @@ async def run_agent(
                     retries={"output": 1},
                 )
                 output = result.output
-                model_name = result.response.model_name or model_name
+                model_name = configured_model_name(result.response) or model_name
                 by_primary = _answered_by(result.all_messages(), s.model.primary)
             except FALLBACK_ON as exc:
                 # 6. fallback: the template answers from the tool data alone

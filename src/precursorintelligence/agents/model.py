@@ -8,21 +8,31 @@ long-lived instance can't send an expired token.
 The OpenAI client is built on ``httpx2`` (the ``openai`` package's HTTP library), so the auth is an ``httpx2.Auth``;
 the API is the same as ``httpx.Auth``.
 
-Tests never build this; they pass Pydantic AI's ``TestModel`` or ``FunctionModel`` to the runner instead.
+Each of the two models is wrapped in ``ConfiguredModel``, which records on every response which configured model
+answered (``provider_details["configured_model"]``, the id from settings). The name the endpoint reports stays in
+``ModelResponse.model_name`` untouched, but Vertex may spell it differently from our id (e.g. without ``openai/``),
+so the runner decides "the primary answered" (and the price) from the tag, never from the reported string.
+
+The unit tests use Pydantic AI's ``TestModel`` and ``FunctionModel``, or this factory over a mocked HTTP transport;
+none reaches the network. ``scripts/agents_vertex_proof.py`` is L4's laptop proof against the real endpoint.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, Generator
+from dataclasses import replace
 from typing import Any, Protocol
 
 import httpx2
 from openai import AsyncOpenAI
-from pydantic_ai.models import Model
+from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models import Model, ModelRequestParameters
 from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.settings import ModelSettings
 
 from .settings import AgentsSettings
 
@@ -104,6 +114,35 @@ def build_openai_client(
     )
 
 
+CONFIGURED_MODEL_KEY = "configured_model"
+
+
+class ConfiguredModel(WrapperModel):
+    """Tags each response with the configured id of the model object that wrote it (``configured_model`` in
+    ``provider_details``). Only ``request`` is tagged: the runner doesn't stream."""
+
+    def __init__(self, wrapped: Model, configured_id: str) -> None:
+        super().__init__(wrapped)
+        self.configured_id = configured_id
+
+    async def request(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+    ) -> ModelResponse:
+        response = await super().request(messages, model_settings, model_request_parameters)
+        details = {**(response.provider_details or {}), CONFIGURED_MODEL_KEY: self.configured_id}
+        return replace(response, provider_details=details)
+
+
+def configured_model_name(response: ModelResponse) -> str | None:
+    """The configured id of the model that wrote ``response``: the ``ConfiguredModel`` tag, else (a test model,
+    which isn't wrapped) the reported name."""
+    tagged = (response.provider_details or {}).get(CONFIGURED_MODEL_KEY)
+    return tagged if isinstance(tagged, str) else response.model_name
+
+
 def build_model(
     settings: AgentsSettings,
     *,
@@ -119,6 +158,8 @@ def build_model(
         transport_request=transport_request,
     )
     provider = OpenAIProvider(openai_client=client)
-    primary = OpenAIChatModel(settings.model.primary, provider=provider)
-    fallback = OpenAIChatModel(settings.model.fallback, provider=provider)
-    return FallbackModel(primary, fallback)
+    primary, fallback = settings.model.primary, settings.model.fallback
+    return FallbackModel(
+        ConfiguredModel(OpenAIChatModel(primary, provider=provider), primary),
+        ConfiguredModel(OpenAIChatModel(fallback, provider=provider), fallback),
+    )
