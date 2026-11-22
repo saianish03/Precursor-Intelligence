@@ -16,6 +16,7 @@
 | `calibration.yaml` | ✅ in use | Silver calibration (Checkpoints 3-4): lag coverage, left-censoring floors, fully-observed window, QM bridge pairs and drops. Not part of the silver `config_hash`: it only shapes the reports, so editing it rebuilds no partition |
 | `qm_measures.yaml` | ✅ in use | Gold's quality measures (spec §8.6): the 16 measures with their CMS codes (two bridges), the Δ measures and the definition-change months. Committed from the Checkpoint 4 proposal (`reports/step5`); 405 → 480 dropped |
 | `contracts/` | ✅ in use | Pandera data contracts: one baseline schema per validated table (`<table>.yaml`: key, dtype, nullable, ranges, allowed values, patterns, label rules), inferred by `validate --write-schema` and tightened by hand (`# hand`); also `facility_month_dataset_spec_columns.csv` |
+| `agents.yaml` | ✅ in use | The agents' settings (docs/AGENTS_PLAN.md): for now `evidence`, what `precursor-pipeline agents build-evidence` writes and where (the citation and penalty windows, the evidence prefix) |
 | `prompts/` | planned | Versioned LLM prompt YAML used by `src/precursorintelligence/agents` |
 
 Select an environment with `--env dev|prod`. No secrets in these files: `${VAR}` placeholders are filled from environment variables or Secret Manager.

@@ -34,8 +34,9 @@ jobs:
       # On a PR, HEAD is the merge commit and HEAD^1 the base branch, so this diff is exactly the PR's changes.
       # none: nothing that can change a test result (docs, infra, docker/: the images job builds those);
       # ml: only ML code, configs or tests. ML code imports gold, bias and ingestion, so a change there runs
-      # everything; the data packages import no ML code except the precursor-pipeline CLI (harmonize/cli.py), so the
-      # ML set keeps tests/harmonize (and tests/alerts: the ML run email). all: everything else, and every manual run.
+      # everything; the data packages import no ML code except the precursor-pipeline CLI (harmonize/cli.py) and
+      # build-evidence (evidence/build.py reads the scores and ml_runs), so the ML set keeps tests/harmonize and
+      # tests/evidence (and tests/alerts: the ML run email). all: everything else, and every manual run.
       - name: Which tests does the change need?
         id: scope
         env:
@@ -102,7 +103,7 @@ jobs:
           paths=()
           if [ "$SCOPE" = ml ]; then
             paths=(tests/training tests/evaluation tests/serving tests/monitoring tests/leakage/test_ml_*.py
-                   tests/harmonize tests/common tests/contracts tests/alerts)
+                   tests/harmonize tests/evidence tests/common tests/contracts tests/alerts)
           fi
           uv run pytest -q -n logical --dist loadfile "${paths[@]}"
           code=$?
@@ -115,8 +116,9 @@ jobs:
       # The toy pipelines are network-free, so CI can rebuild them from scratch (no GCS credentials: nothing is
       # pushed or pulled). toy_ml is the ML smoke run: train, validate, bias-check, gate, register (a SQLite
       # MLflow store on the runner), score and publish on every PR; a failed step, or a gate that holds the
-      # model (validation or bias), fails this step. It is forced: its only output is committed, so a plain
-      # repro skips it whenever dvc.lock is current. A PR that changed a toy stage's inputs (its deps: the code and
+      # model (validation or bias), fails this step. toy_evidence then builds the agents' evidence from toy_ml's
+      # published month and reads it back (docs/AGENTS_PLAN.md E2). Both are forced: each one's only output is
+      # committed, so a plain repro skips them whenever dvc.lock is current. A PR that changed a toy stage's inputs (its deps: the code and
       # configs it imports and loads) or command without committing the refreshed dvc.lock fails (#73 B14), after
       # the toy run, so the log shows both; metrics that differ after the repro stay a warning. Once, on 3.12 (the
       # images' Python): the toy run is the same on both.
@@ -127,6 +129,7 @@ jobs:
           # exit 1 with stage names = stale (reported after the toy run); a crash prints nothing and fails here
           stale=$(uv run python scripts/dvc_stale_deps.py < "$RUNNER_TEMP/dvc-status.json") || [ -n "$stale" ]
           uv run dvc repro --force --single-item toy_ml
+          uv run dvc repro --force --single-item toy_evidence
           uv run dvc repro
           if ! git diff --exit-code --quiet metrics; then
             echo "::warning::metrics/ changed after dvc repro; run 'uv run dvc repro' and commit them."
