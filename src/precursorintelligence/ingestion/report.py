@@ -166,6 +166,8 @@ def _header_sets(inv: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
 
 
 def build_summary(ctx: Context, res: ResolveOutput, inv: list[dict[str, Any]]) -> str:
+    """The Checkpoint 1 report. The metadata store returns rows in no fixed order (Postgres), so every list below is
+    sorted: two runs over the same inputs give the same report, apart from the run line."""
     tables = list(ctx.cfg.tables)
     catalog = ctx.metadata.read("catalog")
     datasets = ctx.metadata.read("source_datasets")
@@ -188,7 +190,7 @@ def build_summary(ctx: Context, res: ResolveOutput, inv: list[dict[str, Any]]) -
         if c.get("active"):
             by_type[c["type"]] += 1
     a(
-        f"- **CMS catalog:** {sum(by_type.values())} active entries ({dict(by_type)}); "
+        f"- **CMS catalog:** {sum(by_type.values())} active entries ({dict(sorted(by_type.items()))}); "
         f"**{len(zips)} zips inventoried**, {sum(1 for r in inv if r['table_name'] not in (OTHER, JUNK))} in-scope files"
     )
     last: dict[str, dict[str, Any]] = {}
@@ -203,7 +205,7 @@ def build_summary(ctx: Context, res: ResolveOutput, inv: list[dict[str, Any]]) -
             f"gaps below include months whose zips were not processed in this run."
         )
     a(
-        f"- **Download outcomes (latest per zip):** {dict(st)}; total stored "
+        f"- **Download outcomes (latest per zip):** {dict(sorted(st.items()))}; total stored "
         f"{sum((r['actual_size'] or 0) for r in last.values() if r['status'] != 'failed') / 1e9:.2f} GB\n"
     )
 
@@ -265,7 +267,16 @@ def build_summary(ctx: Context, res: ResolveOutput, inv: list[dict[str, Any]]) -
     if res.duplicates:
         a("| table | data month | kept | dropped | identical |")
         a("|---|---|---|---|---|")
-        for d in sorted(res.duplicates, key=lambda d: (d["vintage_month"], d["table"])):
+        for d in sorted(
+            res.duplicates,
+            key=lambda d: (
+                d["vintage_month"],
+                d["table"],
+                d["kept"],
+                d["dropped"],
+                d["dropped_file"],
+            ),
+        ):
             a(
                 f"| {d['table']} | {d['vintage_month']} | `{d['kept']}` `{d['kept_file']}` "
                 f"| `{d['dropped']}` `{d['dropped_file']}` | {d['identical']} |"
@@ -282,7 +293,11 @@ def build_summary(ctx: Context, res: ResolveOutput, inv: list[dict[str, Any]]) -
 
     a("## 5. Distinct header sets per table\n")
     a("Each `header_hash` is a distinct column list. Step 2's column map must cover every set.\n")
-    for t, sets in _header_sets(inv).items():
+    header_sets = _header_sets(inv)
+    for t, sets in sorted(
+        header_sets.items(),
+        key=lambda kv: (tables.index(kv[0]) if kv[0] in tables else len(tables), kv[0]),
+    ):
         a(f"### `{t}`\n")
         a("| header_hash | columns | vintage range | n vintages | change vs previous set |")
         a("|---|---|---|---|---|")
@@ -312,6 +327,7 @@ def build_summary(ctx: Context, res: ResolveOutput, inv: list[dict[str, Any]]) -
         ):
             a(f"### `{kind}` ({items[0]['severity']}, {len(items)})\n")
             a(f"_{EXPLANATIONS.get(kind, '')}_\n")
+            items.sort(key=lambda x: (x["detail"] or "", x.get("entry_id") or ""))
             for x in items[:40]:
                 a(f"- {x['detail']}")
             if len(items) > 40:
