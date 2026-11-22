@@ -1,4 +1,5 @@
-"""Toy evidence files, laid out as ``build-evidence`` writes them (agents/tools/source.py). A module of its own
+"""Toy evidence files, laid out as ``build-evidence`` writes them (evidence/contract.py), and toy silver for
+``build-evidence`` to read (``write_toy_silver``; also used by scripts/dvc_toy_evidence.py). A module of its own
 (not conftest.py), because the repo has several conftest.py files and `from conftest import ...` resolves to whichever
 was loaded first."""
 
@@ -13,6 +14,7 @@ import polars as pl
 from precursorintelligence.common.io.object_store import LocalObjectStore
 
 PREFIX = "agents/evidence/"
+BUILD = "0123456789ab"
 V = "2026-10"
 GOLD = "gold-20261015T000000Z"
 VERSION = 3
@@ -97,11 +99,12 @@ def write_evidence(
     tables: dict[str, pl.DataFrame] | None = None,
     *,
     v: str = V,
+    build: str = BUILD,
     manifest_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Write one month's evidence, then its manifest, then ``_current.json`` last. Returns the manifest."""
+    """Write one build of a month, then its manifest, then ``_current.json`` last. Returns the manifest."""
     tables = toy_tables() if tables is None else tables
-    directory = f"{PREFIX}v={v}/"
+    directory = f"{PREFIX}v={v}/build={build}/"
     files, rows, sha = {}, {}, {}
     for name, df in tables.items():
         data = parquet(df)
@@ -113,6 +116,8 @@ def write_evidence(
         "v": v,
         "gold_run_id": GOLD,
         "model_version": VERSION,
+        "source": "",
+        "gold_verified": True,
         "built_at": "2026-10-16T00:00:00Z",
         "files": files,
         "rows": rows,
@@ -124,8 +129,77 @@ def write_evidence(
     pointer = {
         "schema_version": 1,
         "v": v,
+        "build": build,
         "scores_manifest_sha256": "0" * 64,
         "evidence_manifest_sha256": hashlib.sha256(raw).hexdigest(),
     }
     store.put_bytes(f"{PREFIX}_current.json", json.dumps(pointer).encode(), overwrite=True)
     return manifest
+
+
+def write_toy_silver(store: LocalObjectStore, v: str, ccns: list[str]) -> dict[str, int]:
+    """Silver ``citations_by_vintage`` and ``penalties_by_vintage`` partitions of vintage ``v`` for the first three
+    ``ccns`` (and one unscored CCN). Each facility gets rows inside the window (one on the cutoff itself) and rows
+    ``build-evidence`` must drop: 36 months before the cutoff or older, after the cutoff, or of a facility it did not
+    score. Returns the rows it must keep."""
+    cutoff = date(int(v[:4]), int(v[5:7]), 1)
+
+    def months_before(n: int, day: int = 15) -> date:
+        i = cutoff.year * 12 + cutoff.month - 1 - n
+        return date(i // 12, i % 12 + 1, day)
+
+    after = date(cutoff.year, cutoff.month, 5)  # in the vintage file, but after the cutoff
+    kept = {"citations": 0, "penalties": 0}
+    cit, pen = [], []
+    for i, ccn in enumerate([*ccns[:3], "ZZ9999"]):
+        keep = ccn != "ZZ9999"
+        for when, inside in (
+            (cutoff, True),  # the window is (cutoff - 36 months, cutoff]
+            (months_before(2), True),
+            (months_before(35), True),
+            (months_before(36, day=1), False),
+            (months_before(37), False),
+            (after, False),
+        ):
+            cit.append((ccn, when, f"F0{680 + i}", "G" if inside else "D"))
+            pen.append((ccn, when, "Fine", 1000.0 * (i + 1)))
+            if keep and inside:
+                kept["citations"] += 1
+                kept["penalties"] += 1
+    common = {"vintage_month": pl.lit(v), "cutoff_date": pl.lit(cutoff)}
+    citations = pl.DataFrame(
+        cit,
+        schema={
+            "ccn": pl.String,
+            "survey_date": pl.Date,
+            "ftag": pl.String,
+            "scope_severity": pl.String,
+        },
+        orient="row",
+    ).with_columns(
+        deficiency_prefix=pl.lit("F"),
+        deficiency_tag=pl.col("ftag").str.slice(1),
+        deficiency_category=pl.lit("Quality of Life and Care Deficiencies"),
+        is_standard=pl.lit(True),
+        is_complaint=pl.lit(False),
+        correction_date=pl.lit(None, dtype=pl.Date),
+        **common,
+    )
+    penalties = pl.DataFrame(
+        pen,
+        schema={
+            "ccn": pl.String,
+            "penalty_date": pl.Date,
+            "penalty_type": pl.String,
+            "fine_amount": pl.Float64,
+        },
+        orient="row",
+    ).with_columns(
+        payment_denial_start_date=pl.lit(None, dtype=pl.Date),
+        payment_denial_length_days=pl.lit(None, dtype=pl.Float64),
+        dup_seq=pl.lit(1, dtype=pl.Int64),
+        **common,
+    )
+    for table, df in (("citations_by_vintage", citations), ("penalties_by_vintage", penalties)):
+        store.put_bytes(f"silver/{table}/vintage={v}/part-0.parquet", parquet(df), overwrite=True)
+    return kept

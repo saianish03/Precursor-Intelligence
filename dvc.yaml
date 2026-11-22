@@ -73,6 +73,7 @@ stages:
       - src/precursorintelligence/bias
       - src/precursorintelligence/common
       - src/precursorintelligence/evaluation
+      - src/precursorintelligence/evidence  # imported by the precursor-pipeline entrypoint (the agents sub-app)
       - src/precursorintelligence/gold
       - src/precursorintelligence/harmonize
       - src/precursorintelligence/ingestion
@@ -89,4 +90,35 @@ stages:
       - configs/splits.yaml
     metrics:
       - metrics/toy_ml.json:
+          cache: false
+  # The agents' evidence (docs/AGENTS_PLAN.md E2): build-evidence on toy_ml's published month, with toy silver for
+  # its citations and penalties (the toy chain has none), then a read-back through the agents' tools. It reads
+  # data/toy_ml, which toy_ml doesn't declare as an output: metrics/toy_ml.json orders it after toy_ml, and CI forces
+  # both. Like toy_ml, its only output is committed. After changing its inputs, force both
+  # (`dvc repro --force --single-item toy_ml`, then `... toy_evidence`): a plain repro would reuse an old data/toy_ml.
+  toy_evidence:
+    cmd: python scripts/dvc_toy_evidence.py data/toy_ml metrics/toy_evidence.json
+    deps:
+      - scripts/dvc_toy_evidence.py
+      - tests/agents/evidence_fakes.py
+      - metrics/toy_ml.json
+      - uv.lock
+      # what build-evidence (through the precursor-pipeline entrypoint) and the read-back import and load
+      - src/precursorintelligence/agents
+      - src/precursorintelligence/bias
+      - src/precursorintelligence/common
+      - src/precursorintelligence/evaluation
+      - src/precursorintelligence/evidence
+      - src/precursorintelligence/gold
+      - src/precursorintelligence/harmonize
+      - src/precursorintelligence/ingestion
+      - src/precursorintelligence/monitoring
+      - src/precursorintelligence/serving
+      - src/precursorintelligence/training
+      - src/precursorintelligence/validation
+      - configs/agents.yaml
+      - configs/logging.yaml
+      - configs/ml.yaml
+    metrics:
+      - metrics/toy_evidence.json:
           cache: false

@@ -141,19 +141,29 @@ resource "google_artifact_registry_repository_iam_member" "deployer_pushes" {
   member     = "serviceAccount:${google_service_account.deployer.email}"
 }
 
-resource "google_service_account_iam_member" "deployer_from_branch" {
+# The old binding on the branch subject (any workflow on these branches): forgotten, not deleted, as apply_from_branch
+# in modules/wif; an Owner removes it by hand (infra/README.md, "Which workflow can act as which account").
+removed {
+  from = google_service_account_iam_member.deployer_from_branch
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+# CD's runs alone (cd.yml).
+resource "google_service_account_iam_member" "deployer_from_workflow" {
   for_each = toset(var.apply_branches)
 
   service_account_id = google_service_account.deployer.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "${module.wif.subject_prefix}:ref:refs/heads/${each.key}"
+  member             = "${module.wif.workflow_principal_set}/${var.github_subject}:ref:refs/heads/${each.key}:${var.github_repository}/.github/workflows/cd.yml@refs/heads/${each.key}"
 }
 
 # The Deploy workflow (T22, .github/workflows/deploy.yml) points the VM at a release as this account: it sets the
 # instance metadata pi-release. Only runs on apply_branches can act as it, like sa-deployer. A separate account, so a
-# leaked sa-deployer token can't set metadata. Workload identity trusts the branch, not the workflow: any job on those
-# branches that may request an ID token (CD's too) could act as it, as it could act as sa-tf-apply. Binding it to
-# deploy.yml alone needs a job_workflow_ref attribute on the provider (modules/wif), its own change.
+# leaked sa-deployer token can't set metadata. release_from_workflow ties it to deploy.yml; the old branch binding
+# (release_from_branch, any workflow on those branches) is forgotten below and removed by hand by an Owner.
 resource "google_service_account" "release" {
   account_id   = "sa-release"
   display_name = "VM release pointer (Deploy workflow, merged branches only)"
@@ -163,17 +173,26 @@ resource "google_service_account" "release" {
   }
 }
 
-resource "google_service_account_iam_member" "release_from_branch" {
+removed {
+  from = google_service_account_iam_member.release_from_branch
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+resource "google_service_account_iam_member" "release_from_workflow" {
   for_each = toset(var.apply_branches)
 
   service_account_id = google_service_account.release.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "${module.wif.subject_prefix}:ref:refs/heads/${each.key}"
+  member             = "${module.wif.workflow_principal_set}/${var.github_subject}:ref:refs/heads/${each.key}:${var.github_repository}/.github/workflows/deploy.yml@refs/heads/${each.key}"
 }
 
 # Setting this VM's metadata is root on it (the startup script runs from metadata), so the role is granted on the one
-# instance. instanceAdmin.v1 can do more than setMetadata (stop, delete, change its IAM), but every run on
-# apply_branches can already act as sa-tf-apply, and a custom role needs iam.roles.create, which no CI account has.
+# instance. instanceAdmin.v1 can do more than setMetadata (stop, delete, change its IAM): once only deploy.yml can act as
+# this account, that is more than its job needs. A custom role (instances.get + setMetadata) needs iam.roles.create,
+# which no CI account has: an Owner would create it, then Terraform grants it instead (not done yet).
 resource "google_compute_instance_iam_member" "release_sets_pointer" {
   zone          = var.zone
   instance_name = google_compute_instance.airflow.name
