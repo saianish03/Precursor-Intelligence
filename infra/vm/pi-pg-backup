@@ -1,7 +1,8 @@
 #!/bin/bash
-# Dump the Postgres databases of the Airflow stack (airflow, mlflow, precursor_meta) to the backups bucket (spec §14 decision 27). pi-down and the
-# idle shutdown run it before they stop the VM, and stop only if it exits 0; pi-pg-backup.service runs it again at
-# OS shutdown as a backstop. Runs as root on the VM, where gcloud uses the VM's identity (sa-pipeline).
+# Dump the Postgres databases of the Airflow stack (airflow, mlflow, precursor_meta) to the backups bucket (spec §14
+# decision 27). pi-down and the idle shutdown run it before they stop the VM, and stop only if it exits 0;
+# pi-pg-backup.service runs it again at OS shutdown as a backstop. Runs as root on the VM, where gcloud uses the VM's
+# identity (sa-pipeline).
 #
 # The VM may create objects in the backups bucket but not read, list, overwrite or delete them. `gcloud storage cp`
 # reads the destination's metadata, which that refuses, so each dump goes up in one Storage JSON API request:

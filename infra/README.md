@@ -100,7 +100,8 @@ On-demand list prices, before the $300 trial credit; E2 machines get no sustaine
   6-hour email for a run that keeps the VM up, and the project budget alerts. An open SSH session keeps the VM up:
   close it when done.
 - **Around the VM, the same in every situation:** GCS ≈ 52 GB (root + `ml-dev/`) ≈ $1; Artifact Registry (≤ 5 releases
-  of three images; the MLflow image is about the pipeline image's size) ≈ $1.5–2.5; Secret Manager (9 secrets) ≈ $0.55; backups cents; together ≈ $3–5 a month.
+  of three images; the MLflow image is about the pipeline image's size) ≈ $1.5–2.5; Secret Manager (9 secrets)
+  ≈ $0.55; backups cents; together ≈ $3–5 a month.
 - **Not used:** Spot VMs (about half price) can be stopped mid-run; committed-use discounts need a 1- or 3-year term.
 
 ## How changes reach GCP

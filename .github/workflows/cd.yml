@@ -1,9 +1,10 @@
 name: CD
 
 # After a merge into dev or main that changes what goes into an image: build the three images (pipeline, airflow,
-# mlflow) once, test them, and push them to Artifact Registry tagged with the full commit sha. Tags are immutable there and nothing is ever tagged
-# latest, so a VM told to run a sha runs exactly those bytes. Logs in keylessly as sa-deployer, which only runs on
-# dev and main can act as, with push rights on that one repository (infra/terraform/envs/prod/main.tf).
+# mlflow) once, test them, and push them to Artifact Registry tagged with the full commit sha. Tags are immutable
+# there and nothing is ever tagged latest, so a VM told to run a sha runs exactly those bytes. Logs in keylessly as
+# sa-deployer, which only cd.yml's runs on dev and main can act as (#106), with push rights on that one repository
+# (infra/terraform/envs/prod/main.tf).
 on:
   push:
     branches: [dev, main]

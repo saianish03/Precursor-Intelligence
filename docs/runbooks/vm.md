@@ -67,7 +67,8 @@ MLflow runs on the VM since ML Phase 2's item 2 (section 11). `cms_nh_ml` on the
   ```
   CD builds images only for merges that change an image input: a docs-only merge has none, and the default picks the
   newest commit that has them. The workflow refuses a sha older than the floor (MLflow on the VM, ML Phase 2 item 2;
-  before it, `35b7c76` for L11) or without its three images, and skips the sha `pi-release` already names (`sudo pi-deploy now` redeploys it).
+  before it, `35b7c76` for L11) or without its three images, and skips the sha `pi-release` already names
+  (`sudo pi-deploy now` redeploys it).
 - **A deploy waits for runs:** it doesn't replace the stack while a run of `cms_nh_pipeline`, `cms_nh_ml` or
   `cms_nh_release_check` is running or queued, and emails after 6 hours of waiting.
 - **When it fails,** it emails `[pi-airflow VM] deploy of … failed …`, puts back the last good release if it got
@@ -122,7 +123,8 @@ T23 taught:
 ## 6. Backups, restore and reset
 - **Dumps:** `pi-pg-backup` dumps `airflow`, `mlflow` and `precursor_meta` before every stop (and on demand:
   `sudo pi-pg-backup`) to `gs://precursor-intel-mlops-backups/postgres/<db>/<UTC time>-<random>.dump`, the same name
-  for all three. Until a release with MLflow has run, `mlflow` doesn't exist and is skipped (it says so). The VM can add dumps but not read, list or delete them; they are kept 180 days.
+  for all three. Until a release with MLflow has run, `mlflow` doesn't exist and is skipped (it says so). The VM can
+  add dumps but not read, list or delete them; they are kept 180 days.
 - **Restore** into a new, empty Postgres, by a person with their own login: `infra/vm/README.md`, "Restore" (T23:
   110 s). It needs a release at least as new as the dump's; task logs are not restored. For `mlflow`, start
   `postgres-setup` too (it creates the empty database), never `mlflow` (its `db upgrade` fills the database first).
