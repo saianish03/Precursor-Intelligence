@@ -22,6 +22,17 @@ resource "google_artifact_registry_repository" "this" {
     }
   }
 
+  # main's releases stay whatever their age (CD tags them main-<sha> on a push to main), so the VM can always deploy
+  # or roll back to them (docs/runbooks/vm.md section 3).
+  cleanup_policies {
+    id     = "keep-main-releases"
+    action = "KEEP"
+    condition {
+      tag_state    = "TAGGED"
+      tag_prefixes = ["main-"]
+    }
+  }
+
   cleanup_policies {
     id     = "delete-after-7-days"
     action = "DELETE"

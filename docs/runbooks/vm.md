@@ -6,8 +6,8 @@ restore its databases, and what to do when something goes wrong. The reference d
 the VM's build, its cost) and `airflow-local.md` §5 (the stack's settings on the VM). The timings come from the
 smoke test and the first full backfill on the VM (T23, T25: `airflow-local.md` §8.4, §8.5).
 
-MLflow runs on the VM since ML Phase 2's item 2 (section 11). `cms_nh_ml` on the VM is item 3
-(`docs/ML_PHASE2_HANDOFF.md` §5.2); its owner adds that part here.
+MLflow runs on the VM since ML Phase 2's item 2 (section 11), and `cms_nh_ml` since item 3 (section 14,
+`docs/ML_PHASE2_HANDOFF.md` §5.2).
 
 ## 0. At a glance
 | | |
@@ -69,6 +69,40 @@ MLflow runs on the VM since ML Phase 2's item 2 (section 11). `cms_nh_ml` on the
   newest commit that has them. The workflow refuses a sha older than the floor (MLflow on the VM, ML Phase 2 item 2;
   before it, `35b7c76` for L11) or without its three images, and skips the sha `pi-release` already names
   (`sudo pi-deploy now` redeploys it).
+- **The VM runs `main` for the demo and in production** (decided 2026-11-22). Until `main` has been moved for the
+  first time it has no workflows, so deploy from `dev` as above. Afterwards, deploy from `main`, the same way:
+  ```bash
+  gh workflow run deploy.yml --ref main                 # main's newest commit with images
+  gh workflow run deploy.yml --ref main -f sha=<sha>    # a rollback: one of main's releases (a green CD run on main)
+  ```
+  Deploy a `dev` commit only to test it. In production (section 13), pause `cms_nh_release_check` first, so the test
+  commit starts no production run, and never test a commit that upgrades Airflow or MLflow this way (its migration
+  can't be undone, below). Then deploy `main` again and unpause it.
+- **Moving `main`** (the lead, the only user `main`'s ruleset lets push): fast-forward it to `dev`'s tip. Nothing else
+  moves it: no pull request is ever merged into `main` (the default branch, so check a PR's base is `dev`); a squash
+  there would make the next fast-forward impossible.
+  ```bash
+  git fetch origin
+  git push origin origin/dev:main     # git refuses it unless it is a fast-forward
+  ```
+  - **Not with a pull request's merge button:** `main` requires a linear history, so the button offers only squash or
+    rebase, and both write new commits. CD would build every image again, and the next `dev` → `main` would conflict
+    (2026-11-22: a squash of an older `dev`, then today's `dev`, conflicted in 58 to 101 files).
+  - **Always `dev`'s tip, after its CI passed, and while no Terraform apply runs** (`gh run list --workflow
+    terraform.yml --event push --limit 3`). Never an older commit: the push runs Terraform's apply as `main`, and an
+    older commit would put back older infrastructure.
+  - **What the push starts,** and the first time also tests (`main`'s workflow bindings have never been used,
+    `infra/README.md`):
+    1. When the push changes an image input, CD logs in as `sa-deployer`, skips the build when `dev` already
+       published the commit, and tags the three images `main-<sha>` (rollback limit, below). Check its run is green;
+       if it shows cancelled (another run of the same commit replaced it while it waited), run
+       `gh workflow run cd.yml --ref main`.
+    2. When the push changes Terraform's inputs, the apply logs in as `sa-tf-apply`: expect "No changes".
+    3. Then deploy from `main` (above), which logs in as `sa-release`, and check `sudo pi-deploy status` names the
+       commit.
+
+    It also starts Dependabot, which reads `.github/dependabot.yml` only from `main`, and gives the Deploy workflow
+    its Run button in the Actions tab.
 - **A deploy waits for runs:** it doesn't replace the stack while a run of `cms_nh_pipeline`, `cms_nh_ml` or
   `cms_nh_release_check` is running or queued, and emails after 6 hours of waiting.
 - **When it fails,** it emails `[pi-airflow VM] deploy of … failed …`, puts back the last good release if it got
@@ -77,15 +111,16 @@ MLflow runs on the VM since ML Phase 2's item 2 (section 11). `cms_nh_ml` on the
 - **Rollback limit: the registry deletes old images.** Artifact Registry keeps each image's 5 newest versions and
   deletes any other version once it is older than 7 days (untagged layers too). A sha older than 7 days with 5 newer
   releases is gone, and the VM itself keeps only the current and the previous release's images. A rollback
-  to such a sha works only by hand while its images are still on the VM (`infra/vm/README.md`, "Deploys"). Fine for
-  the demo; protecting every deployed release would need a `release-<sha>` tag and a KEEP rule for it.
+  to such a sha works only by hand while its images are still on the VM (`infra/vm/README.md`, "Deploys"). `main`'s
+  releases are the exception: CD tags their images `main-<sha>` on a push to `main`, and the cleanup keeps every
+  version with that tag. Only the commits `main` was moved to are releases, not every commit on it.
 - **A release that upgrades Airflow** migrates its database, and a rollback can't undo that: `sudo pi-pg-backup`
   first, and deploy it by hand.
 
 ## 4. Run the pipeline by hand
-- **Nothing runs on its own until T26:** the three DAGs are created paused. Keep `cms_nh_release_check` paused while
-  you trigger runs by hand (a RESUME it finds would start another run), and `cms_nh_ml` paused until its Phase 2
-  deploy.
+- **Nothing runs on its own until T26** (production, section 13): the three DAGs are created paused. Keep
+  `cms_nh_release_check` paused while you trigger runs by hand (a RESUME it finds would start another run).
+  `cms_nh_ml` is unpaused since 2026-11-22 (section 14): every gold a pipeline run publishes starts an ML run.
 - **Trigger and watch** (or use the UI):
   ```bash
   af dags unpause cms_nh_pipeline
@@ -166,6 +201,8 @@ Emails go to the `alert-email-to` secret's recipients, from the Gmail account in
 | `[cms_nh_pipeline] run failed: see the run`, body `Reason: timed_out` | the run hit its 8 h limit | the run lock stays held: free it (below) or let the next run take it over after 12 h |
 | `[cms_nh_pipeline] release_lock failed (the run may still show success)` | `release_lock`'s callback | free the lock (below) |
 | `[cms_nh_pipeline] N new error anomalies` / `new CMS columns in N silver partitions` | the run, which goes on | read the listed lines (`ALERTS_HANDOFF.md` §6) |
+| `[cms_nh_ml] <DECISION> <V>`, e.g. `SKIP 2026-10`, `PROMOTE 2026-10: 2 flag(s)` | `notify`, after every ML run that doesn't fail | read it; a `held (…)`, `re-tune requested`, or a flag other than the two known skew flags (section 14) needs a look |
+| `[cms_nh_ml] run failed: <tasks>` | the DAG's failure callback | open the log links; a REFUSE is exit 2 and isn't retried (section 14) |
 | `[cms_nh_release_check] …` | the release check | a CMS release partial for days, or proceeds that start no run (`airflow-local.md` §5) |
 | `[pi-airflow VM] deploy of … failed …` / `… runs on a trial prefix` | `pi-deploy` | section 3 / section 5 |
 | `[pi-airflow VM] the VM stays up: …` / `… up 6+ hours and a run keeps it up` | the idle shutdown | a failed dump, deploys paused, or a long run: look, then stop it or fail the run |
@@ -259,3 +296,97 @@ cases: `infra/README.md`, "Cost of the VM". The budget alerts never stop spendin
 - **Changing a schema** (`configs/bigquery/`): only add `NULLABLE` columns at the end, or relax a mode. Removing,
   renaming or retyping a column, or making one `REQUIRED`, replaces the table, which `deletion_protection` and CI's
   apply guard refuse. Let the Terraform apply finish before deploying the image that writes the new column.
+
+## 13. Production: the monthly CMS release (T26)
+Decided 2026-11-22: production runs on `main` (section 3) and starts when the release check is unpaused, which then
+starts the pipeline for each new CMS release. Nothing starts the VM: a person does, once CMS has published. CMS's
+next release is due 2026-12-02.
+1. **Before the first time:** the VM runs `main`'s release, and `cms_nh_ml` has a champion (ML Phase 2 item 3 and
+   Checkpoint ML-A; done 2026-11-22, v1, section 14); without one, `score` skips and nothing is published.
+2. **Has CMS published?** From a laptop, without the VM. The check starts the pipeline on READY: all 7 datasets
+   report one `modified` month, newer than the latest ingested vintage. This is the only case this laptop check
+   sees; the check also starts it on RESUME (the last pipeline work didn't finish) and CHANGED (unfinished landing
+   work, e.g. a zip CMS re-posted):
+   ```bash
+   for id in 4pq5-n9py r5ix-sfxw svdt-c123 g6vv-u9sr djen-97ju ijh5-nb2v tagd-9999; do
+     curl -s "https://data.cms.gov/provider-data/api/1/metastore/schemas/dataset/items/$id" |
+       python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["identifier"], d["modified"], d["released"])'
+   done
+   ```
+   On 2026-11-22 all 7 showed `2026-10-01`, released 2026-10-28, with the next update due 2026-12-02; that release
+   should show `2026-11-01` on all 7.
+3. **Then start the VM** (section 2), not before: the idle shutdown doesn't count release-check runs, so a VM started
+   before CMS publishes finds nothing (unless RESUME or CHANGED applies) and stops itself about 70–85 minutes after
+   the last SSH session (section 0).
+4. **The first time only, unpause the three DAGs in this order.** Airflow queues no asset event for a paused DAG, so
+   the pipeline and the ML DAG go first:
+   ```bash
+   af dags unpause cms_nh_pipeline
+   af dags unpause cms_nh_ml
+   af dags unpause cms_nh_release_check
+   af dags trigger cms_nh_release_check      # check now instead of at the next hour
+   ```
+   `cms_nh_ml` is already unpaused since 2026-11-22 (section 14); its line changes nothing then. They stay unpaused
+   from then on. For each later release: steps 2 and 3, then the `trigger` line. For a manual run
+   or a backfill, pause `cms_nh_release_check` first (section 4) and unpause it afterwards.
+5. **What follows:** READY → a `cms_nh_pipeline` run → gold → a `cms_nh_ml` run → its `publish` to GCS and BigQuery
+   (section 12). Failures email (section 8). The idle shutdown waits for both runs, then stops the VM.
+
+## 14. ML runs (`cms_nh_ml`)
+- **What starts it:** every published gold (the `cms_nh_gold` asset) starts a `mode=auto` run; or start one by hand.
+  Unpaused on the VM since 2026-11-22 (ML Phase 2 item 3). One run at a time, no run lock; `train`, `tune` and
+  `evaluate` share the `heavy` pool's one slot with gold's `build_gold`. A deploy and the idle shutdown wait for its
+  runs. What each mode and task does: the DAG's docstring (`dags/cms_nh_ml.py`) and `ML_PIPELINE.md`.
+- **Trigger and watch** (or use the UI):
+  ```bash
+  af dags trigger cms_nh_ml --run-id my-ml-1 --conf '{"mode": "auto"}'
+  af tasks states-for-dag-run cms_nh_ml my-ml-1
+  ```
+  `mode`: `auto` (decides by itself), `retrain`, `score_only`, `retune`, or `promote`, which also needs `version`
+  and `reason` (any earlier version = a rollback):
+  ```bash
+  af dags trigger cms_nh_ml --run-id my-promote-1 --conf '{"mode": "promote", "version": 1, "reason": "<who approved it, when, after reading what>"}'
+  ```
+- **A REFUSE** fails the run (exit 2, no retry, the failure email in section 8): the gold is older than the last
+  scored month, or it isn't verified and `allow_unverified` is false (`monitoring/decide.py`). `decide` records the
+  decision and stops; fix the cause, then run it again.
+- **Took on the VM** (item 3, 2026-11-22, gold V 2026-10):
+
+  | Run | Took | Result |
+  |---|---|---|
+  | `vm-retrain-1`, `retrain` | about 22 min (`train` 12 min, `evaluate` 8 min) | v1 registered and held as `@challenger` (a first version always is); `score` skipped, no champion yet |
+  | `vm-promote-1`, `promote` v1 | 2.1 min (`score` 28 s, `publish` 20 s) | v1 `@champion`; 14,686 homes scored and loaded to BigQuery |
+  | `vm-auto-1`, `auto` | 0.4 min | SKIP: nothing new for this gold and recipe; nothing rewritten |
+  | `vm-score-only-1`, `score_only` | 1.8 min | every score, reason, SHAP value and chain score identical to the promote's; only `ml_run_id` and `scored_at` differ |
+
+- **Where the results are:** the run folder `gs://precursor-intel-mlops-data/ml/runs/<run id>/` (`decision.json`;
+  after a retrain `report/model_card.md`, `gates.json`, `slices.csv`), the scores in `scores/v=<V>/` with
+  `scores_manifest.json`, `status/latest.json`, BigQuery (section 12), the registry (section 11) and the email
+  (section 8).
+- **After a run that scored,** check: `publish`'s `bigquery_rows` equals the manifest's `rows` (2026-10: 14,686
+  facility scores, 117,488 reasons, 612 chains); `status/latest.json` names the champion and its `n_facilities`; the
+  latest-partition query (section 12) returns the month.
+- **The first model on a new registry** (Checkpoint ML-A): `retrain`, then the lead reads the model card, the gates,
+  the slices and 20 random homes' reasons, then `promote` with the lead's approval as the reason. The reasons script
+  (`scripts/ml_checkpoint_reasons.py`) isn't in the pipeline image and needs `ml_runs`, so it runs on the VM. Copy it
+  there from a laptop:
+  ```bash
+  gcloud compute scp scripts/ml_checkpoint_reasons.py pi-airflow:/tmp/ --zone us-central1-a --tunnel-through-iap
+  ```
+  On the VM, as section 8 runs a task's command: the database URL, the bucket and the package store come from the
+  scheduler (so a trial prefix is right too) and stay in root's environment, never on a command line or on disk:
+  ```bash
+  sudo bash -c 'sch=$(docker ps -q --filter label=com.docker.compose.project=pi-airflow --filter label=com.docker.compose.service=airflow-scheduler)
+  export PI_DATABASE_URL=$(docker exec "$sch" printenv PI_DATABASE_URL) PI_BUCKET_URI=$(docker exec "$sch" printenv PI_BUCKET_URI) PI_PACKAGES_URI=$(docker exec "$sch" printenv PI_PACKAGES_URI)
+  docker run --rm --network pi-airflow-tasks -e PI_DATABASE_URL -e PI_BUCKET_URI -e PI_PACKAGES_URI \
+    -v /tmp/ml_checkpoint_reasons.py:/app/scripts/ml_checkpoint_reasons.py:ro "$(docker exec "$sch" printenv PI_PIPELINE_IMAGE)" \
+    python scripts/ml_checkpoint_reasons.py --run-id <the retrain run id> --version <its version> </dev/null > /tmp/reasons.txt'
+  ```
+  Copy `/tmp/reasons.txt` back with `gcloud compute scp` and send it to the lead with the model card.
+- **The flags:** the runs that score (promote, score_only) flag skew on `state_gplus_rate_12m` and
+  `staffing_rating_fn`, the same two as on `ml-dev`. A run that doesn't score has no `score/key_features.json`, so
+  `monitor` checks fewer features: `vm-retrain-1` flagged only `staffing_rating_fn`. Neither flag stops a run.
+  - `state_gplus_rate_12m` is the model's #3 feature (mean |SHAP| 0.119) and its PSI is 0.49: its mean moved from
+    0.233 in the refit window (2024-02 to 2025-02) to 0.214 in 2026-10. That is expected, since the labels lag about
+    20 months, and it shrinks as retraining moves to newer months. It was accepted at Checkpoint ML-A.
+  - `staffing_rating_fn` (PSI 0.405) isn't a model feature, so it can't move the scores.

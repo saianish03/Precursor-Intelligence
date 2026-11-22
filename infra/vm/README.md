@@ -28,9 +28,10 @@ can read its metadata.
   ```bash
   gh workflow run deploy.yml --ref dev                  # dev's newest commit with images (its last green CD run)
   gh workflow run deploy.yml --ref dev -f sha=<sha>     # a given commit of dev: a rollback is an older sha
+  gh workflow run deploy.yml --ref main                 # once main has been moved (docs/runbooks/vm.md section 3)
   ```
-  - It refuses a commit that isn't on the run's branch (`dev`, or `main` once dev is merged into it), one older than
-    the floor below (checked on content, as `pi-deploy` does: `init-db.sh`'s task-network rule, and
+  - It refuses a commit that isn't on the run's branch (`dev`, or `main` once it has been moved to `dev`'s tip), one
+    older than the floor below (checked on content, as `pi-deploy` does: `init-db.sh`'s task-network rule, and
     `docker-compose.vm.yaml` naming the mlflow image) and one without its three images.
     It skips the sha `pi-release` already names (to redeploy that one: `sudo pi-deploy now`).
   - It sets only that key and never runs alongside a Terraform apply (a merge into `dev` or `main`), which would put
