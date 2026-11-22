@@ -17,6 +17,7 @@ In order:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -28,6 +29,7 @@ from typing import Any, Generic, Literal, TypeVar
 from pydantic import BaseModel, ValidationError
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.exceptions import AgentRunError, FallbackExceptionGroup
+from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.toolsets import AbstractToolset
@@ -159,15 +161,23 @@ class RunDeps:
                 f"{definition.name} can be called at most {k} times in one run; answer with the evidence you have."
             )
         self.subagent_calls += 1
-        outcome = await run_agent(
-            self.runtime,
-            definition,
-            raw_input,
-            data=self.data,
-            request_id=self.request_id,
-            tools=tools,
-            parent=self.agent,
-        )
+        try:
+            outcome = await run_agent(
+                self.runtime,
+                definition,
+                raw_input,
+                data=self.data,
+                request_id=self.request_id,
+                tools=tools,
+                parent=self.agent,
+            )
+        except AgentInputError as exc:
+            # the model wrote the nested input, not the user: tell the model, don't fail this run with a 400
+            raise ModelRetry(f"{definition.name} refused that input: {exc}") from exc
+        except DailyCapReached as exc:
+            raise ModelRetry(
+                f"{definition.name} is unavailable ({exc}); answer with the evidence you have."
+            ) from exc
         return outcome.output
 
 
@@ -227,6 +237,23 @@ def _build_agent(definition: AgentDefinition[Any, OutT], prompt: Prompt) -> Agen
         return output
 
     return agent
+
+
+def _parse_cached(output_type: type[OutT], cached: dict[str, Any] | None) -> OutT | None:
+    """A cache entry as the output type, or None (a miss) when there is none or it no longer fits the type (the
+    output model changed without a prompt version bump); the fresh answer then overwrites it."""
+    if cached is None:
+        return None
+    try:
+        return output_type.model_validate(cached)
+    except ValidationError:
+        return None
+
+
+def _answered_by(messages: Sequence[ModelMessage], model_name: str) -> bool:
+    """True when every model response in the run came from ``model_name``."""
+    responses = [m for m in messages if isinstance(m, ModelResponse)]
+    return bool(responses) and all(r.model_name == model_name for r in responses)
 
 
 def _set_fallback_flag(output: OutT) -> OutT:
@@ -296,10 +323,11 @@ async def run_agent(
         key = build_cache_key(runtime, definition, inp, data)
         digest = key.digest()
         cached = await runtime.cache.get(digest)
-        if cached is not None:
+        hit = _parse_cached(definition.output_type, cached)
+        if hit is not None:
             emit("cache_hit")
             return RunOutcome(
-                output=definition.output_type.model_validate(cached),
+                output=hit,
                 cache_key=digest,
                 cache_hit=True,
                 fallback=False,
@@ -328,48 +356,55 @@ async def run_agent(
         )
         model_name = s.model.primary
         error: str | None = None
+        outcome: Literal["answered", "fallback", "error"] = "error"
+        fallback = False
+        by_primary = False
+        cost = 0.0
         try:
-            result = await _build_agent(definition, prompt).run(
-                definition.user_prompt(inp),
-                deps=deps,
-                model=runtime.model,
-                model_settings=ModelSettings(
-                    max_tokens=agent_cfg.max_tokens, temperature=agent_cfg.temperature
-                ),
-                usage_limits=UsageLimits(
-                    request_limit=s.limits.request_limit,
-                    input_tokens_limit=s.limits.input_tokens_limit,
-                    output_tokens_limit=s.limits.output_tokens_limit,
-                    tool_calls_limit=s.limits.tool_calls_limit,
-                ),
-                usage=usage,
-                retries={"output": 1},
-            )
-            output = result.output
-            model_name = result.response.model_name or model_name
-            fallback = False
-        except FALLBACK_ON as exc:
-            # 6. fallback: the template answers from the tool data alone
-            error = f"{type(exc).__name__}: {exc}"
-            output = _set_fallback_flag(await definition.fallback(inp, deps))
-            fallback = True
-        except Exception as exc:
-            # our bug or a data error, not the model: no fallback, but the cost and the log line still count
+            try:
+                result = await _build_agent(definition, prompt).run(
+                    definition.user_prompt(inp),
+                    deps=deps,
+                    model=runtime.model,
+                    model_settings=ModelSettings(
+                        max_tokens=agent_cfg.max_tokens, temperature=agent_cfg.temperature
+                    ),
+                    usage_limits=UsageLimits(
+                        request_limit=s.limits.request_limit,
+                        input_tokens_limit=s.limits.input_tokens_limit,
+                        output_tokens_limit=s.limits.output_tokens_limit,
+                        tool_calls_limit=s.limits.tool_calls_limit,
+                    ),
+                    usage=usage,
+                    retries={"output": 1},
+                )
+                output = result.output
+                model_name = result.response.model_name or model_name
+                by_primary = _answered_by(result.all_messages(), s.model.primary)
+            except FALLBACK_ON as exc:
+                # 6. fallback: the template answers from the tool data alone
+                error = f"{type(exc).__name__}: {exc}"
+                fallback = True
+                output = _set_fallback_flag(await definition.fallback(inp, deps))
+            if fallback:
+                await runtime.counter.release_run(day)
+            elif by_primary:
+                # 7. only a validated answer is stored, and only one the primary model wrote: the cache key names
+                # the primary, so an answer from the fallback model is served this once and never cached
+                await runtime.cache.put(digest, output.model_dump(mode="json"))
+            outcome = "fallback" if fallback else "answered"
+        except BaseException as exc:
+            # our bug, a data error, a failing fallback template or a cancelled request: no answer, but the cost and
+            # the log line below still count (BaseException, so a cancellation is counted too)
+            what = f"{type(exc).__name__}: {exc}"
+            error = f"{error}; then {what}" if error else what
+            raise
+        finally:
             cost = s.cost_usd(model_name, usage.input_tokens, usage.output_tokens)
             if cost:
-                await runtime.counter.add_cost(day, cost)
-            emit("error", cost=cost, error=f"{type(exc).__name__}: {exc}")
-            raise
-
-        cost = s.cost_usd(model_name, usage.input_tokens, usage.output_tokens)
-        if cost:
-            await runtime.counter.add_cost(day, cost)
-        if fallback:
-            await runtime.counter.release_run(day)
-        else:
-            # 7. only a validated answer is stored
-            await runtime.cache.put(digest, output.model_dump(mode="json"))
-        emit("fallback" if fallback else "answered", cost=cost, model=model_name, error=error)
+                # shielded, so a cancellation can't stop the spend from being counted
+                await asyncio.shield(runtime.counter.add_cost(day, cost))
+            emit(outcome, cost=cost, model=model_name, error=error)
         return RunOutcome(
             output=output,
             cache_key=digest,
