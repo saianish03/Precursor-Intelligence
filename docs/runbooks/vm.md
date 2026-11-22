@@ -69,6 +69,40 @@ MLflow runs on the VM since ML Phase 2's item 2 (section 11). `cms_nh_ml` on the
   newest commit that has them. The workflow refuses a sha older than the floor (MLflow on the VM, ML Phase 2 item 2;
   before it, `35b7c76` for L11) or without its three images, and skips the sha `pi-release` already names
   (`sudo pi-deploy now` redeploys it).
+- **The VM runs `main` for the demo and in production** (decided 2026-11-22). Until `main` has been moved for the
+  first time it has no workflows, so deploy from `dev` as above. Afterwards, deploy from `main`, the same way:
+  ```bash
+  gh workflow run deploy.yml --ref main                 # main's newest commit with images
+  gh workflow run deploy.yml --ref main -f sha=<sha>    # a rollback: one of main's releases (a green CD run on main)
+  ```
+  Deploy a `dev` commit only to test it. In production (section 13), pause `cms_nh_release_check` first, so the test
+  commit starts no production run, and never test a commit that upgrades Airflow or MLflow this way (its migration
+  can't be undone, below). Then deploy `main` again and unpause it.
+- **Moving `main`** (the lead, the only user `main`'s ruleset lets push): fast-forward it to `dev`'s tip. Nothing else
+  moves it: no pull request is ever merged into `main` (the default branch, so check a PR's base is `dev`); a squash
+  there would make the next fast-forward impossible.
+  ```bash
+  git fetch origin
+  git push origin origin/dev:main     # git refuses it unless it is a fast-forward
+  ```
+  - **Not with a pull request's merge button:** `main` requires a linear history, so the button offers only squash or
+    rebase, and both write new commits. CD would build every image again, and the next `dev` → `main` would conflict
+    (2026-11-22: a squash of an older `dev`, then today's `dev`, conflicted in 58 to 101 files).
+  - **Always `dev`'s tip, after its CI passed, and while no Terraform apply runs** (`gh run list --workflow
+    terraform.yml --event push --limit 3`). Never an older commit: the push runs Terraform's apply as `main`, and an
+    older commit would put back older infrastructure.
+  - **What the push starts,** and the first time also tests (`main`'s workflow bindings have never been used,
+    `infra/README.md`):
+    1. When the push changes an image input, CD logs in as `sa-deployer`, skips the build when `dev` already
+       published the commit, and tags the three images `main-<sha>` (rollback limit, below). Check its run is green;
+       if it shows cancelled (another run of the same commit replaced it while it waited), run
+       `gh workflow run cd.yml --ref main`.
+    2. When the push changes Terraform's inputs, the apply logs in as `sa-tf-apply`: expect "No changes".
+    3. Then deploy from `main` (above), which logs in as `sa-release`, and check `sudo pi-deploy status` names the
+       commit.
+
+    It also starts Dependabot, which reads `.github/dependabot.yml` only from `main`, and gives the Deploy workflow
+    its Run button in the Actions tab.
 - **A deploy waits for runs:** it doesn't replace the stack while a run of `cms_nh_pipeline`, `cms_nh_ml` or
   `cms_nh_release_check` is running or queued, and emails after 6 hours of waiting.
 - **When it fails,** it emails `[pi-airflow VM] deploy of … failed …`, puts back the last good release if it got
@@ -77,15 +111,16 @@ MLflow runs on the VM since ML Phase 2's item 2 (section 11). `cms_nh_ml` on the
 - **Rollback limit: the registry deletes old images.** Artifact Registry keeps each image's 5 newest versions and
   deletes any other version once it is older than 7 days (untagged layers too). A sha older than 7 days with 5 newer
   releases is gone, and the VM itself keeps only the current and the previous release's images. A rollback
-  to such a sha works only by hand while its images are still on the VM (`infra/vm/README.md`, "Deploys"). Fine for
-  the demo; protecting every deployed release would need a `release-<sha>` tag and a KEEP rule for it.
+  to such a sha works only by hand while its images are still on the VM (`infra/vm/README.md`, "Deploys"). `main`'s
+  releases are the exception: CD tags their images `main-<sha>` on a push to `main`, and the cleanup keeps every
+  version with that tag. Only the commits `main` was moved to are releases, not every commit on it.
 - **A release that upgrades Airflow** migrates its database, and a rollback can't undo that: `sudo pi-pg-backup`
   first, and deploy it by hand.
 
 ## 4. Run the pipeline by hand
-- **Nothing runs on its own until T26:** the three DAGs are created paused. Keep `cms_nh_release_check` paused while
-  you trigger runs by hand (a RESUME it finds would start another run), and `cms_nh_ml` paused until its Phase 2
-  deploy.
+- **Nothing runs on its own until T26** (production, section 13): the three DAGs are created paused. Keep
+  `cms_nh_release_check` paused while you trigger runs by hand (a RESUME it finds would start another run), and
+  `cms_nh_ml` paused until its Phase 2 deploy.
 - **Trigger and watch** (or use the UI):
   ```bash
   af dags unpause cms_nh_pipeline
@@ -259,3 +294,37 @@ cases: `infra/README.md`, "Cost of the VM". The budget alerts never stop spendin
 - **Changing a schema** (`configs/bigquery/`): only add `NULLABLE` columns at the end, or relax a mode. Removing,
   renaming or retyping a column, or making one `REQUIRED`, replaces the table, which `deletion_protection` and CI's
   apply guard refuse. Let the Terraform apply finish before deploying the image that writes the new column.
+
+## 13. Production: the monthly CMS release (T26)
+Decided 2026-11-22: production runs on `main` (section 3) and starts when the release check is unpaused, which then
+starts the pipeline for each new CMS release. Nothing starts the VM: a person does, once CMS has published. CMS's
+next release is due 2026-12-02.
+1. **Before the first time:** the VM runs `main`'s release, and `cms_nh_ml` has a champion (ML Phase 2 item 3 and
+   Checkpoint ML-A); without one, `score` skips and nothing is published.
+2. **Has CMS published?** From a laptop, without the VM. The check starts the pipeline on READY: all 7 datasets
+   report one `modified` month, newer than the latest ingested vintage. This is the only case this laptop check
+   sees; the check also starts it on RESUME (the last pipeline work didn't finish) and CHANGED (unfinished landing
+   work, e.g. a zip CMS re-posted):
+   ```bash
+   for id in 4pq5-n9py r5ix-sfxw svdt-c123 g6vv-u9sr djen-97ju ijh5-nb2v tagd-9999; do
+     curl -s "https://data.cms.gov/provider-data/api/1/metastore/schemas/dataset/items/$id" |
+       python3 -c 'import json, sys; d = json.load(sys.stdin); print(d["identifier"], d["modified"], d["released"])'
+   done
+   ```
+   On 2026-11-22 all 7 showed `2026-10-01`, released 2026-10-28, with the next update due 2026-12-02; that release
+   should show `2026-11-01` on all 7.
+3. **Then start the VM** (section 2), not before: the idle shutdown doesn't count release-check runs, so a VM started
+   before CMS publishes finds nothing (unless RESUME or CHANGED applies) and stops itself about 70–85 minutes after
+   the last SSH session (section 0).
+4. **The first time only, unpause the three DAGs in this order.** Airflow queues no asset event for a paused DAG, so
+   the pipeline and the ML DAG go first:
+   ```bash
+   af dags unpause cms_nh_pipeline
+   af dags unpause cms_nh_ml
+   af dags unpause cms_nh_release_check
+   af dags trigger cms_nh_release_check      # check now instead of at the next hour
+   ```
+   They stay unpaused from then on. For each later release: steps 2 and 3, then the `trigger` line. For a manual run
+   or a backfill, pause `cms_nh_release_check` first (section 4) and unpause it afterwards.
+5. **What follows:** READY → a `cms_nh_pipeline` run → gold → a `cms_nh_ml` run → its `publish` to GCS and BigQuery
+   (section 12). Failures email (section 8). The idle shutdown waits for both runs, then stops the VM.

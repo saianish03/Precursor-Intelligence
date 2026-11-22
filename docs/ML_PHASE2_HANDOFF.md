@@ -65,7 +65,11 @@ decisions already made and the traps. State as of `dev` `b1b1d96` (2026-11-20).
 |---|---|---|
 | Gate thresholds (O2): G4 ECE ≤ 0.05, G6 Spearman ≥ 0.9 (v1 had 0.92), the 200+ beds slice | review on 2025-03 at ML-A | §5.2 item 5 |
 | MLflow login (O5) | none (task network, 127.0.0.1, IAP); keep it unless something outside the VM needs MLflow. `AGENTS_PLAN.md` decision 3 recommends Cloud Trace for production traces and MLflow only for evaluation runs, which keeps it so | with the agents plan's decision 3 |
-| The Dec 1 demo's scope | the spec's MVP (ML-10): end to end on the VM, monitoring may be thin. The agents' part is `AGENTS_PLAN.md` decision 1 (recommended: Agents 1 and 2 must-have, 3 and 4 stretch) | now |
+
+**Decided by the lead (2026-11-22):** the Dec 1 demo shows the whole product working end to end at production level:
+the data pipeline; the whole ML / retraining pipeline, with its monitoring, drift detection and bias slicing (ML-10 is
+amended: monitoring is no longer "may be thin"); the backend; the frontend; and Agents 1 and 2, maybe Agent 3 if there
+is time (`AGENTS_PLAN.md` decision 1). Working end to end matters more than the model's scores.
 
 ---
 
@@ -83,7 +87,7 @@ log sink). Its fallbacks: the laptop stack's 2026-10 scores, and GCS without Big
 | ✅ **T23 smoke test** (2026-11-20, `runbooks/airflow-local.md` §8.4) | the trial-prefix override; the Deploy workflow's refusals and first real run (`5697619`); a trial backfill (3 min 25 s, gold 44,614 rows), a forced-failure alert, `pi-down`, a restore (110 s) and the shutdown backstop | — |
 | ✅ **T24** (2026-11-20) | the data bucket root cleared, all versions, **keeping `ml-dev/`**; the VM's databases reset (a new, empty Postgres); the laptop's `dp_gcp_test` stack removed | — |
 | ✅ **T25 full backfill** (2026-11-20/21, `runbooks/airflow-local.md` §8.5) | node by node; every layer matches the official run (`ml-dev/`); gold V 2026-10, 52 months, 775,400 rows, published at the root. The first gold attempt was OOM-killed at 10.46 GB, so the VM became an e2-highmem-4 with a 20g task limit (#90) | — |
-| **T26 production start** | the team's go: unpause `cms_nh_pipeline`, then `cms_nh_release_check` | — (later gold events start `cms_nh_ml` while it is unpaused) |
+| **T26 production start** | decided 2026-11-22: with the VM on `main`, once CMS has published (next: 2026-12-02), unpause `cms_nh_pipeline`, `cms_nh_ml`, then `cms_nh_release_check` (`runbooks/vm.md` §13) | 3 (a champion on the VM; later gold events start `cms_nh_ml` while it is unpaused) |
 | ✅ **T27 VM runbook** (2026-11-21) | `docs/runbooks/vm.md`: access, start and stop, deploy and rollback, a manual run and a full backfill, the trial prefix, backups and restore, another database for task containers, alerts, costs, troubleshooting | add the MLflow parts (item 2), and item 2's 7-day registry rule in its section 3 |
 | ✅ **`VINTAGE_RANGE`** (L7, 2026-11-21) | it ended at 2026-12, so gold would have failed on the first 2027 vintage. Now every silver vintage must lie between the ingestion scope's `vintage_start` and the run's month (`gold/build.py: resolve_v`) | — |
 
@@ -101,7 +105,7 @@ log sink). Its fallbacks: the laptop stack's 2026-10 scores, and GCS without Big
 | 8 | **Tuned challenger and automatic re-tune**: `train` applies a tuning proposal as a challenger; `gate` compares it with no tolerance (spec §12.2, §13) | 3 | a `retune` run yields a gated challenger |
 | 9 | **Verified gold**: the data spec's §11 gate (W5 part 2), then `allow_unverified: false` | — | prod refuses unverified gold |
 | 10 | **Hardening**: anchor the package hashes in `ml_runs` when MLflow gets a login (spec O5) | — | one PR per area |
-| 11 | **Downstream, not yours:** `AGENTS_PLAN.md` gives the API, the four agents, the frontend and their GCP rollout to Tanoj, Riya and Aakash. Your part: review its infrastructure PRs (its part L), and keep stable what its `build-evidence` step reads (the API reads only that step's output): `scores/v=…/` with its `scores_manifest.json`, `ml_runs.gate_results_json`, the run folders' `evaluation.json`, `monitor`'s status and drift flags, and the `cms_nh_scores` asset its `cms_nh_agents` DAG runs on; plus BigQuery (item 4) for its `llm_calls` sink. A change to any of them breaks the agents' evidence build | 4 | the agents plan's definition of done (its §5) |
+| 11 | **Downstream, not yours except the frontend:** `AGENTS_PLAN.md` gives the API, the four agents and their GCP rollout to Tanoj, Riya and Aakash, and the frontend to you (its decision 0). Your part: review its infrastructure PRs (its part L), and keep stable what its `build-evidence` step reads (the API reads only that step's output): `scores/v=…/` with its `scores_manifest.json`, `ml_runs.gate_results_json`, the run folders' `evaluation.json`, `monitor`'s status and drift flags, and the `cms_nh_scores` asset its `cms_nh_agents` DAG runs on; plus BigQuery (item 4) for its `llm_calls` sink. A change to any of them breaks the agents' evidence build | 4 | the agents plan's definition of done (its §5) |
 | 12 | **Model research**: `y_g6` (O1); rolling-origin folds (O3); regime-invariant enforcement features (O8); bring back excluded features (`d12_turnover_total` once the eval window starts at 2023-01 or later, about `V_L` 2027-05; the four `qm_ls_*` after about 6 months of the new definitions; `staffing_rating_fn` when its PSI is under 0.25); a hazard model (spec §21) | — | each through a reviewed PR and the gates |
 
 **`pg_hba` (item 2): no hand step.** T23's restore (2026-11-20) started a fresh Postgres with `5697619`'s `init-db.sh`,

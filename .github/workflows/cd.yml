@@ -138,3 +138,24 @@ jobs:
             docker push "$ref"
             echo "| \`$ref\` | \`$(docker image inspect -f '{{ index .RepoDigests 0 }}' "$ref")\` |" >> "$GITHUB_STEP_SUMMARY"
           done
+
+      # main's releases get a second tag, main-<sha>, which the registry's cleanup keeps whatever its age
+      # (infra/terraform/modules/artifact_registry), so main can always deploy or roll back to them. Also on a run
+      # that built nothing (main fast-forwarded to a commit dev already published). --prefer-index=false adds the tag
+      # to the same manifest; without it buildx wraps the manifest in a new index with another digest, and the
+      # cleanup would keep that index instead of the version the sha tag names. The digests are compared on every
+      # run, a rerun with the tag already there too, and an empty one (a failed inspect) fails.
+      - name: Tag main's release
+        if: github.ref == 'refs/heads/main'
+        run: |
+          digest() { docker buildx imagetools inspect "$1" | awk '/^Digest:/ {print $2}'; }
+          for image in pipeline airflow mlflow; do
+            src="$REGISTRY/$image:$GITHUB_SHA" dst="$REGISTRY/$image:main-$GITHUB_SHA"
+            docker manifest inspect "$dst" >/dev/null 2>&1 \
+              || docker buildx imagetools create --prefer-index=false --tag "$dst" "$src"
+            want=$(digest "$src") got=$(digest "$dst")
+            if [ -z "$want" ] || [ "$got" != "$want" ]; then
+              echo "::error::$dst is not the manifest $src names"; exit 1
+            fi
+            echo "\`$dst\` = \`$want\`" >> "$GITHUB_STEP_SUMMARY"
+          done
