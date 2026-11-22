@@ -49,4 +49,4 @@ def build_evidence(
         typer.echo(f"build-evidence {out.v}: {out.rows}")
         return out.summary()
 
-    _run_task("agents_build_evidence", env, env_file, log_level, run_id, body)
+    _run_task("agents_build_evidence", env, env_file, log_level, run_id, body, needs_tracking=False)

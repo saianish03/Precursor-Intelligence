@@ -1,7 +1,7 @@
 name: Deploy
 
 # Points the VM at a release (task T22; VM plan D5): sets the instance metadata pi-release of pi-airflow to one full
-# git sha whose two images CD pushed. pi-deploy on the VM then deploys it, at once if the VM runs (after any pipeline
+# git sha whose three images CD pushed. pi-deploy on the VM then deploys it, at once if the VM runs (after any pipeline
 # run), else at its next start (infra/vm/README.md, "Deploys"). A rollback is the same run with an older sha. Start it
 # from a laptop (the Actions tab's button needs this file on the default branch, main):
 #   gh workflow run deploy.yml --ref dev                  # dev's newest commit with images
@@ -28,9 +28,9 @@ defaults:
     shell: bash # -eo pipefail
 
 env:
-  # The two images CD pushes per sha (cd.yml); MLflow adds a third (VM plan §9)
+  # The three images CD pushes per sha (cd.yml)
   REGISTRY: us-central1-docker.pkg.dev/precursor-intel-mlops/precursor
-  IMAGES: pipeline airflow
+  IMAGES: pipeline airflow mlflow
   WIF_PROVIDER: projects/852874974077/locations/global/workloadIdentityPools/github/providers/github-repo
   RELEASE_SA: sa-release@precursor-intel-mlops.iam.gserviceaccount.com
   PROJECT: precursor-intel-mlops
@@ -114,6 +114,11 @@ jobs:
           init=$(git show "$sha:docker/airflow-local/init-db.sh" 2> /dev/null) || init=""
           grep -q PI_TASKS_SUBNET <<< "$init" \
             || { echo "::error::$sha is older than the oldest release the VM accepts (L11, #46: init-db.sh's task-network rule)"; exit 1; }
+          # And MLflow on the VM (ML Phase 2 item 2): an older release has no mlflow image, and its compose files would
+          # drop the server (--remove-orphans). pi-deploy's stage() checks the same line.
+          vm=$(git show "$sha:docker/airflow-local/docker-compose.vm.yaml" 2> /dev/null) || vm=""
+          grep -q 'precursor/mlflow:' <<< "$vm" \
+            || { echo "::error::$sha is older than the oldest release the VM accepts (ML Phase 2 item 2: MLflow on the VM)"; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Release \`$sha\`: $(git log -1 --format='%cs %s' "$sha") (branch $branch)" >> "$GITHUB_STEP_SUMMARY"
 
@@ -125,14 +130,14 @@ jobs:
           service_account: ${{ env.RELEASE_SA }}
 
       # A pointer to a sha without images fails on the VM three times and is then marked failed (infra/vm/README.md).
-      - name: Both images in the registry?
+      - name: All three images in the registry?
         if: github.event_name == 'workflow_dispatch'
         env:
           SHA: ${{ steps.pick.outputs.sha }}
         run: |
           for image in $IMAGES; do
             gcloud artifacts docker images describe "$REGISTRY/$image:$SHA" --quiet > /dev/null || {
-              echo "::error::no $image image for $SHA: never built (no CD run), or deleted (the registry drops versions older than 30 days beyond the 5 newest)"
+              echo "::error::no $image image for $SHA: never built (no CD run), or deleted (the registry drops versions older than 7 days beyond the 5 newest)"
               exit 1
             }
           done

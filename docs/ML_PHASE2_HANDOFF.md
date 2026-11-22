@@ -16,10 +16,10 @@ decisions already made and the traps. State as of `dev` `b1b1d96` (2026-11-20).
 | **ML code** | W0–W6 and the follow-ups #77–#80, #85 and #86 are merged. The §17.2 acceptance passed on the laptop stack on 2026-11-18 (`ML_PIPELINE.md` §11, §14). |
 | **Phase 1 champion** | v1 (`lgbm`, test 2025-02 PR-AUC 0.470) on the lead's laptop stack `ml_dev`: registry `precursor_y_g12` with `@champion` v1 and `@challenger` v3; scores for 2026-10 in `gs://precursor-intel-mlops-data/ml-dev/scores/`; its packages (v1–v3) backfilled to `gs://precursor-intel-mlops-mlflow/packages/ml-dev/` on 2026-11-19. It does not move to the VM (§3). |
 | **VM** | `pi-airflow` (e2-highmem-4, us-central1-a) is built and **stopped**: the VM in Terraform, `pi-deploy`, the idle shutdown and the Deploy workflow are done, and **the smoke test (T23) passed on 2026-11-20** (`runbooks/airflow-local.md` §8.4). It runs `8ed727c` on the bucket root, **with T25's full gold published there** (V 2026-10, 775,400 rows, the official dataset rebuilt): `cms_nh_ml` exists, paused; MLflow is off. Its database was reset at T24 and owns the root, with the three-line `pg_hba` (`pi_meta`, `mlflow`, reject). T24 (bucket clean-up, reset) and T25 (full backfill) are done (§5.1); T26 (production start) waits for the team's go. |
-| **MLflow on the VM** | Off. `docker-compose.vm.yaml` keeps `mlflow` and `postgres-setup` in the profile `phase2` and sets `PI_MLFLOW_TRACKING_URI: ""`; `cd.yml` and `deploy.yml` ship two images; `pi-pg-backup`/`pi-pg-restore` skip `mlflow`. Ready: bucket `precursor-intel-mlops-mlflow`, secret `mlflow-db-password` (value set), `pi-deploy` renders it, and its `pg_hba` check knows the `mlflow` line. The package store (#85) is set: `packages/vm` in `docker-compose.vm.yaml`. |
+| **MLflow on the VM** | On once item 2 is deployed: `docker-compose.vm.yaml` runs `mlflow` (image `precursor/mlflow:<sha>`, artifacts in `gs://precursor-intel-mlops-mlflow/artifacts/vm`, sa-pipeline through the metadata server); `cd.yml` and `deploy.yml` ship three images and the rollback floor is item 2; `pi-pg-backup`/`pi-pg-restore` include `mlflow`; prod ML tasks refuse without tracking (B16); CI writes artifacts to a fake GCS (B15). Operating it: `runbooks/vm.md` §11. |
 | **BigQuery** | Nothing yet: no Terraform, no code (`serving/publish.py` verifies the GCS scores and emits the asset). |
 | **Gold** | Phase 1 gold is under `ml-dev/` (V = 2026-10, built by the laptop stack). The VM builds its own in the full backfill (T25). |
-| **Open issues** | **#73 (yours):** B1, B2, B13, B14 and B19 are fixed (#86); it stays open for B15 and B16, which go with item 2. #74–#76 are closed. |
+| **Open issues** | **#73 (yours):** B1, B2, B13, B14 and B19 are fixed (#86), B15 and B16 with item 2, which closes it. #74–#76 are closed. |
 
 ---
 
@@ -152,4 +152,4 @@ it as in `runbooks/airflow-local.md` §2.1, directly above the reject line.
 | Running the stack, MLflow, alerts | `runbooks/airflow-local.md`, `AIRFLOW_PIPELINE.md`, `ALERTS_HANDOFF.md` |
 | The data pipeline and the verified gate | `DATA_PIPELINE_SPEC.md` (§11, §15) |
 | The agents, the API and their rollout | `AGENTS_PLAN.md` |
-| Your bugs | #73 (B15, B16) |
+| Your bugs | none open (#73 closes with item 2) |

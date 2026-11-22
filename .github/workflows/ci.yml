@@ -226,13 +226,29 @@ jobs:
 
       # The bundle really runs on a new database: airflow-init (migrate + the pool `heavy`), postgres-setup's SQL, the
       # server's command and health check, a client on the task network logging a run and reading its artifact back,
-      # and the task network's limits (L11): no airflow login, and mlflow only on its own database.
+      # and the task network's limits (L11): no airflow login, and mlflow only on its own database. Artifacts go to a
+      # gs:// prefix as on the VM (#73 B15), here on a fake GCS server, with the VM's empty credentials setting.
       - name: MLflow and airflow-init run in the compose bundle, within the task network's limits
         if: steps.changes.outputs.build == 'true'
         run: |
           export AIRFLOW_DB_PASSWORD=x PI_META_DB_PASSWORD=x AIRFLOW_JWT_SECRET=x AIRFLOW_FERNET_KEY=x \
             MLFLOW_DB_PASSWORD=x PI_MLFLOW_IMAGE=precursor-mlflow:ci PI_AIRFLOW_IMAGE=precursor-airflow:ci
-          compose() { docker compose -f bundle/docker-compose.yaml "$@"; }
+          cat > gcs.yaml <<'YAML'
+          services:
+            fake-gcs:
+              image: fsouza/fake-gcs-server:1.52.2
+              command: ["-scheme", "http", "-port", "4443", "-public-host", "fake-gcs:4443", "-backend", "memory"]
+              networks: [tasks]
+            mlflow:
+              environment:
+                PI_MLFLOW_ARTIFACTS: gs://ci-bucket/vm
+                STORAGE_EMULATOR_HOST: http://fake-gcs:4443
+                GOOGLE_APPLICATION_CREDENTIALS: ""
+              depends_on:
+                fake-gcs:
+                  condition: service_started
+          YAML
+          compose() { docker compose -f bundle/docker-compose.yaml -f gcs.yaml "$@"; }
           trap 'compose logs --tail 50 airflow-init postgres-setup mlflow; compose down -v' EXIT
           compose up -d --wait --wait-timeout 300 mlflow airflow-init
           # as the airflow user (airflow-init runs as root, whose Python has no airflow)
@@ -245,13 +261,18 @@ jobs:
           login mlflow mlflow || { echo "::error::mlflow can't reach its own database"; exit 1; }
           docker run --rm --network pi-airflow-tasks -e MLFLOW_TRACKING_URI=http://mlflow:5000 \
             precursor-pipeline:ci python -c "
-          import mlflow, urllib.request
+          import json, mlflow, urllib.request
+          gcs = 'http://fake-gcs:4443/storage/v1/b'
+          bucket = json.dumps({'name': 'ci-bucket'}).encode()
+          urllib.request.urlopen(urllib.request.Request(f'{gcs}?project=ci', data=bucket, headers={'Content-Type': 'application/json'}))
           assert urllib.request.urlopen('http://mlflow:5000/health').status == 200
           mlflow.set_experiment('ci-smoke')
           with mlflow.start_run() as run:
               mlflow.log_metric('ok', 1)
               mlflow.log_text('hello', 'hello.txt')
           assert mlflow.artifacts.load_text(f'runs:/{run.info.run_id}/hello.txt') == 'hello'
+          names = [o['name'] for o in json.load(urllib.request.urlopen(f'{gcs}/ci-bucket/o?prefix=vm/')).get('items', [])]
+          assert f'vm/{run.info.experiment_id}/{run.info.run_id}/artifacts/hello.txt' in names, names
           "
 
       - name: Image sizes

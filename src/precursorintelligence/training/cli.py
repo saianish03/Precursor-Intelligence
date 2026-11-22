@@ -8,6 +8,7 @@ must not get files outside ``outputs.root_prefix``.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
@@ -117,10 +118,23 @@ def _run_task(
     log_level: str | None,
     run_id: str | None,
     body: Callable[[Any, str], dict[str, Any]],
+    *,
+    needs_tracking: bool = True,
 ) -> None:
     """The shared frame of the W1 commands: init, run ``body(ctx, run_id)``, map errors to exit codes, print the
     summary JSON as the last stdout line."""
     settings, run_id, _ = _init(env, env_file, log_level, run_id, label=label)
+    # #73 B16: without tracking nothing is registered, so a prod run would hold every model; refuse instead.
+    if (
+        needs_tracking
+        and settings.env.env == "prod"
+        and not os.environ.get("MLFLOW_TRACKING_URI", "").strip()
+    ):
+        typer.echo(
+            "config error: MLFLOW_TRACKING_URI is not set: prod ML tasks need the MLflow server",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG)
     try:
         ctx = build_context(settings, run_id=run_id)
         summary = body(ctx, run_id)
