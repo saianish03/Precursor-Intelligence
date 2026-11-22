@@ -27,7 +27,7 @@ jobs:
         python-version: ["3.11", "3.12"]
     steps:
       - name: Check out the merge commit and its base
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 
@@ -60,7 +60,7 @@ jobs:
 
       - name: Set up uv and Python
         if: steps.scope.outputs.scope != 'none'
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           # pinned: uv export's marker format changes between releases, and requirements.txt is checked against it
           version: "0.13.9"
@@ -149,7 +149,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the merge commit and its base
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 
@@ -236,7 +236,7 @@ jobs:
           cat > gcs.yaml <<'YAML'
           services:
             fake-gcs:
-              image: fsouza/fake-gcs-server:1.52.2
+              image: fsouza/fake-gcs-server:1.52.2@sha256:d47b4cf8b87006cab8fbbecfa5f06a2a3c5722e464abddc0d107729663d40ec4
               command: ["-scheme", "http", "-port", "4443", "-public-host", "fake-gcs:4443", "-backend", "memory"]
               networks: [tasks]
             mlflow:
@@ -295,7 +295,7 @@ jobs:
         working-directory: frontend
     steps:
       - name: Check out the merge commit and its base
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 
@@ -313,7 +313,7 @@ jobs:
 
       - name: Set up Node
         if: steps.changes.outputs.run == 'true'
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -337,7 +337,7 @@ jobs:
     timeout-minutes: 10 # about 3.5 min on a laptop's Docker
     steps:
       - name: Check out the merge commit and its base
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 

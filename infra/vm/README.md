@@ -33,10 +33,11 @@ can read its metadata.
     the floor below (checked on content, as `pi-deploy` does: `init-db.sh`'s task-network rule, and
     `docker-compose.vm.yaml` naming the mlflow image) and one without its three images.
     It skips the sha `pi-release` already names (to redeploy that one: `sudo pi-deploy now`).
-  - It sets only that key and never runs alongside a Terraform run, whose apply would put back the value it planned
-    with. It stops at once while a Terraform run is queued or running (start it again once that is done). GitHub keeps
-    one pending run per concurrency group, so a deploy that still waits there can cancel a queued Terraform run (and
-    the reverse): check `gh run list --workflow terraform.yml -L 3` and rerun a cancelled one.
+  - It sets only that key and never runs alongside a Terraform apply (a merge into `dev` or `main`), which would put
+    back the value it planned with. It stops at once while an apply is queued or running (start it again once that is
+    done); a pull request's read-only plan has its own concurrency group and doesn't hold it up. GitHub keeps one
+    pending run per concurrency group, so a deploy that still waits there can cancel a queued apply (and the reverse):
+    check `gh run list --workflow terraform.yml --event push -L 3` and rerun a cancelled one.
   - With the VM running or starting, the run waits up to 15 minutes for the VM's result (deployed, failed or rolled
     back). No result yet (the deploy waits for a pipeline run, or deploys are paused) ends green with a warning.
   - By hand, only when the workflow can't run and no Terraform run is going on, after checking the three images and the

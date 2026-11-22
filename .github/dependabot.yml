@@ -1,4 +1,6 @@
-# Keeps the pinned GitHub Action SHAs current: one weekly pull request, reviewed like any other change.
+# Keeps the pinned GitHub Action SHAs and the Dockerfiles' base-image digests current: one weekly pull request each,
+# reviewed like any other change. (The uv binary copied in with COPY --from is bumped by hand.)
+# Dependabot reads this file only from the default branch (main), so none of it runs until dev reaches main.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -8,4 +10,12 @@ updates:
       interval: weekly
     groups:
       actions:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /docker
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
         patterns: ["*"]

@@ -38,24 +38,25 @@ env:
   VM: pi-airflow
 
 jobs:
-  # A deploy stops at once while a Terraform run is queued or running, so it almost never waits in the shared
+  # A deploy stops at once while a Terraform apply is queued or running, so it almost never waits in the shared
   # `terraform` group below, where it could replace a pending apply of a merge that nobody is watching.
   guard:
-    name: no Terraform run going on
+    name: no Terraform apply going on
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: read
     steps:
-      - name: Stop if terraform.yml has a run that isn't finished
+      # Only applies (runs on a push to dev or main) write the VM's metadata; a pull request's read-only plan doesn't.
+      - name: Stop if terraform.yml has an apply that isn't finished
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          n=$(gh run list --workflow terraform.yml --limit 20 --json status -q '[.[] | select(.status != "completed")] | length')
+          n=$(gh run list --workflow terraform.yml --event push --limit 20 --json status -q '[.[] | select(.status != "completed")] | length')
           if [ "$n" != 0 ]; then
-            echo "::error::a Terraform run is queued or running: start this deploy again once it has finished"
+            echo "::error::a Terraform apply is queued or running: start this deploy again once it has finished"
             exit 1
           fi
 
@@ -66,9 +67,9 @@ jobs:
     if: ${{ !cancelled() && (needs.guard.result == 'success' || (needs.guard.result == 'skipped' && github.event_name == 'pull_request')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # A deploy never runs alongside a Terraform run: an apply writes the VM's whole metadata map back, pi-release with
+    # A deploy never runs alongside a Terraform apply: it writes the VM's whole metadata map back, pi-release with
     # the value it read when it planned. GitHub keeps one pending run per group and a newer one replaces it, either
-    # way: a deploy that waits can cancel a queued Terraform run, and the reverse (the guard above makes this rare;
+    # way: a deploy that waits can cancel a queued apply, and the reverse (the guard above makes this rare;
     # rerun whichever shows as cancelled). So a dry run, or a dispatch from anything but the dev or main branch, stays
     # out of the group.
     concurrency:
@@ -84,7 +85,7 @@ jobs:
       status: ${{ steps.point.outputs.status }}
       at: ${{ steps.point.outputs.at }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the ancestry check below
           persist-credentials: false # nothing here pushes to git
@@ -123,7 +124,7 @@ jobs:
           echo "Release \`$sha\`: $(git log -1 --format='%cs %s' "$sha") (branch $branch)" >> "$GITHUB_STEP_SUMMARY"
 
       # A pull request stops here: it can't log in (only dev and main can), and it must not deploy.
-      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         if: github.event_name == 'workflow_dispatch'
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
@@ -180,7 +181,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.RELEASE_SA }}

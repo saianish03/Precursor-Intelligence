@@ -23,10 +23,12 @@ on:
 permissions:
   contents: read
 
-# One run at a time against the state, and never cancel an apply that is already running.
+# Applies (merges into dev or main) share the group `terraform` with the Deploy workflow: one at a time against the
+# state, never cancelled. A pull request's plan is read-only (-lock=false), so it stays out of that group: it can't
+# cancel or wait behind an apply or a deploy, and a newer push to the same pull request replaces its older plan.
 concurrency:
-  group: terraform
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('terraform-plan-{0}', github.event.pull_request.number) || 'terraform' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   TF_IN_AUTOMATION: "true"
@@ -43,9 +45,9 @@ jobs:
       contents: read
       id-token: write # the OIDC token that workload identity federation exchanges for Google credentials
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: sa-tf-plan@precursor-intel-mlops.iam.gserviceaccount.com
@@ -56,7 +58,7 @@ jobs:
           TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://iam.googleapis.com/${{ env.WIF_PROVIDER }}" | jq -r .value)
           TOKEN="$TOKEN" python3 -c 'import os,json,base64; p=os.environ["TOKEN"].split(".")[1]; p+="="*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); print(json.dumps({k:c.get(k) for k in ("sub","repository","repository_owner","ref","event_name","job_workflow_ref")}, indent=2))'
 
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.13.3
           terraform_wrapper: false
@@ -90,9 +92,9 @@ jobs:
       contents: read
       id-token: write # the OIDC token that workload identity federation exchanges for Google credentials
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: sa-tf-apply@precursor-intel-mlops.iam.gserviceaccount.com
@@ -103,7 +105,7 @@ jobs:
           TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://iam.googleapis.com/${{ env.WIF_PROVIDER }}" | jq -r .value)
           TOKEN="$TOKEN" python3 -c 'import os,json,base64; p=os.environ["TOKEN"].split(".")[1]; p+="="*(-len(p)%4); c=json.loads(base64.urlsafe_b64decode(p)); print(json.dumps({k:c.get(k) for k in ("sub","repository","repository_owner","ref","event_name","job_workflow_ref")}, indent=2))'
 
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.13.3
           terraform_wrapper: false
