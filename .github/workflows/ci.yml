@@ -1,8 +1,8 @@
 name: CI
 
 # Runs on every pull request into dev (feature work) and main (releases): lint and tests when the PR touches code,
-# configs or tests (only the ML tests when it touches only ML code), plus the three images and the DAG tests when the
-# PR touches them.
+# configs or tests (only the ML tests when it touches only ML code), plus the three images and the DAG tests, the
+# frontend, and the VM's own scripts (infra/vm/) when the PR touches them.
 # Make the "ci-ok" check required in the branch rulesets: a PR can then merge only when every job passes.
 on:
   pull_request:
@@ -307,17 +307,45 @@ jobs:
           npm test
           npm run build
 
+  # The VM's own scripts (infra/vm/): pi-down's cases and pi-deploy's smoke-test overrides, each in a Debian 12
+  # container like the VM, with fake commands and no gcloud or metadata server (infra/vm/tests/run.sh). Like images,
+  # it always runs for ci-ok and skips its steps when the PR doesn't touch infra/vm/.
+  vm-scripts:
+    name: VM scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # about 3.5 min on a laptop's Docker
+    steps:
+      - name: Check out the merge commit and its base
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2
+
+      - name: Does the change touch the VM scripts?
+        id: changes
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ] \
+              || git diff --name-only HEAD^1 HEAD | grep -qE '^(infra/vm/|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No VM script changes: nothing to check." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: pi-down's cases and pi-deploy's overrides
+        if: steps.changes.outputs.run == 'true'
+        run: bash infra/vm/tests/run.sh
+
   # Single stable check name to require in the branch rulesets (independent of the Python matrix).
   ci-ok:
     name: ci-ok
-    needs: [tests, images, frontend]
+    needs: [tests, images, frontend, vm-scripts]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: All required jobs passed
         run: |
           if [ "${{ needs.tests.result }}" != "success" ] || [ "${{ needs.images.result }}" != "success" ] \
-              || [ "${{ needs.frontend.result }}" != "success" ]; then
-            echo "tests: ${{ needs.tests.result }}; images: ${{ needs.images.result }}; frontend: ${{ needs.frontend.result }}"
+              || [ "${{ needs.frontend.result }}" != "success" ] || [ "${{ needs.vm-scripts.result }}" != "success" ]; then
+            echo "tests: ${{ needs.tests.result }}; images: ${{ needs.images.result }}; frontend: ${{ needs.frontend.result }}; vm-scripts: ${{ needs.vm-scripts.result }}"
             exit 1
           fi
