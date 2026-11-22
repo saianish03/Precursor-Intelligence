@@ -51,9 +51,5 @@ crash.log
 .claude/
 CLAUDE.local.md
 
-# Frontend dependencies, and Impeccable's local scratch (decision sketches, review captures); its surface briefs are kept
+# Frontend dependencies
 node_modules/
-.impeccable/mocks/
-.impeccable/review/
-.impeccable/questions/
-.impeccable/hook.cache.json

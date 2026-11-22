@@ -9,52 +9,52 @@
   {
    "risk_decile": 1,
    "n": 1469,
-   "mean_p": 0.5942296712032554
+   "mean_p": 0.594229671203
   },
   {
    "risk_decile": 2,
    "n": 1469,
-   "mean_p": 0.4063747403108226
+   "mean_p": 0.406374740311
   },
   {
    "risk_decile": 3,
    "n": 1468,
-   "mean_p": 0.32748203014110633
+   "mean_p": 0.327482030141
   },
   {
    "risk_decile": 4,
    "n": 1469,
-   "mean_p": 0.2702634570806942
+   "mean_p": 0.270263457081
   },
   {
    "risk_decile": 5,
    "n": 1468,
-   "mean_p": 0.22562422874936697
+   "mean_p": 0.225624228749
   },
   {
    "risk_decile": 6,
    "n": 1469,
-   "mean_p": 0.1915592405590426
+   "mean_p": 0.191559240559
   },
   {
    "risk_decile": 7,
    "n": 1469,
-   "mean_p": 0.16047718176859238
+   "mean_p": 0.160477181769
   },
   {
    "risk_decile": 8,
    "n": 1468,
-   "mean_p": 0.13186903618323614
+   "mean_p": 0.131869036183
   },
   {
    "risk_decile": 9,
    "n": 1469,
-   "mean_p": 0.10313549402231768
+   "mean_p": 0.103135494022
   },
   {
    "risk_decile": 10,
    "n": 1468,
-   "mean_p": 0.06745486783967725
+   "mean_p": 0.06745486784
   }
  ],
  "states": [
@@ -62,319 +62,319 @@
    "state": "IL",
    "n": 664,
    "n_top_decile": 455,
-   "mean_p": 0.5754892118780995
+   "mean_p": 0.575489211878
   },
   {
    "state": "TX",
    "n": 1177,
    "n_top_decile": 304,
-   "mean_p": 0.37612421054367134
+   "mean_p": 0.376124210544
   },
   {
    "state": "WI",
    "n": 323,
    "n_top_decile": 78,
-   "mean_p": 0.35897895015773706
+   "mean_p": 0.358978950158
   },
   {
    "state": "SD",
    "n": 96,
    "n_top_decile": 62,
-   "mean_p": 0.5147027036385188
+   "mean_p": 0.514702703639
   },
   {
    "state": "PA",
    "n": 656,
    "n_top_decile": 58,
-   "mean_p": 0.26166769254327465
+   "mean_p": 0.261667692543
   },
   {
    "state": "CA",
    "n": 1165,
    "n_top_decile": 57,
-   "mean_p": 0.21891341053508437
+   "mean_p": 0.218913410535
   },
   {
    "state": "MO",
    "n": 486,
    "n_top_decile": 57,
-   "mean_p": 0.2908464383309852
+   "mean_p": 0.290846438331
   },
   {
    "state": "MI",
    "n": 422,
    "n_top_decile": 56,
-   "mean_p": 0.3147067335635618
+   "mean_p": 0.314706733564
   },
   {
    "state": "MN",
    "n": 337,
    "n_top_decile": 45,
-   "mean_p": 0.3332374985342648
+   "mean_p": 0.333237498534
   },
   {
    "state": "CT",
    "n": 191,
    "n_top_decile": 35,
-   "mean_p": 0.35725155930513536
+   "mean_p": 0.357251559305
   },
   {
    "state": "DE",
    "n": 44,
    "n_top_decile": 32,
-   "mean_p": 0.5063032660964955
+   "mean_p": 0.506303266096
   },
   {
    "state": "WA",
    "n": 193,
    "n_top_decile": 28,
-   "mean_p": 0.318994243750671
+   "mean_p": 0.318994243751
   },
   {
    "state": "MS",
    "n": 202,
    "n_top_decile": 26,
-   "mean_p": 0.3163272253888393
+   "mean_p": 0.316327225389
   },
   {
    "state": "RI",
    "n": 72,
    "n_top_decile": 24,
-   "mean_p": 0.40271076877128675
+   "mean_p": 0.402710768771
   },
   {
    "state": "MT",
    "n": 61,
    "n_top_decile": 20,
-   "mean_p": 0.4191415294851727
+   "mean_p": 0.419141529485
   },
   {
    "state": "IA",
    "n": 387,
    "n_top_decile": 16,
-   "mean_p": 0.2412755446603882
+   "mean_p": 0.24127554466
   },
   {
    "state": "OH",
    "n": 924,
    "n_top_decile": 16,
-   "mean_p": 0.21214467304810056
+   "mean_p": 0.212144673048
   },
   {
    "state": "ND",
    "n": 72,
    "n_top_decile": 15,
-   "mean_p": 0.3696325258872658
+   "mean_p": 0.369632525887
   },
   {
    "state": "CO",
    "n": 210,
    "n_top_decile": 14,
-   "mean_p": 0.2927504071444306
+   "mean_p": 0.292750407144
   },
   {
    "state": "DC",
    "n": 16,
    "n_top_decile": 10,
-   "mean_p": 0.4862148659496958
-  },
-  {
-   "state": "WY",
-   "n": 36,
-   "n_top_decile": 9,
-   "mean_p": 0.3532674375242186
+   "mean_p": 0.48621486595
   },
   {
    "state": "OK",
    "n": 283,
    "n_top_decile": 9,
-   "mean_p": 0.2679794384110664
+   "mean_p": 0.267979438411
+  },
+  {
+   "state": "WY",
+   "n": 36,
+   "n_top_decile": 9,
+   "mean_p": 0.353267437524
   },
   {
    "state": "KS",
    "n": 296,
    "n_top_decile": 8,
-   "mean_p": 0.2529783086507937
+   "mean_p": 0.252978308651
   },
   {
    "state": "NM",
    "n": 68,
    "n_top_decile": 8,
-   "mean_p": 0.3331897023017393
+   "mean_p": 0.333189702302
   },
   {
    "state": "LA",
    "n": 265,
    "n_top_decile": 4,
-   "mean_p": 0.2073183098587278
+   "mean_p": 0.207318309859
   },
   {
    "state": "VT",
    "n": 33,
    "n_top_decile": 4,
-   "mean_p": 0.28869858759208034
+   "mean_p": 0.288698587592
   },
   {
    "state": "NE",
    "n": 180,
    "n_top_decile": 3,
-   "mean_p": 0.1812154446567884
+   "mean_p": 0.181215444657
   },
   {
    "state": "NY",
    "n": 592,
    "n_top_decile": 3,
-   "mean_p": 0.16741582280903253
+   "mean_p": 0.167415822809
   },
   {
    "state": "AK",
    "n": 20,
    "n_top_decile": 2,
-   "mean_p": 0.14902552567767385
-  },
-  {
-   "state": "NC",
-   "n": 419,
-   "n_top_decile": 2,
-   "mean_p": 0.20943616966184397
+   "mean_p": 0.149025525678
   },
   {
    "state": "AZ",
    "n": 140,
    "n_top_decile": 2,
-   "mean_p": 0.16805960964028607
+   "mean_p": 0.16805960964
   },
   {
-   "state": "VA",
-   "n": 289,
+   "state": "NC",
+   "n": 419,
    "n_top_decile": 2,
-   "mean_p": 0.14150298073011655
+   "mean_p": 0.209436169662
   },
   {
    "state": "NJ",
    "n": 348,
    "n_top_decile": 2,
-   "mean_p": 0.19009849099517256
+   "mean_p": 0.190098490995
+  },
+  {
+   "state": "VA",
+   "n": 289,
+   "n_top_decile": 2,
+   "mean_p": 0.14150298073
   },
   {
    "state": "HI",
    "n": 43,
    "n_top_decile": 1,
-   "mean_p": 0.20773990881947
-  },
-  {
-   "state": "WV",
-   "n": 123,
-   "n_top_decile": 1,
-   "mean_p": 0.2155162700114687
+   "mean_p": 0.207739908819
   },
   {
    "state": "MD",
    "n": 221,
    "n_top_decile": 1,
-   "mean_p": 0.18992169436432918
+   "mean_p": 0.189921694364
   },
   {
-   "state": "IN",
-   "n": 507,
-   "n_top_decile": 0,
-   "mean_p": 0.13829368504784073
-  },
-  {
-   "state": "GA",
-   "n": 356,
-   "n_top_decile": 0,
-   "mean_p": 0.12352269238529838
-  },
-  {
-   "state": "KY",
-   "n": 266,
-   "n_top_decile": 0,
-   "mean_p": 0.10012388966493493
-  },
-  {
-   "state": "OR",
-   "n": 128,
-   "n_top_decile": 0,
-   "mean_p": 0.18492118589875578
-  },
-  {
-   "state": "GU",
-   "n": 1,
-   "n_top_decile": 0,
-   "mean_p": 0.10247026975600579
-  },
-  {
-   "state": "NH",
-   "n": 73,
-   "n_top_decile": 0,
-   "mean_p": 0.07872830780509386
-  },
-  {
-   "state": "TN",
-   "n": 303,
-   "n_top_decile": 0,
-   "mean_p": 0.1020568820083081
-  },
-  {
-   "state": "FL",
-   "n": 694,
-   "n_top_decile": 0,
-   "mean_p": 0.14304119190829095
-  },
-  {
-   "state": "ME",
-   "n": 78,
-   "n_top_decile": 0,
-   "mean_p": 0.19179349220652658
-  },
-  {
-   "state": "UT",
-   "n": 97,
-   "n_top_decile": 0,
-   "mean_p": 0.23371771334501396
-  },
-  {
-   "state": "AR",
-   "n": 222,
-   "n_top_decile": 0,
-   "mean_p": 0.11768222958895115
-  },
-  {
-   "state": "PR",
-   "n": 9,
-   "n_top_decile": 0,
-   "mean_p": 0.05788101071514849
+   "state": "WV",
+   "n": 123,
+   "n_top_decile": 1,
+   "mean_p": 0.215516270011
   },
   {
    "state": "AL",
    "n": 224,
    "n_top_decile": 0,
-   "mean_p": 0.08751757357255899
+   "mean_p": 0.087517573573
+  },
+  {
+   "state": "AR",
+   "n": 222,
+   "n_top_decile": 0,
+   "mean_p": 0.117682229589
+  },
+  {
+   "state": "FL",
+   "n": 694,
+   "n_top_decile": 0,
+   "mean_p": 0.143041191908
+  },
+  {
+   "state": "GA",
+   "n": 356,
+   "n_top_decile": 0,
+   "mean_p": 0.123522692385
+  },
+  {
+   "state": "GU",
+   "n": 1,
+   "n_top_decile": 0,
+   "mean_p": 0.102470269756
   },
   {
    "state": "ID",
    "n": 80,
    "n_top_decile": 0,
-   "mean_p": 0.2244153936541708
+   "mean_p": 0.224415393654
   },
   {
-   "state": "SC",
-   "n": 187,
+   "state": "IN",
+   "n": 507,
    "n_top_decile": 0,
-   "mean_p": 0.19084751894052593
+   "mean_p": 0.138293685048
   },
   {
-   "state": "NV",
-   "n": 66,
+   "state": "KY",
+   "n": 266,
    "n_top_decile": 0,
-   "mean_p": 0.12926485644397226
+   "mean_p": 0.100123889665
   },
   {
    "state": "MA",
    "n": 341,
    "n_top_decile": 0,
-   "mean_p": 0.15683036440049627
+   "mean_p": 0.1568303644
+  },
+  {
+   "state": "ME",
+   "n": 78,
+   "n_top_decile": 0,
+   "mean_p": 0.191793492207
+  },
+  {
+   "state": "NH",
+   "n": 73,
+   "n_top_decile": 0,
+   "mean_p": 0.078728307805
+  },
+  {
+   "state": "NV",
+   "n": 66,
+   "n_top_decile": 0,
+   "mean_p": 0.129264856444
+  },
+  {
+   "state": "OR",
+   "n": 128,
+   "n_top_decile": 0,
+   "mean_p": 0.184921185899
+  },
+  {
+   "state": "PR",
+   "n": 9,
+   "n_top_decile": 0,
+   "mean_p": 0.057881010715
+  },
+  {
+   "state": "SC",
+   "n": 187,
+   "n_top_decile": 0,
+   "mean_p": 0.190847518941
+  },
+  {
+   "state": "TN",
+   "n": 303,
+   "n_top_decile": 0,
+   "mean_p": 0.102056882008
+  },
+  {
+   "state": "UT",
+   "n": 97,
+   "n_top_decile": 0,
+   "mean_p": 0.233717713345
   }
  ],
  "riskiest": [

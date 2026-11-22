@@ -30,10 +30,11 @@ export const useFacilities = (query: FacilityQuery) =>
     retry,
   })
 
-export const useFacility = (ccn: string) =>
+export const useFacility = (ccn: string, enabled = true) =>
   useQuery({
     queryKey: ["facility", ccn],
     queryFn: () => call(api.GET("/api/v1/facilities/{ccn}", { params: { path: { ccn } } })),
+    enabled,
     ...monthly,
     retry,
   })

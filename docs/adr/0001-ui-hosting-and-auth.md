@@ -18,9 +18,10 @@ before the app could be built: where it is served, how users sign in, and where 
    app's routes on one origin. `/api/v1/health` stays open; every other path needs a signed-in user.
 3. **Google sign-in, checked in FastAPI.** The app loads Google Identity Services, gets an ID token, keeps it in
    memory only (never in `localStorage`), and sends it as `Authorization: Bearer` on every call. FastAPI verifies it
-   (`google.oauth2.id_token`) against the OAuth client ID and an email allowlist in Secret Manager. A 401 shows the
-   sign-in screen again; a 403 shows "this account doesn't have access". The client ID is not a secret; it is a
-   build variable, `VITE_GOOGLE_CLIENT_ID`.
+   (`google.oauth2.id_token`) against the OAuth client ID and an email allowlist in Secret Manager; the allowlist
+   matches only a token whose `email_verified` claim is true (the library checks the audience, issuer and expiry,
+   not this). A 401 shows the sign-in screen again; a 403 shows "this account doesn't have access". The client ID
+   is not a secret; it is a build variable, `VITE_GOOGLE_CLIENT_ID`.
    - The content security policy has to allow `https://accounts.google.com/gsi/client` (script and frame).
 4. **The contract comes first.** `frontend/src/api/openapi.yaml` proposes the read endpoints the app needs and the
    error body every endpoint returns. The app's types are generated from it (`npm run gen:api`); once FastAPI exists,
@@ -29,8 +30,10 @@ before the app could be built: where it is served, how users sign in, and where 
    - `GET /api/v1/overview`: counts for the month, from the evidence files (gap G2);
    - `GET /api/v1/facilities`: search and paging, with facility names (G1, G2);
    - `GET /api/v1/ops`: the ops evidence, with no LLM (G5).
-   They need a `facilities` table in `build-evidence` from `gold/dim_facility_latest` (names, addresses, beds;
-   display only, never a feature).
+   They need a `facilities` table in `build-evidence`: names and addresses from `gold/dim_facility_latest`, and
+   beds from silver `provider_by_vintage.certified_beds` at vintage `v` (`dim_facility_latest` has no beds column;
+   `scripts/record_ui_fixtures.py` reads them there, and the chain roll-up gets the same value through the gold
+   feature `certified_beds`). Display only, never a feature.
 5. **Fixtures are recorded, never written by hand.** `scripts/record_ui_fixtures.py` records the API responses
    from one real scored month; agent responses will come from the agents' fallback templates (B9). The fixture
    server loads only with `VITE_FIXTURES=true` (`npm run dev:fixtures` and the tests), so it never ships.

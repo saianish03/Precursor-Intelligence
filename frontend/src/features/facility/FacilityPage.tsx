@@ -10,7 +10,7 @@ import { CitationStrip, CitationTable, PenaltyTable, SeverityGrid } from "./Cita
 export function FacilityPage() {
   const { ccn = "" } = useParams()
   const valid = /^[0-9A-Z]{6}$/.test(ccn)
-  const profile = useFacility(valid ? ccn : "000000")
+  const profile = useFacility(ccn, valid)
   if (!valid) return <Empty title={`"${ccn}" isn't a CCN`}>A CCN is 6 characters, digits and capital letters.</Empty>
   if (profile.error instanceof ApiError && profile.error.status === 404)
     return (
@@ -51,7 +51,7 @@ function Profile({ p }: { p: Schemas["FacilityProfile"] }) {
               {titleCase(f.address)}, {titleCase(f.city)}, {f.state} {f.zip}
             </span>
             {f.beds !== null && <span>{fmtInt(f.beds)} certified beds</span>}
-            <span>{f.chain_name ? `Chain: ${displayName(f.chain_name)}` : "Independent"}</span>
+            <span>{f.chain_name ? `Chain: ${displayName(f.chain_name)}` : f.chain_id ? `Chain ${f.chain_id}` : "Independent"}</span>
           </p>
         </div>
         <div {...scoreRec} className={`${scoreRec.className} md:max-w-xs md:text-right`}>
@@ -163,7 +163,7 @@ function ChainPanel({ chain, ccn, name }: { chain: Schemas["Chain"]; ccn: string
     ["Facilities", fmtInt(chain.n_facilities)],
     ["Certified beds", fmtInt(chain.beds)],
     ["Expected with a G to L citation", chain.expected_facilities_with_event.toFixed(1)],
-    ["Chance of at least one", chain.p_any_event > 0.999 ? "Over 99.9%" : fmtPct(chain.p_any_event)],
+    ["Chance of at least one, if facilities were independent", chain.p_any_event > 0.999 ? "Over 99.9%" : fmtPct(chain.p_any_event)],
     ["In the riskiest tenth", fmtPct(chain.share_top_decile, 0)],
   ]
   return (

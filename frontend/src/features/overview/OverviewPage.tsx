@@ -91,7 +91,7 @@ export function OverviewPage() {
               <TableSkeleton />
             )}
           </Section>
-          <Section title="Chains with the most expected citations" className="lg:col-span-6">
+          <Section title="Chains with the most facilities expected to get a G to L citation" className="lg:col-span-6">
             {o ? (
               <table className="w-full border-collapse text-sm">
                 <caption className="sr-only">Chains ranked by the expected number of facilities with a G to L citation</caption>

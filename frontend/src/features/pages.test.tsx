@@ -22,5 +22,6 @@ describe("pages on recorded data", () => {
     expect(await screen.findByText(/^0\.470 \(95% CI 0\.454 to 0\.486\)$/)).toBeInTheDocument()
     expect(screen.getByText("Gate results aren't published yet")).toBeInTheDocument()
     expect(screen.getByText("staffing_rating_fn", { exact: false })).toBeInTheDocument()
+    expect(screen.getByText(/chance level, as expected when nothing leaks the label/)).toBeInTheDocument()
   })
 })

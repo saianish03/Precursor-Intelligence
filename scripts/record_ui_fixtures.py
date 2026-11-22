@@ -2,7 +2,7 @@
 built from one scored month in GCS. Run on a laptop with read access to the data bucket:
 
     uv run --extra pipeline python scripts/record_ui_fixtures.py --root precursor-intel-mlops-data/ml-dev --v 2026-10 \
-        --eval-run phase1-retrain-1
+        --eval-run phase1-retrain-2
 
 It only reads GCS and writes frontend/fixtures/. The ids follow the evidence tools (agents/tools/evidence.py) so a
 fixture's evidence ids are the ones the live API returns. Agent responses are not recorded here: they come from the
@@ -22,7 +22,7 @@ import polars as pl
 
 OUT = Path(__file__).resolve().parents[1] / "frontend" / "fixtures"
 LIST_ROWS = 500  # the facility list fixture keeps the riskiest rows only; the README says so
-MONTHS = 36  # the citation and penalty window, as configs/agents.yaml evidence.citation_months
+MONTHS = 36  # dated in (cutoff - 36 months, cutoff], as build-evidence (configs/agents.yaml evidence)
 
 
 def months_before(d: date, months: int) -> date:
@@ -72,10 +72,10 @@ def main() -> None:
     cutoff = date.fromisoformat(f"{v}-01")
     start = months_before(cutoff, MONTHS)
     cites = read(fs, f"{root}/silver/citations_by_vintage/vintage={v}/part-0.parquet").filter(
-        (pl.col("survey_date") >= start) & (pl.col("survey_date") < cutoff)
+        (pl.col("survey_date") > start) & (pl.col("survey_date") <= cutoff)
     )
     pens = read(fs, f"{root}/silver/penalties_by_vintage/vintage={v}/part-0.parquet").filter(
-        (pl.col("penalty_date") >= start) & (pl.col("penalty_date") < cutoff)
+        (pl.col("penalty_date") > start) & (pl.col("penalty_date") <= cutoff)
     )
     evaluation = read_json(fs, f"{root}/ml/runs/{a.eval_run}/evaluation.json")
 
@@ -125,24 +125,28 @@ def main() -> None:
     listed = [item(r) for r in rows.head(LIST_ROWS).iter_rows(named=True)]
     write("facilities.json", {"total_in_month": rows.height, "items": listed})
     deciles = scores.group_by("risk_decile").agg(
-        pl.len().alias("n"), pl.col("p").mean().alias("mean_p")
+        pl.len().alias("n"), pl.col("p").mean().round(12).alias("mean_p")
     )
     states = scores.group_by("state").agg(
         pl.len().alias("n"),
         (pl.col("risk_decile") == 1).sum().alias("n_top_decile"),
-        pl.col("p").mean().alias("mean_p"),
+        pl.col("p").mean().round(12).alias("mean_p"),
     )
     write(
         "overview.json",
         {
             "data_as_of": data_as_of,
             "deciles": deciles.sort("risk_decile").to_dicts(),
-            "states": states.sort("n_top_decile", descending=True).to_dicts(),
+            "states": states.sort(["n_top_decile", "state"], descending=[True, False]).to_dicts(),
             "riskiest": listed[:25],
             "chains": chains.sort("expected_facilities_with_event", descending=True)
             .head(10)
             .join(
-                ident.select("chain_id", "chain_name").unique("chain_id"), on="chain_id", how="left"
+                ident.select("chain_id", "chain_name")
+                .sort("chain_id", "chain_name", nulls_last=True)
+                .unique("chain_id", keep="first"),
+                on="chain_id",
+                how="left",
             )
             .drop("model_version", "gold_run_id", "ml_run_id", "score_month")
             .to_dicts(),

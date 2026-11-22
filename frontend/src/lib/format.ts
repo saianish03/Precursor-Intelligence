@@ -63,7 +63,7 @@ export const modelName = (candidate: string) => CANDIDATES[candidate] ?? candida
 // The monthly decision (monitoring/decide.py DecisionName), as a sentence ending.
 const DECISIONS: Record<string, string> = {
   SCORE: "scored with the current model, with no retraining",
-  PROMOTE: "a new model was promoted",
+  PROMOTE: "the champion was changed by hand (a promotion or a rollback)",
   RETRAIN: "the model was retrained",
   RETUNE: "the model was re-tuned",
   SKIP: "nothing new to score, so the run was skipped",

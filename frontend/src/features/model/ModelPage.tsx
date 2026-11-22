@@ -4,6 +4,9 @@ import { Empty, ErrorPanel, TableSkeleton } from "@/components/states"
 import { Bar, PageTitle, Section, td, th } from "@/components/ui"
 import { decisionText, fmtInt, fmtMonth, fmtP, fmtPct, fmtTimestamp, modelName } from "@/lib/format"
 
+// The shuffled-label gate's band (configs/ml.yaml evaluation.shuffled_label.roc_range).
+const SHUFFLED_ROC = [0.44, 0.56] as const
+
 const BASELINES: Record<string, string> = {
   prior_gplus_rule: "Prior G to L citation (rule)",
   severity_24m: "Citation severity, last 24 months",
@@ -11,8 +14,10 @@ const BASELINES: Record<string, string> = {
 }
 
 /** What a data flag means, from monitoring/status.py and training/train.py. */
-function explainFlag(flag: string) {
+function explainFlag(flag: string): { feature: string | null; what: string } {
   const [kind, feature] = flag.split(":")
+  if (kind === "stale_champion")
+    return { feature: null, what: `The model was trained on labels ${parseInt(feature ?? "")} months older than this month's` }
   const what =
     kind === "skew" || kind === "psi"
       ? "differs between the training window and the scored month (population stability index over 0.25)"
@@ -49,6 +54,7 @@ function Health({ ops, status }: { ops: Schemas["Ops"]; status: Schemas["Status"
   const e = ops.evaluation
   const r = e.ranking
   const iv = e.intervals
+  const shuffled = Number(e.sanity.shuffled_label_roc ?? 0)
   const ci = (k: string) => (iv[k] ? ` (95% CI ${fmtP(iv[k].ci_low)} to ${fmtP(iv[k].ci_high)})` : "")
   const metrics: [string, string, string][] = [
     ["PR-AUC", `${fmtP(r.pr_auc ?? 0)}${ci("pr_auc")}`, "How well the ranking finds the facilities that were cited. Chance equals the base rate."],
@@ -140,7 +146,7 @@ function Health({ ops, status }: { ops: Schemas["Ops"]; status: Schemas["Status"
                 const x = explainFlag(f)
                 return (
                   <li key={f} className="border-b border-rule-soft pb-2">
-                    <code className="font-semibold">{x.feature}</code> {x.what}.
+                    {x.feature && <code className="font-semibold">{x.feature}</code>} {x.what}.
                   </li>
                 )
               })}
@@ -149,8 +155,10 @@ function Health({ ops, status }: { ops: Schemas["Ops"]; status: Schemas["Status"
         </Section>
         <Section title="Sanity checks">
           <p className="text-sm">
-            A model trained on shuffled labels scores ROC-AUC{" "}
-            <b>{fmtP(Number(e.sanity.shuffled_label_roc ?? 0))}</b>, chance level, as expected when nothing leaks the label.{" "}
+            A model trained on shuffled labels scores ROC-AUC <b>{fmtP(shuffled)}</b>,{" "}
+            {shuffled >= SHUFFLED_ROC[0] && shuffled <= SHUFFLED_ROC[1]
+              ? "chance level, as expected when nothing leaks the label."
+              : `outside the ${SHUFFLED_ROC[0]} to ${SHUFFLED_ROC[1]} band that chance gives: see the evaluation run.`}{" "}
             {Array.isArray(e.sanity.uncleared_leakage_flags) && e.sanity.uncleared_leakage_flags.length === 0
               ? "No leakage flags are open."
               : "Leakage flags are open: see the evaluation run."}
@@ -182,10 +190,10 @@ function Reliability({ bins }: { bins: Schemas["Ops"]["evaluation"]["reliability
         {[0, max / 2, max].map((t) => (
           <g key={t} fontSize="11" fill="var(--color-muted)">
             <text x={at(t)} y={size + 16} textAnchor="middle">
-              {t.toFixed(1)}
+              {t.toFixed(2)}
             </text>
             <text x={-8} y={size - at(t) + 4} textAnchor="end">
-              {t.toFixed(1)}
+              {t.toFixed(2)}
             </text>
           </g>
         ))}

@@ -37,7 +37,7 @@ export function CitationStrip({ citations, scoreMonth }: { citations: Citation[]
             <button
               key={s.date}
               type="button"
-              onClick={() => mark(s.cs[0]!.evidence_id)}
+              onClick={() => mark((s.cs.find((c) => c.scope_severity === s.worst) ?? s.cs[0]!).evidence_id)}
               aria-label={`${fmtDate(s.date)}: ${s.cs.length} citation${s.cs.length > 1 ? "s" : ""}, worst severity ${s.worst}`}
               title={`${fmtDate(s.date)}: ${s.cs.length} citation${s.cs.length > 1 ? "s" : ""}, worst ${s.worst}`}
               className={cn(

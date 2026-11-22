@@ -46,7 +46,7 @@ The list holds the 500 riskiest facilities, and five facilities have full profil
 
 ## Design
 The product brief is `PRODUCT.md` at the repo root; the visual direction ("The Register": every claim ends in a
-citation that resolves to its CMS record) is in `.impeccable/surfaces/frontend-src.md`. Colours, type and sizes are
+citation that resolves to its CMS record) is in `DESIGN.md`. Colours, type and sizes are
 tokens in `src/styles/index.css`; use them rather than raw values.
 - **Probabilities are model estimates.** Never write that a facility "will be cited".
 - **Every score shows its month and model.**

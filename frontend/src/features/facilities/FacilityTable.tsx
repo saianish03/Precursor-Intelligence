@@ -51,7 +51,7 @@ export function FacilityTable({
               <td className={`${td} hidden sm:table-cell`}>
                 {titleCase(r.city)}, {r.state}
               </td>
-              <td className={`${td} hidden lg:table-cell`}>{r.chain_name ? displayName(r.chain_name) : <span className="text-muted">Independent</span>}</td>
+              <td className={`${td} hidden lg:table-cell`}>{r.chain_name ? displayName(r.chain_name) : r.chain_id ? `Chain ${r.chain_id}` : <span className="text-muted">Independent</span>}</td>
               {decile && (
                 <td className={td}>
                   <DecileMeter decile={r.risk_decile} />
