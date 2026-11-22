@@ -7,7 +7,7 @@ One DAG, `cms_nh_pipeline` (spec §15), runs the implemented nodes **ingestion �
 ```
 docker compose (docker/airflow-local/)
   postgres:16         databases airflow + precursor_meta + mlflow (named volume; on the VM, the data disk)
-  mlflow              tracking server and registry, on the task network only (off on the VM until Phase 2)
+  mlflow              tracking server and registry, on the task network only (on the VM too: runbooks/vm.md §11)
   airflow-*           precursor-airflow image: api-server, scheduler (LocalExecutor), dag-processor, triggerer
   docker-proxy        the only Docker API access (containers + images), on an internal network only the
                       scheduler joins

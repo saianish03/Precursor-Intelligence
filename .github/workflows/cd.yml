@@ -1,7 +1,7 @@
 name: CD
 
-# After a merge into dev or main that changes what goes into an image: build both images once, test them, and push
-# them to Artifact Registry tagged with the full commit sha. Tags are immutable there and nothing is ever tagged
+# After a merge into dev or main that changes what goes into an image: build the three images (pipeline, airflow,
+# mlflow) once, test them, and push them to Artifact Registry tagged with the full commit sha. Tags are immutable there and nothing is ever tagged
 # latest, so a VM told to run a sha runs exactly those bytes. Logs in keylessly as sa-deployer, which only runs on
 # dev and main can act as, with push rights on that one repository (infra/terraform/envs/prod/main.tf).
 on:
@@ -65,16 +65,14 @@ jobs:
       - name: Already published?
         id: published
         run: |
-          if docker manifest inspect "$REGISTRY/pipeline:$GITHUB_SHA" >/dev/null 2>&1 \
-              && docker manifest inspect "$REGISTRY/airflow:$GITHUB_SHA" >/dev/null 2>&1; then
-            echo "both=true" >> "$GITHUB_OUTPUT"
-            echo "Both images for \`$GITHUB_SHA\` are already in the registry: nothing to build or push." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "both=false" >> "$GITHUB_OUTPUT"
-          fi
+          for image in pipeline airflow mlflow; do
+            docker manifest inspect "$REGISTRY/$image:$GITHUB_SHA" >/dev/null 2>&1 || { echo "all=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          done
+          echo "all=true" >> "$GITHUB_OUTPUT"
+          echo "All three images for \`$GITHUB_SHA\` are already in the registry: nothing to build or push." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build both images
-        if: steps.published.outputs.both == 'false'
+      - name: Build the three images
+        if: steps.published.outputs.all == 'false'
         run: |
           # No provenance or SBOM attachments: one plain manifest per tag, so the registry's keep-the-5-newest
           # cleanup counts releases, not attachments.
@@ -82,13 +80,16 @@ jobs:
             --build-arg PI_GIT_SHA="$GITHUB_SHA" -t "$REGISTRY/pipeline:$GITHUB_SHA" .
           docker build --provenance=false --sbom=false -f docker/airflow.Dockerfile \
             --build-arg PI_GIT_SHA="$GITHUB_SHA" -t "$REGISTRY/airflow:$GITHUB_SHA" .
+          docker build --provenance=false --sbom=false -f docker/mlflow.Dockerfile \
+            --build-arg PI_GIT_SHA="$GITHUB_SHA" -t "$REGISTRY/mlflow:$GITHUB_SHA" .
 
-      # The same checks as CI's images job (ci.yml), on the exact images about to be pushed, plus the commit label on
-      # both. Keep the two in step: a check added to one must be added to the other.
+      # The per-image checks of CI's images job (ci.yml), on the exact images about to be pushed, plus the commit label
+      # on each. Keep the two in step: a check added to one must be added to the other. CI's compose smoke run (MLflow
+      # against a fake GCS) stays CI-only: it tests the same commit's files.
       - name: Test the images
-        if: steps.published.outputs.both == 'false'
+        if: steps.published.outputs.all == 'false'
         run: |
-          for image in pipeline airflow; do
+          for image in pipeline airflow mlflow; do
             label=$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$REGISTRY/$image:$GITHUB_SHA")
             test "$label" = "$GITHUB_SHA" || { echo "::error::$image image is labelled '$label', not $GITHUB_SHA"; exit 1; }
           done
@@ -96,6 +97,11 @@ jobs:
           docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" precursor-pipeline --help > /dev/null
           docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" python -c "import fairlearn, lightgbm, mlflow, optuna, shap, sklearn"
           test "$(docker run --rm "$REGISTRY/pipeline:$GITHUB_SHA" printenv PI_GIT_SHA)" = "$GITHUB_SHA"
+          help=$(docker run --rm "$REGISTRY/mlflow:$GITHUB_SHA" mlflow server --help)
+          for flag in --allowed-hosts --serve-artifacts --artifacts-destination --workers; do
+            grep -q -- "$flag" <<< "$help" || { echo "::error::mlflow server has no $flag"; exit 1; }
+          done
+          docker run --rm "$REGISTRY/mlflow:$GITHUB_SHA" python -c "import google.cloud.storage, psycopg2"
           docker run --rm --entrypoint "" -v "$PWD/tests/dags:/opt/airflow/tests/dags:ro" \
             "$REGISTRY/airflow:$GITHUB_SHA" python -m pytest -q -p no:cacheprovider /opt/airflow/tests/dags
           # the compose bundle the VM deploys from: the base file alone (a laptop's five secrets) and with the VM file
@@ -113,16 +119,16 @@ jobs:
             exit 1
           fi
 
-      # Push each image only if its tag is still free: after a run that pushed one image and then failed, the rerun
-      # pushes only the other one.
+      # Push each image only if its tag is still free: after a run that pushed some images and then failed, the rerun
+      # pushes only the rest.
       - name: Push
-        if: steps.published.outputs.both == 'false'
+        if: steps.published.outputs.all == 'false'
         run: |
           {
             echo "| image | digest |"
             echo "|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
-          for image in pipeline airflow; do
+          for image in pipeline airflow mlflow; do
             ref="$REGISTRY/$image:$GITHUB_SHA"
             if docker manifest inspect "$ref" >/dev/null 2>&1; then
               echo "| \`$ref\` | already published |" >> "$GITHUB_STEP_SUMMARY"
