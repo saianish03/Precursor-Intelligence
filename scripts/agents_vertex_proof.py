@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import json
 import sys
 import tempfile
@@ -251,6 +252,10 @@ def main() -> None:
         help="call one model alone instead of the primary with the fallback behind it",
     )
     args = parser.parse_args()
+    # the model writes characters like U+2011 (a non-breaking hyphen) that Windows' cp1252 can't print when the
+    # output is redirected to a file
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     methods = [args.method] if args.method else list(METHODS)
     agents = [args.agent] if args.agent else list(AGENTS)
     sys.exit(asyncio.run(prove(methods, args.only, agents)))

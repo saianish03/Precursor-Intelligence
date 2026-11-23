@@ -60,6 +60,12 @@ def test_environment_overrides_the_model_and_region(monkeypatch):
     assert s.model.primary == "openai/gpt-oss-20b-maas"
 
 
+def test_json_schema_is_the_default_structured_output_method(monkeypatch):
+    assert load_agents_settings().model.structured_output_method == "json_schema"  # L4's choice
+    monkeypatch.setenv("PI_AGENTS_STRUCTURED_OUTPUT", "function_calling")
+    assert load_agents_settings().model.structured_output_method == "function_calling"
+
+
 def test_the_fallback_model_is_empty_by_default_and_set_from_the_environment(monkeypatch):
     assert load_agents_settings().model.fallback is None
     monkeypatch.setenv("PI_AGENTS_FALLBACK_MODEL", "openai/gpt-oss-20b-maas")
