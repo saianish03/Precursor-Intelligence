@@ -291,6 +291,25 @@ def _run(rt: Runtime):
     return asyncio.run(run_agent(rt, DEMO, {"ccn": "015009"}, data=DATA, request_id="r"))
 
 
+class NoUsageVertex(Vertex):
+    """Like Vertex, but its replies carry no "usage" field."""
+
+    def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        response = super().__call__(request)
+        body = json.loads(response.content)
+        body.pop("usage", None)
+        return httpx2.Response(response.status_code, json=body)
+
+
+def test_a_vertex_reply_with_no_usage_is_priced_at_an_upper_bound(tmp_path):
+    s = load_agents_settings()
+    rt = _vertex_runtime(tmp_path, NoUsageVertex({s.model.primary: s.model.primary}))
+    out = _run(rt)
+    assert not out.fallback
+    assert out.output_tokens == 500  # demo's max_tokens in _vertex_runtime
+    assert out.input_tokens > 2000 and out.cost_usd > 0
+
+
 def test_each_reply_carries_the_configured_id_and_keeps_the_reported_name():
     s = load_agents_settings()
     vertex = Vertex({s.model.primary: "gpt-oss-120b"})

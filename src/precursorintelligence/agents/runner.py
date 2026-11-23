@@ -39,6 +39,8 @@ In order:
 from __future__ import annotations
 
 import asyncio
+import logging
+import math
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -64,6 +66,8 @@ from .model import Bind, ModelAnswer, ModelPair
 from .prompts import Prompt, load_prompt
 from .settings import AgentsSettings
 from .tools.evidence import ToolInputError
+
+log = logging.getLogger(__name__)
 
 InT = TypeVar("InT", bound=BaseModel)
 OutT = TypeVar("OutT", bound=BaseModel)
@@ -204,15 +208,58 @@ class RunUsage:
     tool_calls: int = 0
     cost_usd: float = 0.0
     answered_by: list[str] = field(default_factory=list)  # the configured id of each reply's model
+    estimated: int = 0  # replies that came with no token counts, priced at an upper bound
 
-    def add(self, answer: ModelAnswer, settings: AgentsSettings) -> None:
+    def add(
+        self,
+        answer: ModelAnswer,
+        settings: AgentsSettings,
+        *,
+        sent: Sequence[BaseMessage] = (),
+        max_tokens: int | None = None,
+    ) -> None:
+        """Counts one reply. A reply with no token counts (no ``usage_metadata``, or a count missing from it) is
+        priced at an upper bound, never at $0, so it can't slip past the spend stop: the output at the call's
+        ``max_tokens`` and the input at ``_input_upper_bound(sent)``."""
         meta: dict[str, Any] = dict(answer.message.usage_metadata or {})
-        tokens_in, tokens_out = int(meta.get("input_tokens", 0)), int(meta.get("output_tokens", 0))
+        tokens_in, tokens_out = meta.get("input_tokens"), meta.get("output_tokens")
+        if tokens_in is None or tokens_out is None:
+            self.estimated += 1
+            if tokens_in is None:
+                tokens_in = _input_upper_bound(sent, settings)
+            if tokens_out is None:
+                tokens_out = (
+                    max_tokens if max_tokens is not None else settings.limits.output_tokens_limit
+                )
+            log.warning(
+                "%s sent no token counts; priced at an upper bound of %d input and %d output tokens",
+                answer.configured_id,
+                tokens_in,
+                tokens_out,
+            )
+        tokens_in, tokens_out = int(tokens_in), int(tokens_out)
         self.requests += 1
         self.input_tokens += tokens_in
         self.output_tokens += tokens_out
         self.cost_usd += settings.cost_usd(answer.configured_id, tokens_in, tokens_out)
         self.answered_by.append(answer.configured_id)
+
+
+CHARS_PER_TOKEN_BOUND = 2
+"""For an upper bound on a request's input tokens: English is about 4 characters a token, so 2 overcounts."""
+REQUEST_OVERHEAD_TOKENS = 2000
+"""Added to that bound for what isn't in the messages: the tool and answer schemas and the chat format."""
+
+
+def _input_upper_bound(sent: Sequence[BaseMessage], settings: AgentsSettings) -> int:
+    """A generous estimate of a request's input tokens from the messages sent, at most the run's input limit."""
+    chars = 0
+    for m in sent:
+        chars += len(str(m.content))
+        if calls := getattr(m, "tool_calls", None):  # an assistant turn's tool calls are sent too
+            chars += len(_data_json(calls))
+    estimate = math.ceil(chars / CHARS_PER_TOKEN_BOUND) + REQUEST_OVERHEAD_TOKENS
+    return min(estimate, settings.limits.input_tokens_limit)
 
 
 @dataclass
@@ -474,7 +521,9 @@ async def _converse(
             raise UsageLimitExceeded(f"more than {settings.limits.request_limit} model requests")
         bind = binders.tools if in_tool_phase and binders.tools is not None else binders.answer
         answer = await runtime.model.ainvoke(messages, bind)
-        usage.add(answer, settings)
+        usage.add(
+            answer, settings, sent=messages, max_tokens=settings.agent(definition.name).max_tokens
+        )
         _check_limits(usage, settings)
         reply = answer.message
         messages.append(reply)

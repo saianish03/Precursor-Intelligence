@@ -61,6 +61,20 @@ def say(text: str) -> Step:
     return lambda messages, settings: AIMessage(content=text)
 
 
+NO_USAGE = "scripted_no_usage"
+
+
+def without_usage(step: Step) -> Step:
+    """The same reply, sent with no token counts (no ``usage_metadata``), like an endpoint that omits them."""
+
+    def wrapped(messages: list[BaseMessage], settings: dict[str, Any]) -> AIMessage:
+        reply = step(messages, settings)
+        reply.response_metadata[NO_USAGE] = True
+        return reply
+
+    return wrapped
+
+
 def raise_(exc: BaseException) -> Step:
     """A model call that fails with ``exc``."""
 
@@ -110,7 +124,9 @@ class ScriptedChatModel(BaseChatModel):
         if not queue:
             raise AssertionError(f"the script for {key} ran out")
         reply = queue.pop(0)(list(messages), kwargs)
-        if reply.usage_metadata is None:
+        if reply.response_metadata.pop(NO_USAGE, False):
+            reply.usage_metadata = None
+        elif reply.usage_metadata is None:
             reply.usage_metadata = dict(USAGE)  # type: ignore[assignment]
         reply.response_metadata.setdefault("model_name", self.reported_name)
         return ChatResult(generations=[ChatGeneration(message=reply)])

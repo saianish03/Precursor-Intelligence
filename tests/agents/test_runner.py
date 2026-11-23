@@ -47,6 +47,7 @@ from precursorintelligence.agents.testing import (
     call_tool,
     raise_,
     say,
+    without_usage,
 )
 from precursorintelligence.agents.tools.evidence import ToolInputError
 
@@ -271,6 +272,42 @@ def test_the_spend_stop_refuses_new_runs(tmp_path):
     with pytest.raises(DailyCapReached, match="spend stop") as exc:
         run(rt, {"ccn": "015010"}, Backend())
     assert exc.value.reason == "spend"
+
+
+def test_a_reply_with_no_token_counts_is_priced_at_an_upper_bound_not_zero(tmp_path, caplog):
+    model = scripted(any=[without_usage(brief("ok", score_id("015009")))])
+    rt, hooks = runtime(tmp_path, model)
+    definition = demo_definition(tools=[], gather=gather_score)
+    with caplog.at_level("WARNING", logger="precursorintelligence.agents.runner"):
+        out = run(rt, {"ccn": "015009"}, Backend(), definition)
+    line = hooks.lines[0]
+    assert line.output_tokens == 500  # the call's max_tokens (settings: demo's max_tokens)
+    # the input bound: the messages sent, at 2 characters a token, plus the schemas' allowance
+    sent = model.calls[0][0]
+    chars = sum(len(str(m.content)) for m in sent)
+    assert line.input_tokens == -(-chars // 2) + 2000
+    assert out.cost_usd == pytest.approx(rt.settings.cost_usd(PRIMARY, line.input_tokens, 500))
+    assert out.cost_usd > rt.settings.cost_usd(
+        PRIMARY, 100, 20
+    )  # more than a counted reply would cost
+    assert any("sent no token counts" in r.getMessage() for r in caplog.records)
+
+
+def test_the_input_bound_never_exceeds_the_input_limit(tmp_path):
+    model = scripted(any=[without_usage(brief("ok", score_id("015009")))])
+    rt, hooks = runtime(tmp_path, model, input_tokens_limit=2050)  # under the estimate
+    run(rt, {"ccn": "015009"}, Backend(), demo_definition(tools=[], gather=gather_score))
+    assert hooks.lines[0].input_tokens == 2050
+
+
+def test_replies_with_no_token_counts_still_reach_the_spend_stop(tmp_path):
+    steps = [call_tool("get_score", ccn="015009"), brief("ok", score_id("015009"))]
+    model = scripted(get_score=[without_usage(s) for s in steps])
+    rt, _ = runtime(tmp_path, model, spend_stop=1e-6)  # priced at $0, the run would never reach it
+    first = run(rt, {"ccn": "015009"}, Backend())
+    assert first.cost_usd > 1e-6
+    with pytest.raises(DailyCapReached, match="spend stop"):
+        run(rt, {"ccn": "015010"}, Backend())
 
 
 def test_bad_input_fails_before_any_model_call_or_count(tmp_path):
