@@ -5,7 +5,7 @@ An end-to-end MLOps application - Nursing Homes Risk Assessment for the Insuranc
 Every month, Precursor Intelligence gives each U.S. nursing home (CMS-certified skilled nursing facility) a
 calibrated probability of a **serious health citation (scope/severity G to L) in the next 12 months**, for
 long-term-care liability insurers. An Airflow 3 pipeline turns the monthly CMS open-data releases into a
-point-in-time training table; LightGBM and four Pydantic AI agents turn that table into calibrated, explained
+point-in-time training table; LightGBM and four LangChain agents turn that table into calibrated, explained
 scores.
 
 > **Status (branch `dev`, November 2026):** the **data pipeline runs end to end**, locally and against the GCS

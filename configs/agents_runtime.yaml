@@ -14,6 +14,9 @@ model:
   primary: ${PI_AGENTS_MODEL:-openai/gpt-oss-120b-maas}
   fallback: ${PI_AGENTS_FALLBACK_MODEL:-openai/gpt-oss-20b-maas}
   request_timeout_s: 60
+  # How the final answer is asked for: function_calling (the answer is a final_answer tool call) or json_schema (a
+  # response_format the reply must match). L4's laptop proof tries both against Vertex.
+  structured_output_method: ${PI_AGENTS_STRUCTURED_OUTPUT:-function_calling}
 
 # max_tokens and temperature per agent (D4); every agent needs an entry.
 agents:
@@ -30,7 +33,7 @@ agents:
     max_tokens: 3000
     temperature: 0.2
 
-# Pydantic AI usage limits for one agent run (D4); together about $0.04 at most a run (§7). The output retry runs
+# Usage limits for one agent run, enforced by the runner (D4); together about $0.04 at most a run (§7). The output retry runs
 # inside the same run, so it counts against these too.
 limits:
   request_limit: 6

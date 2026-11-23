@@ -8,32 +8,33 @@ long-lived instance can't send an expired token.
 The OpenAI client is built on ``httpx2`` (the ``openai`` package's HTTP library), so the auth is an ``httpx2.Auth``;
 the API is the same as ``httpx.Auth``.
 
-Each of the two models is wrapped in ``ConfiguredModel``, which records on every response which configured model
-answered (``provider_details["configured_model"]``, the id from settings). The name the endpoint reports stays in
-``ModelResponse.model_name`` untouched, but Vertex may spell it differently from our id (e.g. without ``openai/``),
-so the runner decides "the primary answered" (and the price) from the tag, never from the reported string.
+The two models are LangChain ``ChatOpenAI`` models in a ``ModelPair``: each call tries the primary and moves to the
+fallback when it fails, and every reply comes back with the configured id of the model that wrote it. The name the
+endpoint reports (``response_metadata["model_name"]``) is kept, but Vertex may spell it differently from our id (e.g.
+without ``openai/``), so the runner decides "the primary answered" (and the price) from the configured id, never from
+the reported string.
 
-The unit tests use Pydantic AI's ``TestModel`` and ``FunctionModel``, or this factory over a mocked HTTP transport;
-none reaches the network. ``scripts/agents_vertex_proof.py`` is L4's laptop proof against the real endpoint.
+The unit tests use ``agents/testing.py``'s scripted chat model, or this factory over a mocked HTTP transport; none
+reaches the network. ``scripts/agents_vertex_proof.py`` is L4's laptop proof against the real endpoint.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, Generator
-from dataclasses import replace
+from collections.abc import AsyncGenerator, Callable, Generator, Sequence
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 import httpx2
+import openai
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.runnables import Runnable
+from langchain_openai import ChatOpenAI
 from openai import AsyncOpenAI
-from pydantic_ai.messages import ModelMessage, ModelResponse
-from pydantic_ai.models import Model, ModelRequestParameters
-from pydantic_ai.models.fallback import FallbackModel
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.models.wrapper import WrapperModel
-from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.settings import ModelSettings
+from pydantic import SecretStr
 
+from .errors import ModelCallFailed
 from .settings import AgentsSettings
 
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
@@ -114,52 +115,94 @@ def build_openai_client(
     )
 
 
-CONFIGURED_MODEL_KEY = "configured_model"
+MODEL_ERRORS: tuple[type[BaseException], ...] = (openai.APIError, httpx2.HTTPError, TimeoutError)
+"""What makes one model call move from the primary to the fallback model (an HTTP error, a refused request, a
+timeout). langchain-openai re-raises the API errors as subclasses of ``openai.APIError``."""
+
+Bind = Callable[[BaseChatModel], Runnable[Any, BaseMessage]]
 
 
-class ConfiguredModel(WrapperModel):
-    """Tags each response with the configured id of the model object that wrote it (``configured_model`` in
-    ``provider_details``). Only ``request`` is tagged: the runner doesn't stream."""
+@dataclass(frozen=True)
+class ModelAnswer:
+    """One model reply and the configured id of the model that wrote it (from settings, not the reported name)."""
 
-    def __init__(self, wrapped: Model, configured_id: str) -> None:
-        super().__init__(wrapped)
-        self.configured_id = configured_id
+    message: AIMessage
+    configured_id: str
 
-    async def request(
-        self,
-        messages: list[ModelMessage],
-        model_settings: ModelSettings | None,
-        model_request_parameters: ModelRequestParameters,
-    ) -> ModelResponse:
-        response = await super().request(messages, model_settings, model_request_parameters)
-        details = {**(response.provider_details or {}), CONFIGURED_MODEL_KEY: self.configured_id}
-        return replace(response, provider_details=details)
+    @property
+    def reported_name(self) -> str | None:
+        """The model name the endpoint reported, which may be spelled differently from the configured id."""
+        name = self.message.response_metadata.get("model_name")
+        return name if isinstance(name, str) else None
 
 
-def configured_model_name(response: ModelResponse) -> str | None:
-    """The configured id of the model that wrote ``response``: the ``ConfiguredModel`` tag, else (a test model,
-    which isn't wrapped) the reported name."""
-    tagged = (response.provider_details or {}).get(CONFIGURED_MODEL_KEY)
-    return tagged if isinstance(tagged, str) else response.model_name
+@dataclass(frozen=True)
+class ModelPair:
+    """The primary chat model and the fallback behind it, each with its configured id. Every call tries the
+    primary first and moves to the fallback when it fails, so the runner always knows which model answered."""
+
+    primary: BaseChatModel
+    primary_id: str
+    fallback: BaseChatModel | None = None
+    fallback_id: str | None = None
+
+    async def ainvoke(self, messages: Sequence[BaseMessage], bind: Bind) -> ModelAnswer:
+        """``bind`` adds the tools, the answer format and the sampling settings to a model."""
+        try:
+            return ModelAnswer(
+                _as_ai(await bind(self.primary).ainvoke(list(messages))), self.primary_id
+            )
+        except MODEL_ERRORS as first:
+            if self.fallback is None or self.fallback_id is None:
+                raise ModelCallFailed(f"{self.primary_id}: {_describe(first)}") from first
+            try:
+                reply = await bind(self.fallback).ainvoke(list(messages))
+            except MODEL_ERRORS as second:
+                raise ModelCallFailed(
+                    f"{self.primary_id}: {_describe(first)}; then {self.fallback_id}: {_describe(second)}"
+                ) from second
+            return ModelAnswer(_as_ai(reply), self.fallback_id)
 
 
-def build_model(
+def _describe(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _as_ai(message: BaseMessage) -> AIMessage:
+    if not isinstance(message, AIMessage):
+        raise TypeError(f"the chat model returned a {type(message).__name__}, not an AIMessage")
+    return message
+
+
+def build_chat_model(model_id: str, client: AsyncOpenAI) -> ChatOpenAI:
+    """A LangChain chat model for one Vertex model id, sending through ``client`` (and its token auth)."""
+    return ChatOpenAI(
+        model=model_id,
+        base_url=str(client.base_url),
+        api_key=SecretStr(_PLACEHOLDER_KEY),
+        root_async_client=client,
+        async_client=client.chat.completions,
+    )
+
+
+def build_models(
     settings: AgentsSettings,
     *,
     credentials: RefreshableCredentials | None = None,
     transport: httpx2.AsyncBaseTransport | None = None,
     transport_request: Any = None,
-) -> Model:
-    """The primary model, falling back to the fallback model when a call to it fails (both ids from settings)."""
+) -> ModelPair:
+    """The primary model with the fallback model behind it (both ids from settings), sharing one client."""
     client = build_openai_client(
         settings,
         credentials if credentials is not None else default_credentials(),
         transport=transport,
         transport_request=transport_request,
     )
-    provider = OpenAIProvider(openai_client=client)
     primary, fallback = settings.model.primary, settings.model.fallback
-    return FallbackModel(
-        ConfiguredModel(OpenAIChatModel(primary, provider=provider), primary),
-        ConfiguredModel(OpenAIChatModel(fallback, provider=provider), fallback),
+    return ModelPair(
+        primary=build_chat_model(primary, client),
+        primary_id=primary,
+        fallback=build_chat_model(fallback, client),
+        fallback_id=fallback,
     )

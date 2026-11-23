@@ -8,18 +8,18 @@ from typing import Any
 
 import httpx2
 import pytest
+from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
-from pydantic_ai import Agent
-from pydantic_ai.models.fallback import FallbackModel
-from pydantic_ai.models.openai import OpenAIChatModel
 
 from precursorintelligence.agents.cache import InMemoryAnswerCache
 from precursorintelligence.agents.counter import InMemoryDailyCounter
+from precursorintelligence.agents.errors import ModelCallFailed
 from precursorintelligence.agents.model import (
-    ConfiguredModel,
     GoogleTokenAuth,
-    build_model,
-    configured_model_name,
+    ModelAnswer,
+    ModelPair,
+    build_models,
 )
 from precursorintelligence.agents.runner import AgentDefinition, DataVersion, Runtime, run_agent
 from precursorintelligence.agents.settings import AgentCfg, load_agents_settings
@@ -67,29 +67,29 @@ class Recorder:
         return httpx2.Response(200, json=_completion(model))
 
 
+def _ask(pair: ModelPair) -> ModelAnswer:
+    return asyncio.run(pair.ainvoke([HumanMessage("hello")], lambda model: model))
+
+
 def test_the_factory_builds_the_primary_with_the_fallback_behind_it():
     s = load_agents_settings()
-    model = build_model(s, credentials=FakeCredentials(), transport_request=object())
-    assert isinstance(model, FallbackModel)
-    names = [m.model_name for m in model.models]
-    assert names == [s.model.primary, s.model.fallback]
-    assert all(isinstance(m, ConfiguredModel) for m in model.models)
-    assert all(isinstance(m.wrapped, OpenAIChatModel) for m in model.models)  # type: ignore[attr-defined]
+    pair = build_models(s, credentials=FakeCredentials(), transport_request=object())
+    assert (pair.primary_id, pair.fallback_id) == (s.model.primary, s.model.fallback)
+    assert isinstance(pair.primary, ChatOpenAI) and isinstance(pair.fallback, ChatOpenAI)
+    assert [pair.primary.model_name, pair.fallback.model_name] == [
+        s.model.primary,
+        s.model.fallback,
+    ]
 
 
 def test_every_request_gets_a_freshly_refreshed_token():
     s = load_agents_settings()
     creds, rec = FakeCredentials(), Recorder()
-    model = build_model(
+    pair = build_models(
         s, credentials=creds, transport=httpx2.MockTransport(rec), transport_request=object()
     )
-    agent = Agent(model)
-
-    async def two_runs() -> None:
-        await agent.run("one")
-        await agent.run("two")
-
-    asyncio.run(two_runs())
+    _ask(pair)
+    _ask(pair)
     assert creds.refreshes == 2
     assert [r.headers["Authorization"] for r in rec.requests] == [
         "Bearer token-1",
@@ -115,17 +115,31 @@ def test_the_auth_keeps_no_token_string():
 def test_a_failing_primary_falls_back_to_the_fallback_model():
     s = load_agents_settings()
     rec = Recorder(fail_models=frozenset({s.model.primary}))
-    model = build_model(
+    pair = build_models(
         s,
         credentials=FakeCredentials(),
         transport=httpx2.MockTransport(rec),
         transport_request=object(),
     )
-    result = asyncio.run(Agent(model).run("hello"))
-    assert result.output == "ok"
+    reply = _ask(pair)
+    assert reply.message.content == "ok"
     asked = [json.loads(r.content)["model"] for r in rec.requests]
     assert asked == [s.model.primary, s.model.fallback]
-    assert result.response.model_name == s.model.fallback
+    assert reply.configured_id == s.model.fallback
+
+
+def test_when_both_models_fail_the_call_fails_with_both_errors():
+    s = load_agents_settings()
+    rec = Recorder(fail_models=frozenset({s.model.primary, s.model.fallback}))
+    pair = build_models(
+        s,
+        credentials=FakeCredentials(),
+        transport=httpx2.MockTransport(rec),
+        transport_request=object(),
+    )
+    with pytest.raises(ModelCallFailed) as exc:
+        _ask(pair)
+    assert s.model.primary in str(exc.value) and s.model.fallback in str(exc.value)
 
 
 # ----------------------------------------------------------------------------- the reported name vs the config id
@@ -146,7 +160,7 @@ def _answer_completion(reported_model: str) -> dict[str, Any]:
         "id": "call_1",
         "type": "function",
         "function": {
-            "name": "final_result",
+            "name": "final_answer",
             "arguments": json.dumps({"summary": "ok", "evidence_ids": []}),
         },
     }
@@ -179,7 +193,7 @@ def _vertex_runtime(tmp_path, vertex: Vertex) -> Runtime:
     s.agents["demo"] = AgentCfg(max_tokens=500, temperature=0.0)
     prompt = "\n".join(["version: 1", "system: s", "instructions: i", ""])
     (tmp_path / "demo.yaml").write_text(prompt, encoding="utf-8")
-    model = build_model(
+    model = build_models(
         s,
         credentials=FakeCredentials(),
         transport=httpx2.MockTransport(vertex),
@@ -202,18 +216,18 @@ def _run(rt: Runtime):
     return asyncio.run(run_agent(rt, DEMO, {"ccn": "015009"}, data=DATA, request_id="r"))
 
 
-def test_each_response_is_tagged_with_the_configured_id_and_keeps_the_reported_name():
+def test_each_reply_carries_the_configured_id_and_keeps_the_reported_name():
     s = load_agents_settings()
     vertex = Vertex({s.model.primary: "gpt-oss-120b"})
-    model = build_model(
+    pair = build_models(
         s,
         credentials=FakeCredentials(),
         transport=httpx2.MockTransport(vertex),
         transport_request=object(),
     )
-    result = asyncio.run(Agent(model, output_type=Answer).run("hi"))
-    assert result.response.model_name == "gpt-oss-120b"  # what Vertex said, untouched
-    assert configured_model_name(result.response) == s.model.primary
+    reply = _ask(pair)
+    assert reply.reported_name == "gpt-oss-120b"  # what Vertex said, untouched
+    assert reply.configured_id == s.model.primary
 
 
 def test_an_answer_is_cached_when_vertex_spells_the_primary_differently(tmp_path):

@@ -1,4 +1,4 @@
-# backend/: API service (FastAPI + Pydantic AI agents) → Cloud Run `precursor-api`
+# backend/: API service (FastAPI + LangChain agents) → Cloud Run `precursor-api`
 
 Thin web layer. Business logic lives in `src/precursorintelligence/` (`serving/`, `agents/`); the backend imports it.
 

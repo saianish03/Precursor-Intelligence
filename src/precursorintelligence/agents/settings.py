@@ -26,6 +26,10 @@ class ModelCfg(_Strict):
     primary: str = Field(min_length=1)
     fallback: str = Field(min_length=1)
     request_timeout_s: float = Field(gt=0)
+    # How an agent's final answer is asked for (the two methods of LangChain's with_structured_output):
+    # "function_calling" (a final_answer tool) or "json_schema" (a response_format). L4 checks which one gpt-oss on
+    # Vertex supports.
+    structured_output_method: Literal["function_calling", "json_schema"]
 
     @field_validator("base_url")
     @classmethod

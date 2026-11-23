@@ -1,9 +1,10 @@
 """The per-run evidence ledger (docs/AGENTS_PLAN.md A3, B3).
 
 Every evidence ID a tool returns in a run goes into that run's ledger; the model may cite only those (validator 1,
-``check_evidence_ids``). ``LedgerToolset`` wraps an agent's tools so nothing has to remember to record: whatever a
-tool returns is walked, and every ``evidence_id`` (a tool record) and every ``evidence_ids`` list (an agent output
-returned as a tool result: Agent 2 inside Agent 1, a cached brief inside Agent 4) joins the ledger.
+``check_evidence_ids``). The runner records every tool result and everything an agent's ``gather`` step fetched, so
+no tool has to remember to: the value is walked, and every ``evidence_id`` (a tool record) and every
+``evidence_ids`` list (an agent output returned as a tool result: Agent 2 inside Agent 1, a cached brief inside
+Agent 4) joins the ledger.
 """
 
 from __future__ import annotations
@@ -12,9 +13,8 @@ from collections.abc import Iterator, Mapping
 from typing import Any
 
 from pydantic import BaseModel
-from pydantic_ai import ModelRetry, RunContext
-from pydantic_ai.toolsets import AbstractToolset, WrapperToolset
-from pydantic_ai.toolsets.abstract import ToolsetTool
+
+from .errors import ModelRetry
 
 
 def iter_evidence_ids(value: Any) -> Iterator[str]:
@@ -54,21 +54,6 @@ class EvidenceLedger:
     @property
     def ids(self) -> frozenset[str]:
         return frozenset(self._ids)
-
-
-class LedgerToolset(WrapperToolset[Any]):
-    """Records every tool result in ``ctx.deps.ledger`` before the model sees it."""
-
-    async def call_tool(
-        self, name: str, tool_args: dict[str, Any], ctx: RunContext[Any], tool: ToolsetTool[Any]
-    ) -> Any:
-        result = await super().call_tool(name, tool_args, ctx, tool)
-        ctx.deps.ledger.record(result)
-        return result
-
-
-def with_ledger(toolset: AbstractToolset[Any]) -> LedgerToolset:
-    return LedgerToolset(wrapped=toolset)
 
 
 def check_evidence_ids(output: Any, ledger: EvidenceLedger) -> None:

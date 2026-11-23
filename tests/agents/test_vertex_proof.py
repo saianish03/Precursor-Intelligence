@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
-from pathlib import Path
+import sys
 from typing import Any
 
 import httpx2
@@ -15,12 +15,14 @@ from precursorintelligence.agents.settings import load_agents_settings
 from precursorintelligence.common.config import project_root
 
 SCRIPT = project_root() / "scripts" / "agents_vertex_proof.py"
+ANSWER = {"summary": "Recent citations.", "evidence_ids": ["score:015009:2026-10"]}
 
 
 def _load_script() -> Any:
     spec = importlib.util.spec_from_file_location("agents_vertex_proof", SCRIPT)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclass looks its module up while it is defined
     spec.loader.exec_module(module)
     return module
 
@@ -32,57 +34,57 @@ class FakeCredentials:
         self.token = "t"
 
 
-def _completion(reported: str, tool: str, args: dict[str, Any]) -> dict[str, Any]:
-    call = {
-        "id": "c",
-        "type": "function",
-        "function": {"name": tool, "arguments": json.dumps(args)},
-    }
+def _completion(reported: str, message: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": "x",
         "object": "chat.completion",
         "created": 0,
         "model": reported,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": None, "tool_calls": [call]},
-                "finish_reason": "tool_calls",
-            }
-        ],
+        "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
     }
 
 
-def test_the_proof_prints_the_reported_model_name(monkeypatch, capsys):
-    replies = [
-        _completion("gpt-oss-120b", "get_score", {"ccn": "015009"}),
-        _completion(
-            "gpt-oss-120b",
-            "final_result",
-            {"summary": "Recent citations.", "evidence_ids": ["score:015009:2026-10"]},
-        ),
-    ]
+def _tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    call = {
+        "id": "c",
+        "type": "function",
+        "function": {"name": name, "arguments": json.dumps(args)},
+    }
+    return {"role": "assistant", "content": None, "tool_calls": [call]}
 
-    def endpoint(request: httpx2.Request) -> httpx2.Response:
-        return httpx2.Response(200, json=replies.pop(0))
 
-    real_build = model_module.build_model
+def fake_vertex(request: httpx2.Request) -> httpx2.Response:
+    """Calls get_score first; then answers the way the request asked: a final_answer call, or JSON text."""
+    body = json.loads(request.content)
+    if not any(m["role"] == "tool" for m in body["messages"]):
+        message = _tool_call("get_score", {"ccn": "015009"})
+    elif "response_format" in body:
+        message = {"role": "assistant", "content": json.dumps(ANSWER)}
+    else:
+        message = _tool_call("final_answer", ANSWER)
+    return httpx2.Response(200, json=_completion("gpt-oss-120b", message))
+
+
+def test_the_proof_tries_both_methods_and_prints_the_reported_model_name(monkeypatch, capsys):
+    real_build = model_module.build_models
 
     def offline_build(settings: Any, **kw: Any) -> Any:
         return real_build(
             settings,
             credentials=FakeCredentials(),
-            transport=httpx2.MockTransport(endpoint),
+            transport=httpx2.MockTransport(fake_vertex),
             transport_request=object(),
         )
 
     script = _load_script()
-    monkeypatch.setattr(script, "build_model", offline_build)
-    assert asyncio.run(script.prove(None)) == 0
+    monkeypatch.setattr(script, "build_models", offline_build)
+    assert asyncio.run(script.prove(list(script.METHODS), None)) == 0
     out = capsys.readouterr().out
     primary = load_agents_settings().model.primary
+    assert "== function_calling ==" in out and "== json_schema ==" in out
     assert "reported model_name='gpt-oss-120b'" in out
     assert f"configured='{primary}'" in out
-    assert "answered by the configured primary (would be cached): yes" in out
-    assert Path(SCRIPT).is_file()
+    assert "tool calls=['final_answer']" in out  # function_calling ends on the answer tool
+    assert out.count("answered by the configured primary (cached): yes") == 2
+    assert "works: function_calling=yes, json_schema=yes" in out
