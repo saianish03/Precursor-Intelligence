@@ -12,7 +12,10 @@ model:
   # Vertex AI's OpenAI-compatible endpoint (A2). The exact ids are confirmed by L4's laptop proof.
   base_url: https://${PI_AGENTS_REGION:-us-central1}-aiplatform.googleapis.com/v1/projects/${PI_GCP_PROJECT:-precursor-intel-mlops}/locations/${PI_AGENTS_REGION:-us-central1}/endpoints/openapi
   primary: ${PI_AGENTS_MODEL:-openai/gpt-oss-120b-maas}
-  fallback: ${PI_AGENTS_FALLBACK_MODEL:-openai/gpt-oss-20b-maas}
+  # The model a failed call moves to. Empty (the default): no fallback model, so a failed call fails the run and the
+  # agent's template answers. gpt-oss-20b would be the natural one, but precursor-intel-mlops has no access to it on
+  # Vertex (404 in us-central1 and global, 2026-11-22); set PI_AGENTS_FALLBACK_MODEL once it does.
+  fallback: ${PI_AGENTS_FALLBACK_MODEL:-}
   request_timeout_s: 60
   # How the final answer is asked for: function_calling (the answer is a final_answer tool call) or json_schema (a
   # response_format the reply must match). L4's laptop proof tries both against Vertex.
@@ -53,7 +56,7 @@ cost_control:
 cache:
   bucket: ${PI_AGENTS_CACHE_BUCKET:-precursor-intel-mlops-agents-cache}
 
-# USD per million tokens (C3). Every model above needs a price. Launch prices (§7): check Google's page before relying
+# USD per million tokens (C3). Every model above needs a price (20b is listed for when it becomes the fallback). Launch prices (§7): check Google's page before relying
 # on them.
 prices:
   openai/gpt-oss-120b-maas: {input: 0.15, output: 0.60}

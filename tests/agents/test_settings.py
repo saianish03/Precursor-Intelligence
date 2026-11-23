@@ -60,6 +60,18 @@ def test_environment_overrides_the_model_and_region(monkeypatch):
     assert s.model.primary == "openai/gpt-oss-20b-maas"
 
 
+def test_the_fallback_model_is_empty_by_default_and_set_from_the_environment(monkeypatch):
+    assert load_agents_settings().model.fallback is None
+    monkeypatch.setenv("PI_AGENTS_FALLBACK_MODEL", "openai/gpt-oss-20b-maas")
+    assert load_agents_settings().model.fallback == "openai/gpt-oss-20b-maas"
+
+
+def test_a_fallback_model_without_a_price_is_a_config_error(monkeypatch):
+    monkeypatch.setenv("PI_AGENTS_FALLBACK_MODEL", "openai/some-new-model")
+    with pytest.raises(ConfigError, match="prices"):
+        load_agents_settings()
+
+
 def test_a_model_without_a_price_is_a_config_error(monkeypatch):
     monkeypatch.setenv("PI_AGENTS_MODEL", "openai/some-new-model")
     with pytest.raises(ConfigError, match="prices"):

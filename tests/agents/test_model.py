@@ -24,6 +24,14 @@ from precursorintelligence.agents.model import (
 from precursorintelligence.agents.runner import AgentDefinition, DataVersion, Runtime, run_agent
 from precursorintelligence.agents.settings import AgentCfg, load_agents_settings
 
+FALLBACK_MODEL = "openai/gpt-oss-20b-maas"
+
+
+@pytest.fixture
+def with_fallback(monkeypatch):
+    """A fallback model configured through the environment (the repo default has none)."""
+    monkeypatch.setenv("PI_AGENTS_FALLBACK_MODEL", FALLBACK_MODEL)
+
 
 class FakeCredentials:
     """Hands out a new token on each refresh, like a token that keeps expiring."""
@@ -71,7 +79,30 @@ def _ask(pair: ModelPair) -> ModelAnswer:
     return asyncio.run(pair.ainvoke([HumanMessage("hello")], lambda model: model))
 
 
-def test_the_factory_builds_the_primary_with_the_fallback_behind_it():
+def test_by_default_the_factory_builds_the_primary_alone():
+    pair = build_models(
+        load_agents_settings(), credentials=FakeCredentials(), transport_request=object()
+    )
+    assert isinstance(pair.primary, ChatOpenAI)
+    assert (pair.fallback, pair.fallback_id) == (None, None)
+
+
+def test_with_no_fallback_model_a_failing_call_fails():
+    s = load_agents_settings()
+    rec = Recorder(fail_models=frozenset({s.model.primary}))
+    pair = build_models(
+        s,
+        credentials=FakeCredentials(),
+        transport=httpx2.MockTransport(rec),
+        transport_request=object(),
+    )
+    with pytest.raises(ModelCallFailed) as exc:
+        _ask(pair)
+    assert s.model.primary in str(exc.value) and "then" not in str(exc.value)
+    assert len(rec.requests) == 1
+
+
+def test_the_factory_builds_the_primary_with_the_fallback_behind_it(with_fallback):
     s = load_agents_settings()
     pair = build_models(s, credentials=FakeCredentials(), transport_request=object())
     assert (pair.primary_id, pair.fallback_id) == (s.model.primary, s.model.fallback)
@@ -112,7 +143,7 @@ def test_the_auth_keeps_no_token_string():
     assert next(flow).headers["Authorization"] == "Bearer token-2"
 
 
-def test_a_failing_primary_falls_back_to_the_fallback_model():
+def test_a_failing_primary_falls_back_to_the_fallback_model(with_fallback):
     s = load_agents_settings()
     rec = Recorder(fail_models=frozenset({s.model.primary}))
     pair = build_models(
@@ -128,7 +159,7 @@ def test_a_failing_primary_falls_back_to_the_fallback_model():
     assert reply.configured_id == s.model.fallback
 
 
-def test_when_both_models_fail_the_call_fails_with_both_errors():
+def test_when_both_models_fail_the_call_fails_with_both_errors(with_fallback):
     s = load_agents_settings()
     rec = Recorder(fail_models=frozenset({s.model.primary, s.model.fallback}))
     pair = build_models(
@@ -245,7 +276,7 @@ def test_an_answer_is_cached_when_vertex_spells_the_primary_differently(tmp_path
 
 
 def test_an_answer_from_the_fallback_model_is_not_cached_even_if_it_reports_the_primarys_name(
-    tmp_path,
+    tmp_path, with_fallback
 ):
     s = load_agents_settings()
     vertex = Vertex({s.model.fallback: s.model.primary}, fail=frozenset({s.model.primary}))

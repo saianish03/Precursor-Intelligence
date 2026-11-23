@@ -192,7 +192,8 @@ def build_models(
     transport: httpx2.AsyncBaseTransport | None = None,
     transport_request: Any = None,
 ) -> ModelPair:
-    """The primary model with the fallback model behind it (both ids from settings), sharing one client."""
+    """The primary model with the fallback model behind it, if one is configured (ids from settings), sharing one
+    client."""
     client = build_openai_client(
         settings,
         credentials if credentials is not None else default_credentials(),
@@ -203,6 +204,6 @@ def build_models(
     return ModelPair(
         primary=build_chat_model(primary, client),
         primary_id=primary,
-        fallback=build_chat_model(fallback, client),
-        fallback_id=fallback,
+        fallback=build_chat_model(fallback, client) if fallback else None,
+        fallback_id=fallback or None,
     )

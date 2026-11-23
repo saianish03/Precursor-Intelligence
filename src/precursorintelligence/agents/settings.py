@@ -24,7 +24,8 @@ class GcpCfg(_Strict):
 class ModelCfg(_Strict):
     base_url: str
     primary: str = Field(min_length=1)
-    fallback: str = Field(min_length=1)
+    # None (empty in the file): no fallback model, a failed call fails the run.
+    fallback: str | None
     request_timeout_s: float = Field(gt=0)
     # How an agent's final answer is asked for (the two methods of LangChain's with_structured_output):
     # "function_calling" (a final_answer tool) or "json_schema" (a response_format). L4 checks which one gpt-oss on
@@ -37,6 +38,11 @@ class ModelCfg(_Strict):
         if not v.startswith("https://"):
             raise ValueError("model.base_url must use https://")
         return v.rstrip("/")
+
+    @field_validator("fallback", mode="before")
+    @classmethod
+    def _empty_is_none(cls, v: object) -> object:
+        return None if v is None or (isinstance(v, str) and not v.strip()) else v
 
 
 class AgentCfg(_Strict):
@@ -87,7 +93,8 @@ class AgentsSettings(_Strict):
 
     @model_validator(mode="after")
     def _every_model_has_a_price(self) -> AgentsSettings:
-        missing = [m for m in (self.model.primary, self.model.fallback) if m not in self.prices]
+        models = [self.model.primary] + ([self.model.fallback] if self.model.fallback else [])
+        missing = [m for m in models if m not in self.prices]
         if missing:
             raise ValueError(f"prices has no entry for the models {missing}")
         return self

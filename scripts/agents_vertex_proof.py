@@ -15,7 +15,8 @@ Run it by hand, never in CI. It makes real, billed calls (about a cent per metho
     uv run --frozen --extra agents python scripts/agents_vertex_proof.py --method json_schema --only fallback
 
 Model ids, the project and the region come from configs/agents_runtime.yaml and its environment variables
-(PI_AGENTS_MODEL, PI_AGENTS_FALLBACK_MODEL, PI_GCP_PROJECT, PI_AGENTS_REGION).
+(PI_AGENTS_MODEL, PI_AGENTS_FALLBACK_MODEL, PI_GCP_PROJECT, PI_AGENTS_REGION). There is no fallback model by
+default; ``--only fallback`` needs PI_AGENTS_FALLBACK_MODEL set.
 """
 
 from __future__ import annotations
@@ -120,7 +121,10 @@ def _pair(settings: AgentsSettings, only: str | None) -> RecordingPair:
     if only == "primary":
         return RecordingPair(primary=built.primary, primary_id=built.primary_id)
     if only == "fallback":
-        assert built.fallback is not None and built.fallback_id is not None
+        if built.fallback is None or built.fallback_id is None:
+            raise SystemExit(
+                "--only fallback: no fallback model is configured (set PI_AGENTS_FALLBACK_MODEL)"
+            )
         # the fallback alone, still under its own id: an answer from it is reported as not cacheable
         return RecordingPair(
             primary=built.fallback,
@@ -189,7 +193,7 @@ async def prove_method(method: str, only: str | None, prompts_dir: Path) -> bool
 async def prove(methods: Sequence[str], only: str | None) -> int:
     s = load_agents_settings()
     print(f"endpoint:   {s.model.base_url}")
-    print(f"configured: primary={s.model.primary} fallback={s.model.fallback}")
+    print(f"configured: primary={s.model.primary} fallback={s.model.fallback or '(none)'}")
     with tempfile.TemporaryDirectory() as tmp:
         prompts_dir = Path(tmp)
         (prompts_dir / f"{DEMO.name}.yaml").write_text(PROMPT, encoding="utf-8")
