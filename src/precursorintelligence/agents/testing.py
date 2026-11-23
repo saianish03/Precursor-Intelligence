@@ -5,7 +5,8 @@ settings (the tools offered, the answer format), so one step works under either 
 ``answer(...)`` calls ``final_answer`` under ``function_calling`` and replies with JSON under ``json_schema``.
 
 When several agents share one model (Agent 2 inside Agent 1), ``steps`` is keyed by a tool name each agent offers
-("*" matches any), so every agent plays its own queue.
+("*" matches any), so every agent plays its own queue. A call that offers no tools (json_schema's answer call after
+the tool phase) plays the queue of the call before it.
 """
 
 from __future__ import annotations
@@ -75,6 +76,7 @@ class ScriptedChatModel(BaseChatModel):
     steps: dict[str, list[Step]]
     reported_name: str = "scripted"
     calls: list[tuple[list[BaseMessage], dict[str, Any]]] = Field(default_factory=list)
+    last_key: str | None = None
 
     @property
     def _llm_type(self) -> str:
@@ -88,8 +90,11 @@ class ScriptedChatModel(BaseChatModel):
 
     def _queue(self, settings: dict[str, Any]) -> tuple[str, list[Step]]:
         offered = set(_offered_tools(settings))
+        if not offered and self.last_key is not None and "*" not in self.steps:
+            return self.last_key, self.steps[self.last_key]
         for key, queue in self.steps.items():
             if key == "*" or key in offered:
+                self.last_key = key
                 return key, queue
         raise AssertionError(f"no script for a call offering {sorted(offered)}")
 

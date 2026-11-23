@@ -26,6 +26,7 @@ from precursorintelligence.agents.counter import DailyCapReached, InMemoryDailyC
 from precursorintelligence.agents.errors import ModelRetry
 from precursorintelligence.agents.model import ModelPair
 from precursorintelligence.agents.runner import (
+    ANSWER_NOW,
     ANSWER_TOOL,
     AgentDefinition,
     AgentInputError,
@@ -232,7 +233,7 @@ def test_the_loop_offers_the_answer_as_a_tool_and_ends_when_the_model_calls_it(t
     first_settings = model.calls[0][1]
     offered = [t["function"]["name"] for t in first_settings["tools"]]
     assert offered == ["get_score", ANSWER_TOOL]
-    assert first_settings["tool_choice"] == "required"  # a text reply can't end the loop
+    assert first_settings["tool_choice"] == "auto"  # Vertex refuses a forced tool call for gpt-oss
     answer_schema = first_settings["tools"][1]["function"]["parameters"]
     assert set(answer_schema["properties"]) == {"summary", "evidence_ids", "fallback"}
     # the injected deps argument is never shown to the model
@@ -434,36 +435,70 @@ def test_bad_tool_arguments_go_back_to_the_model(tmp_path):
 # ----------------------------------------------------------------------------- json_schema
 
 
-def test_under_json_schema_the_answer_is_the_reply_that_calls_no_tool(tmp_path):
-    model = happy()
+def _offered(sent: dict[str, Any]) -> list[str]:
+    return [t["function"]["name"] for t in sent.get("tools", [])]
+
+
+def test_under_json_schema_the_tool_phase_offers_tools_without_the_answer_format(tmp_path):
+    model = happy()  # the tool call, then a reply that already parses as the answer
     rt, _ = runtime(tmp_path, model, method="json_schema")
     out = run(rt, {"ccn": "015009"}, Backend())
     assert out.output == Brief(summary="ok", evidence_ids=[score_id("015009")])
-    settings_sent = model.calls[0][1]
-    assert [t["function"]["name"] for t in settings_sent["tools"]] == [
-        "get_score"
-    ]  # no final_answer tool
-    assert settings_sent["tool_choice"] == "auto"
-    response_format = settings_sent["extra_body"]["response_format"]
+    assert len(model.calls) == 2  # an answer in the tool phase needs no extra format call
+    for _, sent in model.calls:
+        assert _offered(sent) == ["get_score"]  # no final_answer tool
+        assert sent["tool_choice"] == "auto"
+        assert "response_format" not in sent.get(
+            "extra_body", {}
+        )  # with tools, gpt-oss skipped them
+
+
+def test_under_json_schema_a_prose_reply_ends_the_tool_phase_and_the_answer_is_asked_for_in_the_format(
+    tmp_path,
+):
+    model = scripted(
+        get_score=[
+            call_tool("get_score", ccn="015009"),
+            say("The score is 0.31."),
+            brief("ok", score_id("015009")),
+        ]
+    )
+    rt, _ = runtime(tmp_path, model, method="json_schema")
+    out = run(rt, {"ccn": "015009"}, Backend())
+    assert (
+        out.output.summary == "ok" and out.validation_failures == ()
+    )  # prose isn't a failed answer
+    messages, sent = model.calls[-1]
+    assert "tools" not in sent  # the answer call offers no tools
+    response_format = sent["extra_body"]["response_format"]
     assert response_format["type"] == "json_schema"
     assert set(response_format["json_schema"]["schema"]["properties"]) == {
         "summary",
         "evidence_ids",
         "fallback",
     }
+    assert isinstance(messages[-1], HumanMessage) and messages[-1].content == ANSWER_NOW
 
 
-def test_under_json_schema_a_reply_that_isnt_json_uses_the_retry(tmp_path):
+def test_under_json_schema_a_failed_answer_goes_back_to_the_tool_phase(tmp_path):
     model = scripted(
         get_score=[
-            call_tool("get_score", ccn="015009"),
-            say("not json"),
+            say("Let me answer."),
+            say("not json"),  # the format call's reply isn't JSON: a failed answer
+            call_tool("get_score", ccn="015009"),  # back in the tool phase, it fetches the evidence
             brief("ok", score_id("015009")),
         ]
     )
     rt, _ = runtime(tmp_path, model, method="json_schema")
     out = run(rt, {"ccn": "015009"}, Backend())
     assert out.output.summary == "ok" and len(out.validation_failures) == 1
+    assert "output schema" in out.validation_failures[0]
+    assert [_offered(sent) for _, sent in model.calls] == [
+        ["get_score"],
+        [],
+        ["get_score"],
+        ["get_score"],
+    ]
 
 
 def test_under_json_schema_a_made_up_evidence_id_is_rejected(tmp_path):

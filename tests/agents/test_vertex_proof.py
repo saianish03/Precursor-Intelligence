@@ -55,15 +55,23 @@ def _tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def fake_vertex(request: httpx2.Request) -> httpx2.Response:
-    """Calls get_score first; then answers the way the request asked: a final_answer call, or JSON text."""
+    """Behaves like gpt-oss on Vertex: refuses a forced tool call; calls get_score when it is offered and not yet
+    called; then answers the way the request asks: a final_answer call when that tool is offered, JSON under a
+    response_format, otherwise prose."""
     body = json.loads(request.content)
-    if not any(m["role"] == "tool" for m in body["messages"]):
-        message = _tool_call("get_score", {"ccn": "015009"})
+    if body.get("tool_choice") == "required":
+        message = "Forced tool calling is not supported for this model."
+        return httpx2.Response(400, json=[{"error": {"code": 400, "message": message}}])
+    offered = [t["function"]["name"] for t in body.get("tools", [])]
+    if "get_score" in offered and not any(m["role"] == "tool" for m in body["messages"]):
+        reply = _tool_call("get_score", {"ccn": "015009"})
+    elif "final_answer" in offered:
+        reply = _tool_call("final_answer", ANSWER)
     elif "response_format" in body:
-        message = {"role": "assistant", "content": json.dumps(ANSWER)}
+        reply = {"role": "assistant", "content": json.dumps(ANSWER)}
     else:
-        message = _tool_call("final_answer", ANSWER)
-    return httpx2.Response(200, json=_completion("gpt-oss-120b", message))
+        reply = {"role": "assistant", "content": "The score is 0.31."}
+    return httpx2.Response(200, json=_completion("gpt-oss-120b", reply))
 
 
 def test_the_proof_tries_both_methods_and_prints_the_reported_model_name(monkeypatch, capsys):
@@ -82,9 +90,12 @@ def test_the_proof_tries_both_methods_and_prints_the_reported_model_name(monkeyp
     assert asyncio.run(script.prove(list(script.METHODS), None)) == 0
     out = capsys.readouterr().out
     primary = load_agents_settings().model.primary
-    assert "== function_calling ==" in out and "== json_schema ==" in out
+    for method in script.METHODS:
+        for agent in script.AGENTS:
+            assert f"== {method}, {agent} ==" in out
     assert "reported model_name='gpt-oss-120b'" in out
     assert f"configured='{primary}'" in out
     assert "tool calls=['final_answer']" in out  # function_calling ends on the answer tool
-    assert out.count("answered by the configured primary (cached): yes") == 2
-    assert "works: function_calling=yes, json_schema=yes" in out
+    assert out.count("answered by the configured primary (cached): yes") == 4
+    assert "function_calling: tools=yes, gather=yes" in out
+    assert "json_schema: tools=yes, gather=yes" in out

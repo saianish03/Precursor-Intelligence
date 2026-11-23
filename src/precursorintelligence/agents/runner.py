@@ -14,10 +14,18 @@ In order:
      ledger.
 
    **How the loop ends** depends on ``model.structured_output_method``, the two methods of LangChain's
-   ``with_structured_output``. With ``function_calling``, the agent's Pydantic output model is offered as one more
-   tool, ``final_answer``, and the model must call a tool on every turn: calling ``final_answer`` ends the loop
-   with its arguments as the answer. With ``json_schema``, the reply must match the output model's JSON schema
-   (a ``response_format``): a reply with no tool call ends the loop, and its text is the answer.
+   ``with_structured_output``. Tool choice is always ``auto``: gpt-oss on Vertex refuses a forced tool call (L4,
+   2026-11-22).
+
+   - ``function_calling``: the agent's Pydantic output model is offered as one more tool, ``final_answer``.
+     Calling it ends the loop with its arguments as the answer. A plain text reply instead is sent back as a
+     failed answer ("answer by calling final_answer"), which uses the one retry.
+   - ``json_schema``: the answer is a reply matching the output model's JSON schema (a ``response_format``). An
+     agent with tools works in two phases, because with the format and the tools offered together gpt-oss skips
+     the tools and makes up evidence (L4). First the tools, with no format, until the model stops calling them;
+     a reply that already parses as the output model is taken as the answer. Otherwise one more call asks for
+     the answer in the format, with no tools. A failed answer goes back to the tool phase, so the model can fetch
+     what it was missing. An agent with no tools makes the format call straight away.
 5. **Validators**: the answer is parsed into the output model, then validator 1 (its evidence IDs are in the
    ledger), then the agent's own. A failure (``ModelRetry``) goes back to the model **in the same conversation**,
    once: the ledger and the limits carry over. A second failure ends the run (``OutputRejected``).
@@ -52,7 +60,7 @@ from .cache import AnswerCache, CacheKey
 from .counter import DailyCapReached, DailyCounter
 from .errors import AgentRunError, ModelRetry, OutputRejected, UsageLimitExceeded
 from .ledger import EvidenceLedger, check_evidence_ids
-from .model import ModelAnswer, ModelPair
+from .model import Bind, ModelAnswer, ModelPair
 from .prompts import Prompt, load_prompt
 from .settings import AgentsSettings
 
@@ -64,6 +72,7 @@ FALLBACK_ON: tuple[type[BaseException], ...] = (AgentRunError, TimeoutError)
 
 ANSWER_TOOL = "final_answer"
 ANSWER_TOOL_DESCRIPTION = "Give your final answer. Call this once you have the evidence you need; it ends the conversation."
+ANSWER_NOW = "Give your final answer now, as JSON matching the required schema. Cite only evidence IDs that a tool returned."
 OUTPUT_RETRIES = 1
 DEPS_ARG = "deps"
 """The name of a tool's injected argument (``Annotated[RunDeps, InjectedToolArg]``): the runner passes the run's
@@ -299,9 +308,16 @@ def _takes_deps(tool: BaseTool) -> bool:
     )
 
 
-def _binder(
-    definition: AgentDefinition[Any, Any], settings: AgentsSettings
-) -> Callable[[BaseChatModel], Runnable[Any, BaseMessage]]:
+@dataclass(frozen=True)
+class Binders:
+    """How each model call is set up. ``answer`` asks for the final answer; ``tools`` is json_schema's tool phase
+    (tools, no answer format), None when there is no such phase."""
+
+    answer: Bind
+    tools: Bind | None = None
+
+
+def _binder(definition: AgentDefinition[Any, Any], settings: AgentsSettings) -> Binders:
     """Adds the tools, the answer format and the sampling settings to a chat model."""
     cfg = settings.agent(definition.name)
     sampling = {"max_tokens": cfg.max_tokens, "temperature": cfg.temperature}
@@ -318,27 +334,26 @@ def _binder(
         }
 
         def bind_function_calling(model: BaseChatModel) -> Runnable[Any, BaseMessage]:
-            # "required": every turn is a tool call, so the only way to finish is final_answer
-            return model.bind_tools([*tool_specs, answer_tool], tool_choice="required").bind(
-                **sampling
-            )
+            # "auto", not "required": Vertex refuses forced tool calls for gpt-oss, so a text reply is possible
+            # and the loop sends it back
+            return model.bind_tools([*tool_specs, answer_tool], tool_choice="auto").bind(**sampling)
 
-        return bind_function_calling
+        return Binders(answer=bind_function_calling)
 
     response_format = {
         "type": "json_schema",
         "json_schema": {"name": definition.output_type.__name__, "schema": schema},
     }
 
-    def bind_json_schema(model: BaseChatModel) -> Runnable[Any, BaseMessage]:
-        # sent as a plain request field (extra_body): passing response_format to LangChain switches it to the
-        # OpenAI client's parse(), which refuses tools that aren't strict, and our tools' schemas aren't
-        base: Runnable[Any, BaseMessage] = (
-            model.bind_tools(tool_specs, tool_choice="auto") if tool_specs else model
-        )
-        return base.bind(extra_body={"response_format": response_format}, **sampling)
+    def bind_answer_format(model: BaseChatModel) -> Runnable[Any, BaseMessage]:
+        # no tools here, and the format sent as a plain request field (extra_body): passing response_format to
+        # LangChain switches it to the OpenAI client's parse(), which refuses tools that aren't strict
+        return model.bind(extra_body={"response_format": response_format}, **sampling)
 
-    return bind_json_schema
+    def bind_tool_phase(model: BaseChatModel) -> Runnable[Any, BaseMessage]:
+        return model.bind_tools(tool_specs, tool_choice="auto").bind(**sampling)
+
+    return Binders(answer=bind_answer_format, tools=bind_tool_phase if tool_specs else None)
 
 
 def _check_limits(usage: RunUsage, settings: AgentsSettings) -> None:
@@ -381,6 +396,15 @@ async def _run_tool(
     return ToolMessage(content=_data_json(result), tool_call_id=call_id, name=name)
 
 
+def _parses(output_type: type[BaseModel], text: str) -> bool:
+    """True when ``text`` is JSON that fits the output model (its validators aside)."""
+    try:
+        output_type.model_validate_json(text)
+    except ValidationError:
+        return False
+    return True
+
+
 def _validate(definition: AgentDefinition[Any, OutT], candidate: Any, deps: RunDeps) -> OutT:
     """Parses the answer into the output model and runs validator 1, then the agent's own; ``ModelRetry`` when any
     of them fails."""
@@ -403,8 +427,9 @@ async def _converse(
     """Steps 4-5: the conversation, the validators and the one output retry, all in one message history."""
     runtime, settings = deps.runtime, deps.runtime.settings
     method = settings.model.structured_output_method
-    bind = _binder(definition, settings)
+    binders = _binder(definition, settings)
     tools = {t.name: t for t in definition.tools}
+    in_tool_phase = binders.tools is not None
 
     user = definition.user_prompt(inp)
     if definition.gather is not None:
@@ -419,6 +444,7 @@ async def _converse(
     while True:
         if usage.requests >= settings.limits.request_limit:
             raise UsageLimitExceeded(f"more than {settings.limits.request_limit} model requests")
+        bind = binders.tools if in_tool_phase and binders.tools is not None else binders.answer
         answer = await runtime.model.ainvoke(messages, bind)
         usage.add(answer, settings)
         _check_limits(usage, settings)
@@ -430,6 +456,12 @@ async def _converse(
         if final is None and calls:
             for call in calls:
                 messages.append(await _run_tool(call, tools, deps, usage))
+            continue
+
+        if in_tool_phase and not _parses(definition.output_type, reply.text):
+            # json_schema: the tool phase is over; ask for the answer in the format, with no tools
+            in_tool_phase = False
+            messages.append(HumanMessage(ANSWER_NOW))
             continue
 
         try:
@@ -448,6 +480,7 @@ async def _converse(
         feedback = f"{problem}\nFix this and answer again."
         if final is None:
             messages.append(HumanMessage(feedback))
+            in_tool_phase = binders.tools is not None  # it may need a tool for what it was missing
             continue
         # every tool call in the reply needs an answer before the model speaks again; the others were not run
         for call in calls:
