@@ -3,7 +3,7 @@
 In order:
 
 1. **Input checks**: the raw input is validated against the agent's input model (``AgentInputError``, a 400).
-2. **Cache lookup** (D1): a hit returns at once. It is free, so the daily cap never blocks or counts it.
+2. **Cache lookup** (D1): a hit returns at once, stamped again from this run's ``DataVersion``. It is free, so the daily cap never blocks or counts it.
 3. **Daily cap** (D3): one run is reserved, or ``DailyCapReached`` (a 429). Nested runs reserve their own.
 4. **The conversation**, with a fresh evidence ledger and the D4 limits. An agent gets its evidence one of two ways,
    or both:
@@ -26,11 +26,13 @@ In order:
      a reply that already parses as the output model is taken as the answer. Otherwise one more call asks for
      the answer in the format, with no tools. A failed answer goes back to the tool phase, so the model can fetch
      what it was missing. An agent with no tools makes the format call straight away.
-5. **Validators**: the answer is parsed into the output model, then validator 1 (its evidence IDs are in the
+5. **Validators**: the answer is parsed into the output model and **stamped** (A5: on an ``AgentOutput``, the
+   run's ``data_as_of``, the caveat and ``fallback=False``, which the model never writes and never sees in its
+   schema), then validator 1 (its evidence IDs are in the
    ledger), then the agent's own. A failure (``ModelRetry``) goes back to the model **in the same conversation**,
    once: the ledger and the limits carry over. A second failure ends the run (``OutputRejected``).
 6. **Fallback**: when the run fails (a second invalid answer, both models failing a call, a usage limit, a tool
-   timeout), the agent's template answers from the tool data alone, marked ``fallback=True``. It is never cached,
+   timeout), the agent's template answers from the tool data alone, stamped with ``fallback=True``. It is never cached,
    and its run is given back to the daily cap (its cost stays).
 7. **Cache store** of a validated answer that the primary model wrote, the **log line** and the **trace span**
    (hooks; C1 and C2 make them real).
@@ -63,6 +65,7 @@ from .counter import DailyCapReached, DailyCounter
 from .errors import AgentRunError, ModelRetry, OutputRejected, UsageLimitExceeded
 from .ledger import EvidenceLedger, check_evidence_ids
 from .model import Bind, ModelAnswer, ModelPair
+from .outputs import CAVEAT, AgentOutput
 from .prompts import Prompt, load_prompt
 from .settings import AgentsSettings
 from .tools.evidence import ToolInputError
@@ -490,6 +493,8 @@ def _validate(definition: AgentDefinition[Any, OutT], candidate: Any, deps: RunD
             output = definition.output_type.model_validate(candidate)
     except ValidationError as exc:
         raise ModelRetry(f"The answer doesn't match the output schema: {exc}") from exc
+    # stamped before the validators, so they see data_as_of
+    output = stamp(output, deps.data, fallback=False)
     check_evidence_ids(output, deps.ledger)
     for validator in definition.validators:
         validator(output, deps)
@@ -581,9 +586,15 @@ def _parse_cached(output_type: type[OutT], cached: dict[str, Any] | None) -> Out
         return None
 
 
-def _set_fallback_flag(output: OutT) -> OutT:
+def stamp(output: OutT, data: DataVersion, *, fallback: bool) -> OutT:
+    """Sets what the model never writes (A5). On an ``AgentOutput``: the data month, the caveat and the fallback
+    flag, over anything the model put there. On any other output with a ``fallback`` field: that flag."""
+    if isinstance(output, AgentOutput):
+        return output.model_copy(
+            update={"data_as_of": data.v, "caveat": CAVEAT, "fallback": fallback}
+        )
     if "fallback" in type(output).model_fields:
-        return output.model_copy(update={"fallback": True})
+        return output.model_copy(update={"fallback": fallback})
     return output
 
 
@@ -648,7 +659,7 @@ async def run_agent(
         if hit is not None:
             emit("cache_hit")
             return RunOutcome(
-                output=hit,
+                output=stamp(hit, data, fallback=False),
                 cache_key=digest,
                 cache_hit=True,
                 fallback=False,
@@ -686,7 +697,7 @@ async def run_agent(
                 # 6. fallback: the template answers from the tool data alone
                 error = f"{type(exc).__name__}: {exc}"
                 fallback = True
-                output = _set_fallback_flag(await definition.fallback(inp, deps))
+                output = stamp(await definition.fallback(inp, deps), data, fallback=True)
             if fallback:
                 await runtime.counter.release_run(day)
             elif (
