@@ -60,6 +60,7 @@ class LimitsCfg(_Strict):
 
 class ToolsCfg(_Strict):
     timeout_s: float = Field(gt=0)
+    subagent_timeout_s: float = Field(gt=0)  # a tool marked with runner.subagent_tool
 
 
 class CostControlCfg(_Strict):

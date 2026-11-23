@@ -205,8 +205,8 @@ stages:
       size: 3985
     - path: src/precursorintelligence/agents
       hash: md5
-      md5: 74ef8f6ab506f492d2fc0120010cc610.dir
-      size: 137814
+      md5: c547e4ef8a84ff690a77c07c3c4cb54b.dir
+      size: 140967
       nfiles: 18
     - path: src/precursorintelligence/bias
       hash: md5
@@ -302,8 +302,8 @@ stages:
       size: 3656
     - path: src/precursorintelligence/agents
       hash: md5
-      md5: 74ef8f6ab506f492d2fc0120010cc610.dir
-      size: 137814
+      md5: c547e4ef8a84ff690a77c07c3c4cb54b.dir
+      size: 140967
       nfiles: 18
     - path: src/precursorintelligence/bias
       hash: md5

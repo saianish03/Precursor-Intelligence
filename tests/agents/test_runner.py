@@ -37,6 +37,7 @@ from precursorintelligence.agents.runner import (
     Runtime,
     build_cache_key,
     run_agent,
+    subagent_tool,
 )
 from precursorintelligence.agents.settings import AgentCfg, AgentsSettings, load_agents_settings
 from precursorintelligence.agents.testing import (
@@ -47,6 +48,7 @@ from precursorintelligence.agents.testing import (
     raise_,
     say,
 )
+from precursorintelligence.agents.tools.evidence import ToolInputError
 
 DAY = date(2026, 11, 21)
 PRIMARY = load_agents_settings().model.primary
@@ -672,6 +674,98 @@ def test_a_nested_run_over_the_daily_cap_goes_back_to_the_model(tmp_path):
     out = run(rt, {"ccn": "015009"}, Backend(), parent_definition())
     assert not out.fallback
     assert any("child is unavailable" in t and "daily cap" in t for t in tool_texts(model))
+    assert len(rt.cache) == 0 and not out.cacheable  # type: ignore[arg-type]  # it lacked the child's answer
+
+
+def test_a_nested_answer_from_the_fallback_template_keeps_the_parent_out_of_the_cache(tmp_path):
+    model = scripted(
+        ask_child=[
+            call_tool("ask_child", claim="falls"),
+            call_tool("get_score", ccn="015009"),
+            brief("without a quote", score_id("015009")),
+        ],
+        # the child cites an ID it never got, twice: its run ends on the template
+        child_lookup=[brief("made up", "passage:x:1:2"), brief("again", "passage:x:1:2")],
+    )
+    rt, hooks = runtime(tmp_path, model)
+    out = run(rt, {"ccn": "015009"}, Backend(), parent_definition())
+    child = next(line for line in hooks.lines if line.agent == "child")
+    assert child.outcome == "fallback"
+    assert not out.fallback and out.output.summary == "without a quote"  # the parent still answers
+    assert len(rt.cache) == 0 and not out.cacheable  # type: ignore[arg-type]  # neither run is stored
+
+
+def test_a_parent_built_on_a_good_nested_answer_is_cached(tmp_path):
+    model = scripted(
+        ask_child=[
+            call_tool("ask_child", claim="falls"),
+            brief("with a quote", PASSAGE),
+        ],
+        child_lookup=[call_tool("child_lookup", claim="falls"), brief("q", PASSAGE)],
+    )
+    rt, _ = runtime(tmp_path, model)
+    out = run(rt, {"ccn": "015009"}, Backend(), parent_definition())
+    assert out.cacheable and len(rt.cache) == 2  # type: ignore[arg-type]  # the child's answer and the parent's
+
+
+@tool
+async def slow_child(claim: str, deps: Annotated[RunDeps, InjectedToolArg]) -> Brief:
+    """Ask the child agent, slowly, like a nested run waiting on Vertex."""
+    await asyncio.sleep(0.5)
+    return await deps.run_subagent(CHILD, {"claim": claim})
+
+
+@tool
+async def slow_plain(claim: str, deps: Annotated[RunDeps, InjectedToolArg]) -> Brief:
+    """The same wait, in a tool not marked as running an agent."""
+    await asyncio.sleep(0.5)
+    return Brief(summary="slow", evidence_ids=[])
+
+
+def test_a_subagent_tool_gets_its_own_timeout_not_the_plain_tool_timeout(tmp_path):
+    model = scripted(
+        slow_child=[call_tool("slow_child", claim="falls"), brief("with a quote", PASSAGE)],
+        child_lookup=[call_tool("child_lookup", claim="falls"), brief("q", PASSAGE)],
+    )
+    rt, _ = runtime(tmp_path, model)
+    rt.settings.tools.timeout_s = (
+        0.2  # shorter than the nested run takes, longer than the child's own tool
+    )
+    rt.settings.tools.subagent_timeout_s = 5
+    definition = demo_definition(tools=[get_score, subagent_tool(slow_child)], uses_corpus=True)
+    out = run(rt, {"ccn": "015009"}, Backend(), definition)
+    assert not out.fallback and out.output.evidence_ids == [PASSAGE]
+
+
+def test_an_unmarked_tool_still_has_the_plain_timeout(tmp_path):
+    model = scripted(slow_plain=[call_tool("slow_plain", claim="falls")])
+    rt, hooks = runtime(tmp_path, model)
+    rt.settings.tools.timeout_s = 0.2
+    rt.settings.tools.subagent_timeout_s = 5
+    out = run(rt, {"ccn": "015009"}, Backend(), demo_definition(tools=[get_score, slow_plain]))
+    assert out.fallback and "TimeoutError" in (hooks.lines[0].error or "")
+
+
+@tool
+async def strict_score(ccn: str, deps: Annotated[RunDeps, InjectedToolArg]) -> Score:
+    """The facility's score; refuses a malformed CCN like the evidence tools do."""
+    if len(ccn) != 6:
+        raise ToolInputError(f"not a CCN (6 characters, 0-9 and A-Z): {ccn!r}")
+    return deps.tools.score(ccn)
+
+
+def test_a_tool_input_error_goes_back_to_the_model(tmp_path):
+    model = scripted(
+        strict_score=[
+            call_tool("strict_score", ccn="15009"),  # five characters
+            call_tool("strict_score", ccn="015009"),
+            brief("ok", score_id("015009")),
+        ]
+    )
+    rt, _ = runtime(tmp_path, model)
+    out = run(rt, {"ccn": "015009"}, Backend(), demo_definition(tools=[strict_score]))
+    assert not out.fallback and out.output.summary == "ok" and out.validation_failures == ()
+    assert any("not a CCN" in t for t in tool_texts(model))
 
 
 # ----------------------------------------------------------------------------- the cache key

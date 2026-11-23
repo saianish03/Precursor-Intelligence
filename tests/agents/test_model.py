@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Any
 
 import httpx2
@@ -16,10 +17,12 @@ from precursorintelligence.agents.cache import InMemoryAnswerCache
 from precursorintelligence.agents.counter import InMemoryDailyCounter
 from precursorintelligence.agents.errors import ModelCallFailed
 from precursorintelligence.agents.model import (
+    LANGSMITH_TRACING_VARS,
     GoogleTokenAuth,
     ModelAnswer,
     ModelPair,
     build_models,
+    disable_langsmith_tracing,
 )
 from precursorintelligence.agents.runner import AgentDefinition, DataVersion, Runtime, run_agent
 from precursorintelligence.agents.settings import AgentCfg, load_agents_settings
@@ -85,6 +88,47 @@ def test_by_default_the_factory_builds_the_primary_alone():
     )
     assert isinstance(pair.primary, ChatOpenAI)
     assert (pair.fallback, pair.fallback_id) == (None, None)
+
+
+def test_the_openai_client_makes_no_retries_of_its_own():
+    # the runner has its own fallback; a hidden retry would double a slow call and go uncounted
+    pair = build_models(
+        load_agents_settings(), credentials=FakeCredentials(), transport_request=object()
+    )
+    assert isinstance(pair.primary, ChatOpenAI)
+    assert pair.primary.root_async_client.max_retries == 0  # type: ignore[union-attr]
+
+
+def test_with_a_failing_model_exactly_one_request_is_sent():
+    s = load_agents_settings()
+    rec = Recorder(fail_models=frozenset({s.model.primary}))
+    pair = build_models(
+        s,
+        credentials=FakeCredentials(),
+        transport=httpx2.MockTransport(rec),
+        transport_request=object(),
+    )
+    with pytest.raises(ModelCallFailed):
+        _ask(pair)
+    assert len(rec.requests) == 1
+
+
+@pytest.mark.parametrize("var", LANGSMITH_TRACING_VARS)
+def test_langsmith_tracing_is_forced_off_even_when_the_environment_turns_it_on(monkeypatch, var):
+    import langsmith.utils
+    from langchain_core.tracers.context import _tracing_v2_is_enabled
+
+    monkeypatch.setenv(var, "true")
+    disable_langsmith_tracing()
+    assert all(os.environ[name] == "false" for name in LANGSMITH_TRACING_VARS)
+    assert not langsmith.utils.tracing_is_enabled()
+    assert not _tracing_v2_is_enabled()  # what LangChain asks before sending a run to LangSmith
+
+
+def test_building_the_models_turns_langsmith_off(monkeypatch):
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    build_models(load_agents_settings(), credentials=FakeCredentials(), transport_request=object())
+    assert os.environ["LANGSMITH_TRACING"] == "false"
 
 
 def test_with_no_fallback_model_a_failing_call_fails():

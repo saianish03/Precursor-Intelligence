@@ -63,6 +63,7 @@ from .ledger import EvidenceLedger, check_evidence_ids
 from .model import Bind, ModelAnswer, ModelPair
 from .prompts import Prompt, load_prompt
 from .settings import AgentsSettings
+from .tools.evidence import ToolInputError
 
 InT = TypeVar("InT", bound=BaseModel)
 OutT = TypeVar("OutT", bound=BaseModel)
@@ -75,6 +76,8 @@ ANSWER_TOOL_DESCRIPTION = "Give your final answer. Call this once you have the e
 ANSWER_NOW = "Give your final answer now, as JSON matching the required schema. Cite only evidence IDs that a tool returned."
 OUTPUT_RETRIES = 1
 DEPS_ARG = "deps"
+SUBAGENT_METADATA = "runs_subagent"
+"""The tool metadata key ``subagent_tool`` sets: such a tool gets ``tools.subagent_timeout_s``."""
 """The name of a tool's injected argument (``Annotated[RunDeps, InjectedToolArg]``): the runner passes the run's
 ``RunDeps`` there, and the model never sees it."""
 
@@ -120,6 +123,19 @@ class AgentDefinition(Generic[InT, OutT]):
             raise ValueError(
                 f"{self.name}: a tool can't be named {ANSWER_TOOL!r}, the runner's answer tool"
             )
+
+
+def subagent_tool(tool: BaseTool) -> BaseTool:
+    """Marks a tool that runs another agent through ``RunDeps.run_subagent`` (Agent 2 as Agent 1's tool), so it
+    gets ``tools.subagent_timeout_s`` instead of the plain tool timeout: the nested run makes model calls."""
+    tool.metadata = {**(tool.metadata or {}), SUBAGENT_METADATA: True}
+    return tool
+
+
+def _tool_timeout(tool: BaseTool, settings: AgentsSettings) -> float:
+    if (tool.metadata or {}).get(SUBAGENT_METADATA):
+        return settings.tools.subagent_timeout_s
+    return settings.tools.timeout_s
 
 
 @dataclass(frozen=True)
@@ -212,6 +228,9 @@ class RunDeps:
     ledger: EvidenceLedger = field(default_factory=EvidenceLedger)
     validation_failures: list[str] = field(default_factory=list)
     subagent_calls: int = 0
+    # why this run's answer can't be cached, when a nested run's answer can't be (it fell back, the fallback model
+    # wrote it, or the cap refused it): the parent's answer rests on it
+    not_cacheable: str | None = None
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
@@ -245,9 +264,14 @@ class RunDeps:
             # the model wrote the nested input, not the user: tell the model, don't fail this run with a 400
             raise ModelRetry(f"{definition.name} refused that input: {exc}") from exc
         except DailyCapReached as exc:
+            self.not_cacheable = f"{definition.name} was refused by the daily cap"
             raise ModelRetry(
                 f"{definition.name} is unavailable ({exc}); answer with the evidence you have."
             ) from exc
+        if not outcome.cacheable:
+            self.not_cacheable = (
+                f"{definition.name}'s answer wasn't cacheable (fallback={outcome.fallback})"
+            )
         return outcome.output
 
 
@@ -261,6 +285,9 @@ class RunOutcome(Generic[OutT]):
     input_tokens: int
     output_tokens: int
     validation_failures: tuple[str, ...]
+    cacheable: bool = True
+    """False when the answer wasn't stored: a fallback, the fallback model wrote it, or a nested run's wasn't.
+    A run that uses this answer (Agent 1 using Agent 2's) mustn't be cached either."""
 
 
 def build_cache_key(
@@ -386,8 +413,9 @@ async def _run_tool(
     if _takes_deps(tool):
         args[DEPS_ARG] = deps
     try:
-        result = await asyncio.wait_for(tool.ainvoke(args), timeout=settings.tools.timeout_s)
-    except ModelRetry as exc:
+        result = await asyncio.wait_for(tool.ainvoke(args), timeout=_tool_timeout(tool, settings))
+    except (ModelRetry, ToolInputError) as exc:
+        # a bad argument from the model (ToolInputError: e.g. a malformed CCN) is the model's to fix
         return ToolMessage(content=str(exc), tool_call_id=call_id, name=name, status="error")
     except ValidationError as exc:
         content = f"Invalid arguments for {name}: {exc}"
@@ -601,6 +629,7 @@ async def run_agent(
         error: str | None = None
         outcome: Literal["answered", "fallback", "error"] = "error"
         fallback = False
+        stored = False
         try:
             try:
                 output = await _converse(definition, inp, deps, usage, prompt)
@@ -611,10 +640,16 @@ async def run_agent(
                 output = _set_fallback_flag(await definition.fallback(inp, deps))
             if fallback:
                 await runtime.counter.release_run(day)
-            elif usage.answered_by and all(m == s.model.primary for m in usage.answered_by):
+            elif (
+                usage.answered_by
+                and all(m == s.model.primary for m in usage.answered_by)
+                and deps.not_cacheable is None
+            ):
                 # 7. only a validated answer is stored, and only one the primary model wrote: the cache key names
-                # the primary, so an answer from the fallback model is served this once and never cached
+                # the primary, so an answer from the fallback model is served this once and never cached. Nor is
+                # one built on a nested answer that wasn't cacheable (deps.not_cacheable)
                 await runtime.cache.put(digest, output.model_dump(mode="json"))
+                stored = True
             outcome = "fallback" if fallback else "answered"
         except BaseException as exc:
             # our bug, a data error, a failing fallback template or a cancelled request: no answer, but the cost and
@@ -636,4 +671,5 @@ async def run_agent(
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             validation_failures=tuple(failures),
+            cacheable=stored,
         )

@@ -49,6 +49,9 @@ limits:
 
 tools:
   timeout_s: 10
+  # A tool that runs another agent (Agent 2 from Agent 1, marked with subagent_tool) makes model calls of its own,
+  # several at Vertex latency, so it gets its own timeout. Its run has its own D4 limits; this only stops a hang.
+  subagent_timeout_s: 180
 
 # Shared across Cloud Run instances (D3). Nested runs count; a cache hit and a fallback answer do not count as a run.
 cost_control:

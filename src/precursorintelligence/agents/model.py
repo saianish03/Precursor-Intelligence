@@ -21,6 +21,8 @@ reaches the network. ``scripts/agents_vertex_proof.py`` is L4's laptop proof aga
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 from collections.abc import AsyncGenerator, Callable, Generator, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -40,6 +42,37 @@ from .settings import AgentsSettings
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 # The OpenAI client insists on a key; the real Authorization header is set by GoogleTokenAuth on each request.
 _PLACEHOLDER_KEY = "unused-google-token-set-per-request"
+
+log = logging.getLogger(__name__)
+
+# Every environment variable LangSmith (it comes with langchain-core) reads to turn tracing on.
+LANGSMITH_TRACING_VARS = (
+    "LANGSMITH_TRACING",
+    "LANGSMITH_TRACING_V2",
+    "LANGCHAIN_TRACING",
+    "LANGCHAIN_TRACING_V2",
+)
+
+
+def disable_langsmith_tracing() -> None:
+    """Turn LangSmith tracing off, whatever the environment says, so prompts and tool data never go to a third
+    party by accident. Called when this module is imported and again by ``build_models``. Tracing is C1's job, in
+    Cloud Trace."""
+    on = [
+        name
+        for name in LANGSMITH_TRACING_VARS
+        if os.environ.get(name, "").strip().lower() == "true"
+    ]
+    if on:
+        log.warning("LangSmith tracing is forced off (it was turned on by %s)", ", ".join(on))
+    for name in LANGSMITH_TRACING_VARS:
+        os.environ[name] = "false"
+    import langsmith
+
+    langsmith.configure(enabled=False)
+
+
+disable_langsmith_tracing()
 
 
 class RefreshableCredentials(Protocol):
@@ -112,6 +145,9 @@ def build_openai_client(
         api_key=_PLACEHOLDER_KEY,
         http_client=http_client,
         timeout=settings.model.request_timeout_s,
+        # no retries inside the client: the runner has its own fallback, and a hidden retry would double a slow
+        # call's time and go uncounted in the run's usage
+        max_retries=0,
     )
 
 
@@ -194,6 +230,7 @@ def build_models(
 ) -> ModelPair:
     """The primary model with the fallback model behind it, if one is configured (ids from settings), sharing one
     client."""
+    disable_langsmith_tracing()
     client = build_openai_client(
         settings,
         credentials if credentials is not None else default_credentials(),
