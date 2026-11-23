@@ -1652,6 +1652,22 @@ wheels = [
 ]
 
 [[package]]
+name = "google-cloud-trace"
+version = "1.21.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ff/cf/e9000f42609f834812063ce632a3e9d7ef34df6ccaf818c97a51ff187572/google_cloud_trace-1.21.0.tar.gz", hash = "sha256:5e0e02b51db9def0bed2f83627fa5043a8eecd00e477a7fb98d1e04c31a713c0", size = 103182, upload-time = "2026-10-01T18:18:34.842Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/41/83/0f297a29c96976d9c6fe4dc5f5f0e7e6ebcd1af08860ad0ef6faa92d47ec/google_cloud_trace-1.21.0-py3-none-any.whl", hash = "sha256:6522ac906d6d4b84443bb9e84edc2360db2010645916e8fb778227faefa3d2c8", size = 109513, upload-time = "2026-10-01T18:12:48.774Z" },
+]
+
+[[package]]
 name = "google-crc32c"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3142,6 +3158,22 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-exporter-gcp-trace"
+version = "1.15.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-cloud-trace" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-resourcedetector-gcp" },
+    { name = "opentelemetry-sdk" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4e/0c/58bb79084ce208e4f46666b6343ad94533d7a8976a60d2af980a62c43e68/opentelemetry_exporter_gcp_trace-1.15.0.tar.gz", hash = "sha256:70db6b807756c0815dce6af2f230663a07983f73bde0b7302e21f3a241b512cd", size = 19597, upload-time = "2026-08-19T21:44:12.954Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/25/f1/7e04fa6e95c233c83ef92ca298dc56150dfa363e325e6d7d5a074151fdcb/opentelemetry_exporter_gcp_trace-1.15.0-py3-none-any.whl", hash = "sha256:bab0bda41a74c9ece16611da2e1dd442d9d6f45238a734e62fee796e2c3b122c", size = 14373, upload-time = "2026-08-19T21:44:09.012Z" },
+]
+
+[[package]]
 name = "opentelemetry-proto"
 version = "1.45.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3151,6 +3183,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4b/7f/15f014fb195da6c2dbb6c71399b8e76824878718e94de6454038488eed28/opentelemetry_proto-1.45.1.tar.gz", hash = "sha256:79e0fb95e4616691a469439238aa9224d75779b3e108e895d1aa125ab29ca77c", size = 46488, upload-time = "2026-10-06T17:33:11.49Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ab/9a/42ec8180a769516ae757e893b69736826efceac7332553915b4528a91c6d/opentelemetry_proto-1.45.1-py3-none-any.whl", hash = "sha256:f38e2a8413053c180cd3d2637fbb279673ec2f6a6e09c995aafa2f452c52b46e", size = 72488, upload-time = "2026-10-06T17:32:53.057Z" },
+]
+
+[[package]]
+name = "opentelemetry-resourcedetector-gcp"
+version = "1.14.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/54/0a95db467d25d81abc16961f5c4538b65f5707e62628a7bb9cdac2849486/opentelemetry_resourcedetector_gcp-1.14.0.tar.gz", hash = "sha256:10b41802acf815838a85c9fe1dae02f5d27ebc17527b77441111c010bead95bc", size = 14831, upload-time = "2026-07-24T19:08:37.901Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/26/75/81a3035969eb44ff4c6a18abc26c5cbff73ba5e4bde6be94298004c3fbb2/opentelemetry_resourcedetector_gcp-1.14.0-py3-none-any.whl", hash = "sha256:cc4818570933b5c651aef80fbf6e8fbe26d63fe6fbc24ce22ae37e78744d30eb", size = 15561, upload-time = "2026-07-24T19:08:36.843Z" },
 ]
 
 [[package]]
@@ -3481,7 +3527,10 @@ dependencies = [
 
 [package.optional-dependencies]
 agents = [
+    { name = "gcsfs" },
     { name = "google-auth" },
+    { name = "opentelemetry-exporter-gcp-trace" },
+    { name = "opentelemetry-sdk" },
     { name = "polars" },
     { name = "pydantic-ai-slim", extra = ["openai"] },
     { name = "rank-bm25" },
@@ -3567,6 +3616,7 @@ requires-dist = [
     { name = "fairlearn", marker = "extra == 'bias'", specifier = ">=0.15.0" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.143.0" },
     { name = "fsspec", marker = "extra == 'pipeline'", specifier = ">=2026.9.0" },
+    { name = "gcsfs", marker = "extra == 'agents'", specifier = ">=2026.10.0" },
     { name = "gcsfs", marker = "extra == 'pipeline'", specifier = ">=2026.10.0" },
     { name = "google-auth", marker = "extra == 'agents'", specifier = ">=2.61.0" },
     { name = "google-cloud-bigquery", marker = "extra == 'api'", specifier = ">=3.46.1" },
@@ -3581,6 +3631,8 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'bias'", specifier = ">=3.11.2" },
     { name = "mlflow", marker = "extra == 'ml'", specifier = ">=3.17.0" },
     { name = "mlflow", marker = "extra == 'mlflow-server'", specifier = ">=3.17.0" },
+    { name = "opentelemetry-exporter-gcp-trace", marker = "extra == 'agents'", specifier = ">=1.15.0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'agents'", specifier = ">=1.45.1" },
     { name = "optuna", marker = "extra == 'ml'", specifier = ">=5.0.0" },
     { name = "pandas", marker = "extra == 'pipeline'", specifier = ">=3.0.6" },
     { name = "pandera", marker = "extra == 'pipeline'", specifier = ">=0.34.1" },
