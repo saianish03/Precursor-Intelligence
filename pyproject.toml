@@ -56,8 +56,13 @@ ml-extra = [
     "interpret>=0.7.8",
 ]
 agents = [
-    "google-auth>=2.61.0",
+    "google-auth[requests]>=2.61.0",
+    "httpx2>=2.13.1",
+    "langchain-core>=1.8.4",
+    "langchain-openai>=1.8.5",
     "polars>=2.0.0",
+    # temporary: #114's Agent 2 (agents/evidence_retriever.py) still runs on Pydantic AI until it is ported onto
+    # run_agent (docs/AGENTS_PLAN.md); the runtime itself is on LangChain
     "pydantic-ai-slim[openai]>=2.55.0",
     "rank-bm25>=0.2.2",
 ]

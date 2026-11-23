@@ -79,8 +79,8 @@ stages:
       size: 28062
     - path: uv.lock
       hash: md5
-      md5: 627d643bd5ce3638a9e5f93dfabf7ff4
-      size: 722131
+      md5: dc2916cdfdaa61ad431ed3ad463e0962
+      size: 767225
     outs:
     - path: data/toy/gold/dim_facility_latest
       hash: md5
@@ -205,9 +205,9 @@ stages:
       size: 3985
     - path: src/precursorintelligence/agents
       hash: md5
-      md5: 584616c7fe2152e18b80b1d04f94afcb.dir
-      size: 81589
-      nfiles: 9
+      md5: 142fe87ad4f4195746540260525873ef.dir
+      size: 143610
+      nfiles: 18
     - path: src/precursorintelligence/bias
       hash: md5
       md5: 4f39f56019ddc6d2d2c66c4ac3b2700e.dir
@@ -269,8 +269,8 @@ stages:
       size: 10348
     - path: uv.lock
       hash: md5
-      md5: 627d643bd5ce3638a9e5f93dfabf7ff4
-      size: 722131
+      md5: dc2916cdfdaa61ad431ed3ad463e0962
+      size: 767225
     outs:
     - path: metrics/toy_ml.json
       hash: md5
@@ -282,8 +282,8 @@ stages:
     deps:
     - path: configs/agents.yaml
       hash: md5
-      md5: 2f0b8820c4b9b2380b483ce7ce9a64eb
-      size: 826
+      md5: b2f396aa6bdf10bad53123810c808f73
+      size: 873
     - path: configs/logging.yaml
       hash: md5
       md5: 9e23c8e1b1be1a0467fe43293b667350
@@ -302,9 +302,9 @@ stages:
       size: 3656
     - path: src/precursorintelligence/agents
       hash: md5
-      md5: 584616c7fe2152e18b80b1d04f94afcb.dir
-      size: 81589
-      nfiles: 9
+      md5: 142fe87ad4f4195746540260525873ef.dir
+      size: 143610
+      nfiles: 18
     - path: src/precursorintelligence/bias
       hash: md5
       md5: 4f39f56019ddc6d2d2c66c4ac3b2700e.dir
@@ -366,8 +366,8 @@ stages:
       size: 7729
     - path: uv.lock
       hash: md5
-      md5: 627d643bd5ce3638a9e5f93dfabf7ff4
-      size: 722131
+      md5: dc2916cdfdaa61ad431ed3ad463e0962
+      size: 767225
     outs:
     - path: metrics/toy_evidence.json
       hash: md5

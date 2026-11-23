@@ -1,5 +1,6 @@
 # The agents' settings (docs/AGENTS_PLAN.md). Loaded by common/config.py: load_agents_config, which refuses unknown
-# keys. The runtime settings (A1: model ids, max_tokens, timeouts, the daily cap, the cache) join this file later.
+# keys. The runtime settings (A1: model ids, max_tokens, timeouts, the daily cap, the cache) live in
+# configs/agents_runtime.yaml, loaded by agents/settings.py.
 version: 1
 
 # build-evidence (E2): what one month's evidence holds and where it goes (layout: evidence/contract.py).

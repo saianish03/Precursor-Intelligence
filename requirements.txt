@@ -60,7 +60,7 @@ celery==5.6.3 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platf
     # via
     #   dvc
     #   dvc-task
-certifi==2026.7.22 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
+certifi==2026.11.20 ; sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'
     # via
     #   httpcore
     #   httpx
