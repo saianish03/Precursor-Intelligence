@@ -10,8 +10,15 @@
 !docker/airflow-local/docker-compose.yaml
 !docker/airflow-local/docker-compose.vm.yaml
 !docker/airflow-local/init-db.sh
+# the API image (docker/backend.Dockerfile): the web layer and the React app's sources, never a laptop's
+# node_modules/ or dist/ (the image builds its own)
+!backend/
+!frontend/
+frontend/node_modules
+frontend/dist
 src/**/__pycache__
 dags/**/__pycache__
+backend/**/__pycache__
 **/*.pyc
 # backstop: never send secrets or OS litter, even if one lands inside a re-included folder (last match wins)
 **/.env
