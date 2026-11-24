@@ -465,7 +465,8 @@ All four files go to `<prefix>scores/v=YYYY-MM/` with `scores_manifest.json` (mo
   `score_drift:mean`. No previous month leaves them null, with no flag.
 - **The performance trend:** on a run that evaluated, each test month's `pr_auc_lift` against the median of the
   earlier test months recorded by earlier evaluated runs (the latest run counts per month; from one earlier month on),
-  flagged `performance:lift_drop:<month>`.
+  flagged `performance:lift_drop:<month>`. A development month (§3.2: the recipe was chosen on it, so its lift is
+  optimistic) never enters the median, and is reported but never flagged.
 - Both join feature drift as re-tune requests (§12.2).
 - **`skew_scope`** says when the skew check ran without the key features (a run that didn't score, #73 B20).
 - **Not yet:** realized performance, since published scores mature 20 months later (the VM's first month, 2026-10,

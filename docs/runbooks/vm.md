@@ -416,7 +416,8 @@ next release is due 2026-12-02.
     over 0.1, or the mean `p` by more than 0.03), with the model unchanged. Read `status/latest.json`'s
     `score_drift`, then the feature drift, to see which inputs moved.
   - `performance:lift_drop:<month>`: on a retrain, a test month's lift is more than 15 % under the median of the
-    earlier recorded months.
+    earlier recorded months. Development months (2025-02) are left out of the median and never flagged, so 2025-03,
+    the first honest month, is compared only with honest months.
   - Both ask a human for a re-tune (`retune_requested`), as feature drift does; nothing re-tunes on its own.
   - `skew_scope` in the status file and the email says when a run that didn't score checked skew without the key
     features.

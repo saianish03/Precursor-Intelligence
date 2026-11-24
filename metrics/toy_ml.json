@@ -40,6 +40,7 @@
     "note": null,
     "performance_trend": {
       "2025-02": {
+        "development": true,
         "flagged": false,
         "lift": 1.6280763106597627,
         "median_earlier": null,

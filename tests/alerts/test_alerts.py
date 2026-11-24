@@ -162,16 +162,25 @@ def test_the_email_reports_score_drift_the_trend_and_a_partial_skew_check():
             "mean_shift": 0.0339,
         },
         "performance_trend": {
-            "2025-02": {"lift": 1.83, "n_earlier": 0, "median_earlier": None, "flagged": False},
+            "2025-02": {
+                "lift": 1.83,
+                "n_earlier": 0,
+                "median_earlier": None,
+                "development": True,
+                "flagged": False,
+            },
             "2025-03": {"lift": 1.5, "n_earlier": 3, "median_earlier": 1.9, "flagged": True},
         },
         "skew_scope": "partial: no key features (this run didn't score)",
     }
     _, body = alerts.ml_run_alert("cms_nh_ml", RUN, summary)
     assert "Score drift: 2026-09 -> 2026-10, PSI 0.0123, mean p 0.2512 -> 0.2851 (+0.0339)" in body
-    assert "Performance trend 2025-02: lift 1.83 (no earlier months)" in body
     assert (
-        "Performance trend 2025-03: lift 1.50 vs median 1.90 of 3 earlier months (flagged)" in body
+        "Performance trend 2025-02: lift 1.83, no earlier months, a development month, never flagged"
+        in body
+    )
+    assert (
+        "Performance trend 2025-03: lift 1.50, vs median 1.90 of 3 earlier months, flagged" in body
     )
     assert "Skew check: partial: no key features (this run didn't score)" in body
 

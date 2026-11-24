@@ -91,7 +91,8 @@ def _performance_trend(
     per_month: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     """Each of this run's test months: its lift vs the median lift of the earlier test months recorded by earlier
-    evaluated runs (their gate rows lead to their evaluation.json; the latest run counts per month)."""
+    evaluated runs (their gate rows lead to their evaluation.json; the latest run counts per month). A development
+    month (the recipe was chosen on it, §3.2) never enters the median, and is reported but never flagged."""
     first_row: dict[str, int] = {}
     for r in rows:
         if r.get("action") in GATE_ACTIONS and r["ml_run_id"] != ml_run_id:
@@ -101,7 +102,7 @@ def _performance_trend(
         raw = _read(store, RunPaths.of(cfg, run).evaluation)
         for entry in json.loads(raw).get("per_month", []) if raw else []:
             lift = _lift(entry)
-            if lift is not None:
+            if lift is not None and not entry.get("development"):
                 recorded[entry["month"]] = lift
     trend: dict[str, dict[str, Any]] = {}
     for entry in per_month:
@@ -110,11 +111,15 @@ def _performance_trend(
             continue
         earlier = [v for month, v in recorded.items() if month < entry["month"]]
         median = statistics.median(earlier) if earlier else None
+        development = bool(entry.get("development"))
         trend[entry["month"]] = {
             "lift": lift,
             "n_earlier": len(earlier),
             "median_earlier": median,
-            "flagged": median is not None and lift < (1 - cfg.monitor.lift_drop_max) * median,
+            "development": development,
+            "flagged": not development
+            and median is not None
+            and lift < (1 - cfg.monitor.lift_drop_max) * median,
         }
     return trend
 

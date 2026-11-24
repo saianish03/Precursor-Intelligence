@@ -157,11 +157,28 @@ def test_no_previous_month_is_reported_without_a_flag(trained):
 # --------------------------------------------------------------------------- performance trend (§12.1)
 
 
+def _evaluate(trained, development_months):
+    cfg = trained.cfg.model_copy(
+        update={
+            "evaluation": trained.cfg.evaluation.model_copy(
+                update={"development_months": development_months}
+            )
+        }
+    )
+    run_evaluate(trained.store(), ml_run_id=trained.run_id, cfg=cfg, shuffled_label=False)
+    return trained
+
+
 @pytest.fixture
 def evaluated(trained):
-    """The trained run after ``evaluate``: its evaluation.json has the selected candidate's per-month lift."""
-    run_evaluate(trained.store(), ml_run_id=trained.run_id, cfg=trained.cfg, shuffled_label=False)
-    return trained
+    """The trained run after ``evaluate``, its test month an honest one (not a development month)."""
+    return _evaluate(trained, [])
+
+
+@pytest.fixture
+def evaluated_on_development(trained):
+    """The same, with the test month (2025-02) a development month, as configs/ml.yaml has it (§3.2)."""
+    return _evaluate(trained, trained.cfg.evaluation.development_months)
 
 
 def this_run_months(trained):
@@ -171,11 +188,14 @@ def this_run_months(trained):
     return [m for m in report["per_month"] if m["pr_auc_lift"] is not None]
 
 
-def earlier_run(trained, run_id, lifts):
+def earlier_run(trained, run_id, lifts, development=()):
     """An earlier evaluated run: a gate row in ml_runs and an evaluation.json with these months' lifts."""
     meta = trained.meta()
     meta.append("ml_runs", [{"ml_run_id": run_id, "action": "hold", "candidate_version": 9}])
-    per_month = [{"month": m, "pr_auc_lift": lift} for m, lift in lifts.items()]
+    per_month = [
+        {"month": m, "pr_auc_lift": lift, "development": m in development}
+        for m, lift in lifts.items()
+    ]
     trained.store().put_bytes(
         RunPaths.of(trained.cfg, run_id).evaluation,
         json.dumps({"per_month": per_month}).encode(),
@@ -226,10 +246,33 @@ def test_no_earlier_months_reports_the_lift_without_a_flag(evaluated):
             "lift": pytest.approx(this["pr_auc_lift"]),
             "n_earlier": 0,
             "median_earlier": None,
+            "development": False,
             "flagged": False,
         }
     }
     assert not any(f.startswith("performance:") for f in out.status["flags"])
+
+
+def test_a_development_month_never_enters_the_baseline(evaluated):
+    # the recipe was chosen on a development month (§3.2), so its lift is optimistic and would flag honest months
+    [this] = this_run_months(evaluated)
+    a, b = months_before(this["month"], 2)
+    earlier_run(evaluated, "old-1", {a: this["pr_auc_lift"], b: 100.0}, development={b})
+    trend = monitor(evaluated).status["performance_trend"][this["month"]]
+    assert trend["n_earlier"] == 1 and trend["median_earlier"] == pytest.approx(this["pr_auc_lift"])
+    assert trend["flagged"] is False
+
+
+def test_a_development_month_of_this_run_is_reported_never_flagged(evaluated_on_development):
+    [this] = this_run_months(evaluated_on_development)
+    [a] = months_before(this["month"], 1)
+    earlier_run(evaluated_on_development, "old-1", {a: 100.0})
+    out = monitor(evaluated_on_development)
+    trend = out.status["performance_trend"][this["month"]]
+    assert trend["development"] is True and trend["n_earlier"] == 1
+    assert trend["flagged"] is False
+    assert not any(f.startswith("performance:") for f in out.status["flags"])
+    assert out.status["retune_requested"] is False
 
 
 def test_a_run_that_did_not_evaluate_has_no_performance_trend(trained):

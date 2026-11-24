@@ -180,15 +180,16 @@ def ml_run_alert(dag_id: str, run_id: str, summary: dict[str, Any]) -> tuple[str
             else "Score drift: no previous month to compare"
         )
     for month, t in (summary.get("performance_trend") or {}).items():
-        lines.append(
-            f"Performance trend {month}: lift {t['lift']:.2f} "
-            + (
-                f"vs median {t['median_earlier']:.2f} of {t['n_earlier']} earlier months"
-                + (" (flagged)" if t["flagged"] else "")
-                if t["n_earlier"]
-                else "(no earlier months)"
-            )
-        )
+        parts = [
+            f"vs median {t['median_earlier']:.2f} of {t['n_earlier']} earlier months"
+            if t["n_earlier"]
+            else "no earlier months"
+        ]
+        if t.get("development"):
+            parts.append("a development month, never flagged")
+        elif t["flagged"]:
+            parts.append("flagged")
+        lines.append(f"Performance trend {month}: lift {t['lift']:.2f}, {', '.join(parts)}")
     if summary.get("skew_scope") not in (None, "full"):
         lines.append(f"Skew check: {summary['skew_scope']}")
     lines.append(f"Flags: {', '.join(summary.get('flags') or []) or 'none'}")
