@@ -9,9 +9,11 @@ from typing import Annotated, Any
 import pytest
 from langchain_core.tools import InjectedToolArg, tool
 from pydantic import BaseModel, ValidationError
+from pydantic.json_schema import SkipJsonSchema
 
 from precursorintelligence.agents.cache import InMemoryAnswerCache
 from precursorintelligence.agents.counter import InMemoryDailyCounter
+from precursorintelligence.agents.ledger import prose_evidence_ids
 from precursorintelligence.agents.model import ModelPair
 from precursorintelligence.agents.outputs import (
     CAVEAT,
@@ -252,3 +254,201 @@ def test_a_made_up_id_inside_a_driver_is_rejected(tmp_path, method):
     out = _run(_runtime(tmp_path, scripted(brief(made_up), brief(RAISES.evidence_id)), method))
     assert not out.fallback
     assert len(out.validation_failures) == 1 and made_up in out.validation_failures[0]
+
+
+# ----------------------------------------------------------------------------- per-agent caveat and data month
+
+RETRIEVER_CAVEAT = "Quotes are CMS's short tag descriptions, not the full regulation text."
+CORPUS_MONTH = "2025-10"
+
+
+class EvidenceSetLike(AgentOutput):
+    """Shaped like Agent 2's output once ported: its own caveat and data month."""
+
+    caveat: SkipJsonSchema[str] = RETRIEVER_CAVEAT
+    summary: str
+
+
+async def retriever_template(inp: Any, deps: Any) -> EvidenceSetLike:
+    return EvidenceSetLike(summary="No passage found.", evidence_ids=[])
+
+
+def retriever_definition() -> AgentDefinition[Q, EvidenceSetLike]:
+    return AgentDefinition(
+        name="demo",
+        input_type=Q,
+        output_type=EvidenceSetLike,
+        fallback=retriever_template,
+        tools=[get_reasons],
+        data_as_of=lambda data, tools: CORPUS_MONTH,
+    )
+
+
+@METHODS
+def test_an_agent_keeps_its_own_caveat_and_data_month(tmp_path, method):
+    model = scripted(
+        answer(summary="Recent citations.", evidence_ids=[RAISES.evidence_id], caveat="x")
+    )
+    rt = _runtime(tmp_path, model, method)
+    out = _run(rt, retriever_definition())
+    assert not out.fallback
+    assert (out.output.data_as_of, out.output.caveat) == (CORPUS_MONTH, RETRIEVER_CAVEAT)
+    again = _run(rt, retriever_definition())
+    assert again.cache_hit
+    assert (again.output.data_as_of, again.output.caveat) == (CORPUS_MONTH, RETRIEVER_CAVEAT)
+
+
+def test_an_agents_fallback_keeps_its_own_caveat_and_data_month(tmp_path):
+    made_up = f"reason:015009:{V}:raises:9"
+    bad = answer(summary="s", evidence_ids=[made_up])
+    out = _run(_runtime(tmp_path, scripted(bad, bad), "json_schema"), retriever_definition())
+    assert out.fallback
+    assert (out.output.data_as_of, out.output.caveat, out.output.fallback) == (
+        CORPUS_MONTH,
+        RETRIEVER_CAVEAT,
+        True,
+    )
+
+
+# ----------------------------------------------------------------------------- the month check
+
+OLD = RAISES.model_copy(update={"evidence_id": "reason:015009:2026-09:raises:1", "v": "2026-09"})
+PASSAGE_ID = "passage:cms_tag:F0689:2021-01"
+
+
+@tool
+async def get_old_and_new_reasons(
+    ccn: str, deps: Annotated[RunDeps, InjectedToolArg]
+) -> list[Reason]:
+    """The facility's drivers, one of them from an older month."""
+    return [RAISES, OLD]
+
+
+@tool
+async def find_regulations(ccn: str, deps: Annotated[RunDeps, InjectedToolArg]) -> list[Any]:
+    """The facility's drivers and what Agent 2 found: a passage whose wording starts in 2021-01."""
+    found = EvidenceSetLike(
+        summary="F0689 accidents.", evidence_ids=[PASSAGE_ID], data_as_of=CORPUS_MONTH
+    )
+    return [RAISES, found]
+
+
+def _with_tool(t: Any, *validators: Any) -> AgentDefinition[Q, Brief]:
+    return AgentDefinition(
+        name="demo",
+        input_type=Q,
+        output_type=Brief,
+        fallback=template,
+        tools=[t],
+        validators=validators,
+    )
+
+
+def _scripted_with(tool_name: str, *answers: Step) -> ScriptedChatModel:
+    steps: list[Step] = []
+    for a in answers:
+        steps += [call_tool(tool_name, ccn="015009"), a]
+    return ScriptedChatModel(steps={"*": steps})
+
+
+@METHODS
+def test_a_record_from_another_month_is_rejected(tmp_path, method):
+    model = _scripted_with(
+        "get_old_and_new_reasons", brief(OLD.evidence_id), brief(RAISES.evidence_id)
+    )
+    out = _run(_runtime(tmp_path, model, method), _with_tool(get_old_and_new_reasons))
+    assert not out.fallback
+    assert len(out.validation_failures) == 1
+    assert (
+        OLD.evidence_id in out.validation_failures[0]
+        and "another month" in out.validation_failures[0]
+    )
+
+
+@METHODS
+def test_agent_1_can_cite_a_passage_from_2021_01(tmp_path, method):
+    # a passage is dated by the vintage its wording starts, not by the score month, so it isn't month-checked
+    cites = answer(
+        drivers=[
+            {
+                "label": "Recent health citations",
+                "direction": "raises",
+                "evidence_id": RAISES.evidence_id,
+            }
+        ],
+        sections=[
+            {"title": "Why", "body": f"Accidents, per {PASSAGE_ID}.", "evidence_ids": [PASSAGE_ID]},
+        ],
+        evidence_ids=[RAISES.evidence_id, PASSAGE_ID],
+    )
+    out = _run(
+        _runtime(tmp_path, _scripted_with("find_regulations", cites), method),
+        _with_tool(find_regulations),
+    )
+    assert not out.fallback and not out.validation_failures
+    assert out.output.data_as_of == V
+    assert PASSAGE_ID in out.output.evidence_ids
+
+
+# ----------------------------------------------------------------------------- IDs written in the text
+
+
+def test_prose_evidence_ids_finds_ids_in_text_only():
+    text = (
+        f"Driven by {RAISES.evidence_id}. Risk score: 0.31, see {PASSAGE_ID}, and score:015009:{V}."
+    )
+    assert list(prose_evidence_ids(text)) == [RAISES.evidence_id, PASSAGE_ID, f"score:015009:{V}"]
+    section = Section(
+        title="t", body="no IDs, a score: 0.31", evidence_ids=["score:015009:2026-10"]
+    )
+    assert (
+        list(prose_evidence_ids(section)) == []
+    )  # the evidence_ids list is validator 1's ordinary check
+
+
+@METHODS
+def test_a_made_up_id_written_in_the_text_is_rejected(tmp_path, method):
+    made_up = f"reason:015393:{V}:raises:1"
+    in_text = answer(
+        drivers=[
+            {
+                "label": "Recent health citations",
+                "direction": "raises",
+                "evidence_id": RAISES.evidence_id,
+            }
+        ],
+        sections=[
+            {
+                "title": "Why",
+                "body": f"Citations, per {made_up}.",
+                "evidence_ids": [RAISES.evidence_id],
+            }
+        ],
+        evidence_ids=[RAISES.evidence_id],
+    )
+    out = _run(_runtime(tmp_path, scripted(in_text, brief(RAISES.evidence_id)), method))
+    assert not out.fallback
+    assert len(out.validation_failures) == 1
+    assert (
+        made_up in out.validation_failures[0]
+        and "written in the text" in out.validation_failures[0]
+    )
+
+
+@METHODS
+def test_a_real_id_written_in_the_text_passes(tmp_path, method):
+    in_text = answer(
+        drivers=[
+            {
+                "label": "Recent health citations",
+                "direction": "raises",
+                "evidence_id": RAISES.evidence_id,
+            }
+        ],
+        sections=[
+            {"title": "Why", "body": f"Citations, per {RAISES.evidence_id}.", "evidence_ids": []}
+        ],
+        evidence_ids=[RAISES.evidence_id],
+    )
+    out = _run(_runtime(tmp_path, scripted(in_text), method))
+    assert not out.fallback and not out.validation_failures

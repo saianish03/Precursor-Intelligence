@@ -6,7 +6,11 @@ against the run's ledger (B3), wherever it sits: ``AgentOutput.evidence_ids``, a
 ``Section.evidence_ids``.
 
 ``data_as_of``, ``caveat`` and ``fallback`` are never written by the model: they are left out of the schema it sees,
-and ``run_agent`` stamps them on every answer, the fallback included, from the run's ``DataVersion``.
+and ``run_agent`` stamps them on every answer, the fallback and a cache hit included. Both are per agent: the
+caveat stamped is the output type's own ``caveat`` default (``CAVEAT`` unless the agent overrides it, as Agent 2's
+does), and ``data_as_of`` comes from ``AgentDefinition.data_as_of`` (by default the score month ``v``). The API
+wraps ``data_as_of`` in the full data-version object (``v``, ``score_month``, ``model_version``, ``gold_run_id``)
+from the evidence manifest, so this model keeps the plain month.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from pydantic.json_schema import SkipJsonSchema
 from .tools.evidence import Reason, Record
 
 CAVEAT = "Regulatory risk, not a claims prediction."
+"""The score caveat, kept in this one constant; its wording is still to be agreed with the frontend (PRODUCT.md)."""
 
 
 class Driver(BaseModel):
@@ -55,8 +60,10 @@ class AgentOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     evidence_ids: list[str] = Field(default_factory=list)
-    data_as_of: SkipJsonSchema[str | None] = None  # the score month v; stamped by run_agent
-    caveat: SkipJsonSchema[str] = CAVEAT  # stamped by run_agent
+    # the data month (by default the score month v); stamped by run_agent
+    data_as_of: SkipJsonSchema[str | None] = None
+    # this default is what run_agent stamps: an agent with its own caveat overrides it in its output type
+    caveat: SkipJsonSchema[str] = CAVEAT
     # True when the template answered (B9); stamped by run_agent
     fallback: SkipJsonSchema[bool] = False
 
