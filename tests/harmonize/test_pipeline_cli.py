@@ -2,6 +2,8 @@
 
 import json
 import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -216,3 +218,109 @@ def test_a_failed_every_file_check_exits_2_even_when_every_file_loaded(env, monk
     )
     assert bronze(monkeypatch, env) == EXIT_VALIDATION
     assert "provider_info 2025-06" in capsys.readouterr().err
+
+
+# --- mirror-metadata: the metadata store's copy in BigQuery (spec §0.6, §15.3) ---------------------------
+
+
+class LoadedJob:
+    def __init__(self, rows):
+        self.output_rows = rows
+
+    def result(self):
+        return self
+
+
+class MirrorClient:
+    """Holds what each load wrote, plus ``extra`` rows; ``fail`` raises on every load."""
+
+    def __init__(self, fail=None, extra=0):
+        self.destinations, self.fail, self.extra, self.held = [], fail, extra, {}
+
+    def load_table_from_file(self, file_obj, destination, *, job_config, location):
+        if self.fail:
+            raise self.fail
+        self.destinations.append(destination)
+        rows = len(file_obj.read().decode("utf-8").splitlines())
+        self.held[destination] = rows + self.extra
+        return LoadedJob(rows)
+
+    def get_table(self, destination):
+        return SimpleNamespace(num_rows=self.held[destination])
+
+
+@pytest.fixture
+def bq_env(env, tmp_path):
+    """The bronze env plus a bigquery block, as on the VM."""
+    path = tmp_path / "env_bq.yaml"
+    config = yaml.safe_load(Path(env.file).read_text())
+    config["bigquery"] = {
+        "project": "proj",
+        "dataset": "scores",
+        "meta_dataset": "meta",
+        "location": "us-central1",
+    }
+    path.write_text(yaml.safe_dump(config))
+    env.bq_file = str(path)
+    return env
+
+
+def use_client(monkeypatch, client):
+    from precursorintelligence.serving import bigquery
+
+    monkeypatch.setattr(bigquery, "make_client", lambda cfg: client)
+
+
+def test_mirror_does_nothing_without_a_bigquery_block(env, monkeypatch, capsys):
+    # a laptop stack, a trial prefix (dataset blank), dev: no client is even built
+    def no_client(cfg):
+        raise AssertionError("no BigQuery client without a bigquery block")
+
+    from precursorintelligence.serving import bigquery
+
+    monkeypatch.setattr(bigquery, "make_client", no_client)
+    assert run(monkeypatch, "mirror-metadata", "--env-file", env.file, "--run-id", RUN) == EXIT_OK
+    assert json.loads(capsys.readouterr().out.splitlines()[-1]) == {"dataset": None, "tables": {}}
+
+
+def test_mirror_copies_every_table_but_run_lock_and_prints_the_rows(bq_env, monkeypatch, capsys):
+    from precursorintelligence.common.io.schemas import TABLES
+
+    bq_env.stage()
+    client = MirrorClient()
+    use_client(monkeypatch, client)
+    assert (
+        run(monkeypatch, "mirror-metadata", "--env-file", bq_env.bq_file, "--run-id", RUN)
+        == EXIT_OK
+    )
+    summary = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert summary["dataset"] == "proj.meta"
+    assert set(summary["tables"]) == set(TABLES) - {"run_lock"}
+    assert summary["tables"]["inventory"] == 1
+    assert len(client.destinations) == len(TABLES) - 1
+
+
+def test_mirror_exits_2_when_bigquery_holds_other_rows(bq_env, monkeypatch, capsys):
+    # a retry wouldn't change what BigQuery holds
+    use_client(monkeypatch, MirrorClient(extra=1))
+    code = run(monkeypatch, "mirror-metadata", "--env-file", bq_env.bq_file, "--run-id", RUN)
+    assert (
+        code == EXIT_VALIDATION and "BigQuery holds 1 rows, the store 0" in capsys.readouterr().err
+    )
+
+
+def test_mirror_exits_1_when_bigquery_refuses_a_load(bq_env, monkeypatch, capsys):
+    # a 400 can be temporary (resourceInUse, tableUnavailable) and the full replace is idempotent: one retry
+    from google.api_core.exceptions import BadRequest
+
+    use_client(monkeypatch, MirrorClient(fail=BadRequest("bad schema")))
+    code = run(monkeypatch, "mirror-metadata", "--env-file", bq_env.bq_file, "--run-id", RUN)
+    assert code == EXIT_ERROR and "BadRequest" in capsys.readouterr().err
+
+
+def test_mirror_exits_1_on_a_temporary_bigquery_error(bq_env, monkeypatch, capsys):
+    from google.api_core.exceptions import ServiceUnavailable
+
+    use_client(monkeypatch, MirrorClient(fail=ServiceUnavailable("try later")))
+    code = run(monkeypatch, "mirror-metadata", "--env-file", bq_env.bq_file, "--run-id", RUN)
+    assert code == EXIT_ERROR and "ServiceUnavailable" in capsys.readouterr().err

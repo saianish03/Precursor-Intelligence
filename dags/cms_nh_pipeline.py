@@ -6,8 +6,8 @@ and released by the last task of the DAG (a teardown, so it always runs once the
 hides a failed run), so all nodes run under one lock. No business logic here.
 
 Alerts (precursorintelligence.alerts; the callbacks in utils/alerts.py; email; nothing is sent when
-PI_ALERT_EMAIL_TO is unset): one per failed run (the DAG's on_failure_callback), one when release_lock fails
-(that leaves the run green), one per run with new error anomalies (`check_anomalies` → `alert_anomalies`,
+PI_ALERT_EMAIL_TO is unset): one per failed run (the DAG's on_failure_callback), one when release_lock or
+mirror_metadata fails (that leaves the run green), one per run with new error anomalies (`check_anomalies` → `alert_anomalies`,
 after resolve_report), and one per run whose silver dropped new CMS columns (`alert_new_headers`, from
 build_silver's last output line; spec §3.2).
 
@@ -16,7 +16,9 @@ Validation (`precursor-pipeline validate`, docs/VALIDATION.md) runs as `validate
 
 Implemented nodes: ingestion → bronze → silver → gold. `check_release` is its own DAG, cms_nh_release_check, which
 starts this one through the asset `cms_nh_release` (spec §2.0, decision 24); a manual run never goes through it.
-Not built yet: `mirror_metadata` (spec §15.3).
+The run ends with `mirror_metadata` (spec §0.6, §15.3): the metadata store's copy in BigQuery, replaced while the
+lock is still held; a teardown too, so a failed run is mirrored. Only the VM's stack mirrors (it has a bigquery
+block); elsewhere the task does nothing.
 
 Params:
   mode        monthly | backfill (backfill implies the silver calibration tasks)
@@ -32,12 +34,13 @@ import re
 from datetime import datetime, timedelta
 
 from airflow.sdk import Asset, Param, dag, get_current_context, task, task_group
-from utils.alerts import on_dag_failure, on_release_failure
+from utils.alerts import on_dag_failure, on_mirror_failure, on_release_failure
 from utils.pipeline_operator import (
     HEAVY_POOL,
     PipelineDockerOperator,
     docker_kwargs,
     last_json_list,
+    mirror_metadata_task,
     pipeline_env,
 )
 
@@ -215,7 +218,10 @@ def cms_nh_pipeline():
         validate = run("validate_gold", f"{PIPELINE} validate --layer gold", outlets=[GOLD])
         build >> validate
 
-    # TODO(mirror_metadata): spec §15.3, a teardown of acquire_lock before release_lock.
+    # The metadata store's copy in BigQuery (spec §0.6, §15.3): a teardown of acquire_lock too, before release_lock,
+    # so a failed run is mirrored and the lock is held while it reads. A failed mirror alerts on its own and
+    # never stops release_lock (a teardown's trigger rule waits for it, whatever its state).
+    mirror = mirror_metadata_task(on_failure_callback=on_mirror_failure)
 
     # A teardown of acquire_lock: it runs whenever the lock was taken (also after a failure or a stop_after
     # skip) but does not decide the DAG run's state. A plain all_done leaf would make every failed run show
@@ -242,7 +248,11 @@ def cms_nh_pipeline():
     )
     bronze_done >> continue_after.override(task_id="continue_after_bronze")("bronze") >> silver_done
     silver_done >> continue_after.override(task_id="continue_after_silver")("silver") >> gold_done
-    [gold_done, anomalies_alerted] >> release.as_teardown(setups=acquire)
+    (
+        [gold_done, anomalies_alerted]
+        >> mirror.as_teardown(setups=acquire)
+        >> release.as_teardown(setups=acquire)
+    )
 
 
 cms_nh_pipeline()

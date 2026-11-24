@@ -555,6 +555,7 @@ Branches use `@task.branch`; `score` and `monitor` use `trigger_rule="none_faile
 | `publish` | `ml publish` | §11; `outlets=[cms_nh_scores]` |
 | `monitor` | `ml monitor` | §12; writes `status/latest.json`; last stdout line: the summary JSON |
 | `notify` | Python | emails the summary (XCom from `monitor`, or `decide` on SKIP) |
+| `mirror_metadata` | `precursor-pipeline mirror-metadata` | the metadata store's copy in BigQuery (data spec §0.6, §15.3), `ml_runs` included; the teardown of a no-op setup `start` before `decide`, so a failed or skipped run is mirrored too and the mirror never decides the run's state |
 
 ### 15.4 Params and run modes
 | Param | Type | Default |

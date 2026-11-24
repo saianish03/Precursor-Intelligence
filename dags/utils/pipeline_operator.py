@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import timedelta
 from typing import Any
 
 from airflow.exceptions import AirflowFailException
@@ -141,3 +142,19 @@ def docker_kwargs() -> dict[str, Any]:
         "log_opts_max_file": "3",
         **limits,
     }
+
+
+def mirror_metadata_task(**kwargs: Any) -> PipelineDockerOperator:
+    """The metadata store's copy in BigQuery (data spec §0.6, §15.3), the end of a DAG run. Each DAG makes it a
+    teardown, so a failed run is mirrored too and the mirror never decides the run's state; pass its failure alert as
+    on_failure_callback. Seconds on the VM; with no bigquery block (a laptop, a trial prefix) it does nothing. One
+    retry, and short limits: in cms_nh_pipeline release_lock waits for it."""
+    tail = f"--env {pipeline_env()} --run-id {{{{ run_id }}}}"
+    return PipelineDockerOperator(
+        task_id="mirror_metadata",
+        command=f"precursor-pipeline mirror-metadata {tail}",
+        retries=1,
+        retry_delay=timedelta(minutes=1),
+        execution_timeout=timedelta(minutes=5),
+        **{**docker_kwargs(), **kwargs},
+    )

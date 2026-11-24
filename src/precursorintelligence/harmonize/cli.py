@@ -5,6 +5,7 @@ One command per DAG task (docs/DATA_PIPELINE_SPEC.md §15.3), all sharing the DA
   precursor-pipeline silver --run-id R     (last stdout line: JSON list of new headers, for the alert)
   precursor-pipeline validate --layer silver --run-id R   (read-only data checks; validation/cli.py)
   precursor-pipeline check-release --run-id R   (the hourly release check; last stdout line: JSON decision)
+  precursor-pipeline mirror-metadata --run-id R   (the metadata store's copy in BigQuery, at the end of each DAG run)
   precursor-pipeline ml prepare --run-id R   (the ML tasks: training/cli.py, docs/ML_PIPELINE_SPEC.md §15.3)
   precursor-pipeline agents build-corpus   (the agents' batch steps: agents/cli.py, docs/AGENTS_PLAN.md)
   precursor-pipeline agents build-evidence --v YYYY-MM   (the agents' evidence: agents/cli.py, AGENTS_PLAN.md E2)
@@ -189,6 +190,42 @@ def check_release(
     # No log shipping (unlike the nodes): it runs hourly, and the Airflow task log already holds the output.
     typer.echo(f"check_release: {out['decision']}: {out['reason']}")
     typer.echo(json.dumps(out, sort_keys=True))
+
+
+@app.command("mirror-metadata")
+def mirror_metadata_command(
+    run_id: str | None = RUN_ID_OPT,
+    env: str = ENV_OPT,
+    env_file: Path | None = ENV_FILE_OPT,
+    log_level: str | None = typer.Option(None, help="override the configured log level"),
+) -> None:
+    """Copy the metadata store to BigQuery (spec §0.6, §15.3): every table but run_lock, each replaced whole and on
+    its own. Only an env with a bigquery block mirrors (the VM); elsewhere it does nothing. Exit 1 when BigQuery
+    failed for a table (the DAG retries: a full replace is idempotent), 2 when it holds other rows than the store.
+    Last stdout line: the rows per table as JSON."""
+    from ..common.io.metadata_mirror import MirrorError, mirror_metadata
+    from ..serving.bigquery import make_client
+
+    settings, run_id, _ = _init(env, env_file, log_level, run_id, label="mirror_metadata")
+    bq = settings.env.bigquery
+    if bq is None:
+        typer.echo("mirror_metadata: this env has no bigquery block: nothing to mirror")
+        typer.echo(json.dumps({"dataset": None, "tables": {}}, sort_keys=True))
+        return
+    ctx = build_context(settings, run_id=run_id)
+    dataset = f"{bq.project}.{bq.meta_dataset}"
+    try:
+        tables = mirror_metadata(ctx.metadata, bq, make_client(bq))
+    except MirrorError as exc:
+        for table, why in exc.failures.items():
+            typer.echo(f"failed: {table}: {why}", err=True)
+        typer.echo(
+            f"mirror_metadata: {len(exc.loaded)} tables mirrored, {len(exc.failures)} failed",
+            err=True,
+        )
+        raise typer.Exit(EXIT_ERROR if exc.retryable else EXIT_VALIDATION) from None
+    typer.echo(f"mirror_metadata: {len(tables)} tables, {sum(tables.values())} rows into {dataset}")
+    typer.echo(json.dumps({"dataset": dataset, "tables": tables}, sort_keys=True))
 
 
 def main() -> None:
