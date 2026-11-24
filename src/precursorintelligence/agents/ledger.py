@@ -34,6 +34,7 @@ EVIDENCE_ID_PREFIXES = (
     "portfolio",
     "brief",
     "passage",
+    "ops",
 )
 """The evidence ID formats (docs/AGENTS_PLAN.md, the evidence ID table): each is ``<prefix>:<part>:<part>...``."""
 

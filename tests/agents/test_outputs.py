@@ -13,7 +13,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from precursorintelligence.agents.cache import InMemoryAnswerCache
 from precursorintelligence.agents.counter import InMemoryDailyCounter
-from precursorintelligence.agents.ledger import prose_evidence_ids
+from precursorintelligence.agents.ledger import EVIDENCE_ID_PREFIXES, prose_evidence_ids
 from precursorintelligence.agents.model import ModelPair
 from precursorintelligence.agents.outputs import (
     CAVEAT,
@@ -404,6 +404,24 @@ def test_prose_evidence_ids_finds_ids_in_text_only():
     assert (
         list(prose_evidence_ids(section)) == []
     )  # the evidence_ids list is validator 1's ordinary check
+
+
+def test_every_id_format_in_the_plan_is_found_in_text():
+    # one example of each format in docs/AGENTS_PLAN.md's evidence ID table, Agent 3's ops: included
+    ids = [
+        f"score:015009:{V}",
+        f"reason:015009:{V}:raises:1",
+        "citation:015009:2026-03-14:F0689",
+        "penalty:015009:2026-03-14:fine:1",
+        f"chain:C123:{V}",
+        f"portfolio:{V}:0123456789ab",
+        f"brief:015009:{V}",
+        PASSAGE_ID,
+        f"ops:gates:{V}",
+    ]
+    assert [p.split(":")[0] for p in ids] == list(EVIDENCE_ID_PREFIXES)
+    section = Section(title="t", body="see " + " and ".join(ids) + ".")
+    assert list(prose_evidence_ids(section)) == ids
 
 
 @METHODS
