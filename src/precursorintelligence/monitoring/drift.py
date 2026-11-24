@@ -10,9 +10,14 @@ dozen non-integer values that all move a little every month. Its quantile edges 
 of a few thousandths empties the bins those states hold alone (PSI 0.96 on the real 2026-10 month, #73 B2). It gets
 equal-width bins over the reference's range instead. Integer counts and ratings repeat the same values every month
 and keep their quantile bins.
+
+``score_drift`` compares the champion's ``p`` on the previous month with its ``p`` on V: one model on two months, so a
+change is the data's, not the model's (§12.1). ``score`` computes it, since it holds the model; ``monitor`` flags it.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -59,3 +64,31 @@ def psi(reference: pl.Series, current: pl.Series, bins: int = 10) -> float:
     levels = np.union1d(np.unique(ref_l), np.unique(cur_l))
     p, q = _shares(ref_l, levels), _shares(cur_l, levels)
     return float(np.sum((q - p) * np.log(q / p)))
+
+
+def score_drift(
+    prev: pl.Series | None, current: pl.Series, prev_month: str | None, bins: int
+) -> dict[str, Any]:
+    """The champion's score drift: PSI of ``p`` (reference: the previous month) and the change in mean ``p``. No
+    previous month (``prev`` None or empty) leaves the comparison null."""
+    mean = float(current.mean())  # type: ignore[arg-type]
+    if prev is None or prev.len() == 0:
+        return {
+            "prev_month": None,
+            "n_prev": 0,
+            "n": current.len(),
+            "psi": None,
+            "mean_prev": None,
+            "mean": mean,
+            "mean_shift": None,
+        }
+    mean_prev = float(prev.mean())  # type: ignore[arg-type]
+    return {
+        "prev_month": prev_month,
+        "n_prev": prev.len(),
+        "n": current.len(),
+        "psi": round(psi(prev, current, bins), 4),
+        "mean_prev": mean_prev,
+        "mean": mean,
+        "mean_shift": mean - mean_prev,
+    }

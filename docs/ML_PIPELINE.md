@@ -545,7 +545,7 @@ recipients are redacted. Click a screenshot for the full size.
 - **Unverified gold is allowed** (`allow_unverified: true`, tagged on every run) until the data spec's §11
   verification gate exists.
 - **Phase 2:** MLflow and the ML DAG on the GCP VM (the registry starts fresh there); BigQuery publish; the tuned
-  challenger and an automatic re-tune; the performance trend and score drift in monitoring; per-state empirical-Bayes
+  challenger and an automatic re-tune; the performance trend and score drift in monitoring (built in #120); per-state empirical-Bayes
   shrinkage; MLflow authentication (the UI is local only today); the API, the four agents and the dashboard.
 - **States differ most** in calibration; they are reported, not gated, until per-state shrinkage lands.
 - **Issues found on the stack**, each assigned to its work package's owner:

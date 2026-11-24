@@ -411,3 +411,12 @@ next release is due 2026-12-02.
     0.233 in the refit window (2024-02 to 2025-02) to 0.214 in 2026-10. That is expected, since the labels lag about
     20 months, and it shrinks as retraining moves to newer months. It was accepted at Checkpoint ML-A.
   - `staffing_rating_fn` (PSI 0.405) isn't a model feature, so it can't move the scores.
+- **Score drift and the performance trend** (#120):
+  - `score_drift:psi` / `score_drift:mean`: the champion's scores moved between the previous month and V (PSI of `p`
+    over 0.1, or the mean `p` by more than 0.03), with the model unchanged. Read `status/latest.json`'s
+    `score_drift`, then the feature drift, to see which inputs moved.
+  - `performance:lift_drop:<month>`: on a retrain, a test month's lift is more than 15 % under the median of the
+    earlier recorded months.
+  - Both ask a human for a re-tune (`retune_requested`), as feature drift does; nothing re-tunes on its own.
+  - `skew_scope` in the status file and the email says when a run that didn't score checked skew without the key
+    features.

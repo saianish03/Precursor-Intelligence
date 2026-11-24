@@ -26,7 +26,12 @@ from precursorintelligence.serving.score import (
 )
 from precursorintelligence.training import MlInputError
 from precursorintelligence.training.contracts import Champion, RunPaths
-from precursorintelligence.training.data import last_scored_v, read_frame, read_input_manifest
+from precursorintelligence.training.data import (
+    last_scored_v,
+    read_frame,
+    read_input_manifest,
+    read_windows,
+)
 
 NOW = datetime(2026, 11, 14, 12, 0, tzinfo=UTC)
 
@@ -575,6 +580,42 @@ def test_key_features_are_set_once_per_version(trained):
     # monitor's drift watch list is the version's fixed one, not the month's top features
     key = f"{score_report_dir(RunPaths.of(trained.cfg, trained.run_id))}key_features.json"
     assert json.loads(trained.store().open_read(key).read()) == ["kept"]
+
+
+def score_drift_file(run):
+    key = f"{score_report_dir(RunPaths.of(run.cfg, run.run_id))}score_drift.json"
+    return json.loads(run.store().open_read(key).read())
+
+
+def test_score_writes_the_champions_score_drift_against_the_previous_month(trained):
+    score(trained, setup_champion(trained, 1))
+    drift = score_drift_file(trained)
+    paths = RunPaths.of(trained.cfg, trained.run_id)
+    prev = read_frame(trained.store(), paths, "prev_score")
+    assert drift["prev_month"] == read_windows(trained.store(), paths).prev_score_month
+    assert drift["n_prev"] == prev.height > 0
+    facilities = table(trained, "facility_scores")
+    assert drift["n"] == facilities.height
+    p = facilities[f"p_{read_input_manifest(trained.store(), paths).label}"]
+    assert drift["mean"] == pytest.approx(float(p.mean()))
+    assert drift["mean_shift"] == pytest.approx(drift["mean"] - drift["mean_prev"])
+    assert drift["psi"] is not None and drift["psi"] >= 0
+
+
+def test_score_drift_without_a_previous_month_flags_nothing(trained, monkeypatch):
+    import precursorintelligence.serving.score as score_module
+
+    real = score_module.read_frame
+    monkeypatch.setattr(
+        score_module,
+        "read_frame",
+        lambda store, paths, name: (
+            real(store, paths, name).clear() if name == "prev_score" else real(store, paths, name)
+        ),
+    )
+    score(trained, setup_champion(trained, 1))
+    drift = score_drift_file(trained)
+    assert drift["prev_month"] is None and drift["psi"] is None and drift["n_prev"] == 0
 
 
 def test_the_chain_file_rolls_up_the_facility_file(trained):
