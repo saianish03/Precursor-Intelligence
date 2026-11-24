@@ -252,12 +252,15 @@ class RunLockCfg(BaseModel):
 
 
 class BigQueryCfg(BaseModel):
-    """Where ``publish`` loads the month's scores (ML spec §11 Phase 2); the dataset and tables are Terraform's."""
+    """Where ``publish`` loads the month's scores (ML spec §11 Phase 2; the dataset and tables are Terraform's), and
+    where ``mirror-metadata`` copies the metadata store (data spec §0.6; the dataset is Terraform's, its tables the
+    mirror's)."""
 
     model_config = ConfigDict(extra="forbid")
 
     project: str
     dataset: str
+    meta_dataset: str
     location: str
 
 

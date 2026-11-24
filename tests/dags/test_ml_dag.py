@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pytest
 from airflow.models.dagbag import DagBag
-from utils.alerts import on_dag_failure
+from utils.alerts import on_dag_failure, on_mirror_failure
 from utils.pipeline_operator import HEAVY_POOL, PipelineDockerOperator
 
 DAG_ID = "cms_nh_ml"
@@ -76,7 +76,8 @@ def test_every_container_task_is_one_ml_command(dag, task_id):
 def test_wiring_and_trigger_rules(dag):
     up = {t.task_id: t.upstream_task_ids for t in dag.tasks}
     assert up == {
-        "decide": set(),
+        "start": set(),
+        "decide": {"start"},
         "go": {"decide"},
         "prepare": {"go"},
         "path": {"decide", "prepare"},
@@ -90,12 +91,34 @@ def test_wiring_and_trigger_rules(dag):
         "publish": {"scored"},
         "monitor": {"publish", "score"},
         "notify": {"decide", "monitor", "tune"},
+        "mirror_metadata": {"notify", "start"},
     }
     rules = {t.task_id: t.trigger_rule for t in dag.tasks}
     for task_id in ("score", "monitor"):
         assert rules[task_id] == "none_failed_min_one_success"
     assert rules["notify"] == "none_failed"
     assert [a.name for a in dag.get_task("publish").outlets] == ["cms_nh_scores"]
+
+
+def test_the_run_ends_with_the_metadata_mirror_as_a_teardown(dag):
+    # data spec §0.6, §15.3: the mirror copies this run's ml_runs rows to BigQuery. As the teardown of a no-op setup
+    # it runs once every task is done (a failed or skipped run too) and never decides the run's state
+    start, mirror = dag.get_task("start"), dag.get_task("mirror_metadata")
+    assert start.is_setup and type(start).__name__ == "EmptyOperator"
+    assert mirror.is_teardown and mirror.trigger_rule == "all_done_setup_success"
+    assert not mirror.on_failure_fail_dagrun
+    assert isinstance(mirror, PipelineDockerOperator)
+    assert mirror.command == "precursor-pipeline mirror-metadata --env dev --run-id {{ run_id }}"
+    assert (mirror.retries, mirror.retry_delay) == (1, timedelta(minutes=1))
+    callbacks = mirror.on_failure_callback
+    assert on_mirror_failure in (callbacks if isinstance(callbacks, list) else [callbacks])
+    # the run's state still comes from notify alone: every other task is upstream of it
+    leaves = {
+        t.task_id
+        for t in dag.tasks
+        if not t.is_teardown and all(dag.get_task(d).is_teardown for d in t.downstream_task_ids)
+    }
+    assert leaves == {"notify"}
 
 
 def test_monitor_runs_when_score_wrote_nothing(dag):
@@ -120,6 +143,7 @@ def test_every_task_and_the_run_have_a_time_limit(dag):
     limits = {t.task_id: t.execution_timeout for t in dag.tasks}
     assert all(limits.values()), [k for k, v in limits.items() if not v]
     heavy = {"train", "tune", "evaluate"}
+    assert limits.pop("mirror_metadata") == timedelta(minutes=5)
     assert {v for k, v in limits.items() if k not in heavy} == {timedelta(minutes=60)}
     assert dag.dagrun_timeout == timedelta(hours=4)
     worst = max(

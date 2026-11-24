@@ -1,8 +1,8 @@
-"""Airflow callbacks for the pipeline alerts: the DAG's on_failure_callback and release_lock's. Building and
-sending the emails lives in precursorintelligence.alerts (src/, baked into the Airflow image; mounted
-over it on a laptop); this module only reads the run from Airflow's context. Callbacks run inside Airflow's own
-containers (the DAG callback in the dag-processor, task callbacks in the LocalExecutor worker), which reach
-the internet.
+"""Airflow callbacks for the pipeline alerts: the DAG's on_failure_callback, release_lock's and
+mirror_metadata's. Building and sending the emails lives in precursorintelligence.alerts (src/, baked into the
+Airflow image; mounted over it on a laptop); this module only reads the run from Airflow's context. Callbacks run
+inside Airflow's own containers (the DAG callback in the dag-processor, task callbacks in the LocalExecutor worker),
+which reach the internet.
 """
 
 from __future__ import annotations
@@ -80,6 +80,28 @@ def on_release_failure(context: Any) -> None:
                 "",
                 "The next run cannot take the lock until it is freed:",
                 f"  precursor-ingest lock release --run-id '{ti.run_id}'",
+                f"log: {log_url(ti.dag_id, ti.run_id, ti.task_id)}",
+            ]
+        ),
+    )
+
+
+def on_mirror_failure(context: Any) -> None:
+    """mirror_metadata's on_failure_callback. A teardown never decides the run's state, so this run may show
+    success; only BigQuery's copy of the metadata store is behind (its failed tables), until the next run mirrors."""
+    ti = context["ti"]
+    exc = context.get("exception")
+    send(
+        f"[{ti.dag_id}] {ti.task_id} failed (the run may still show success)",
+        "\n".join(
+            [
+                f"DAG {ti.dag_id}: {ti.task_id} failed in run {ti.run_id}.",
+                "A teardown does not decide the run's state, so the run may still show success.",
+                f"Error: {str(exc)[:300] if exc else 'unknown'}",
+                "",
+                "Postgres (precursor_meta) is unaffected. In BigQuery the tables the log names as failed keep",
+                "their last copy and the others were replaced; the next run mirrors again. Exit 2 means BigQuery",
+                "holds other rows than the store: read the log before rerunning.",
                 f"log: {log_url(ti.dag_id, ti.run_id, ti.task_id)}",
             ]
         ),

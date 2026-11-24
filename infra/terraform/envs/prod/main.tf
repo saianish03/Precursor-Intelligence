@@ -90,7 +90,8 @@ resource "google_storage_bucket_iam_member" "pipeline_mlflow" {
 }
 
 # The VM's logging and monitoring agents write as sa-pipeline; without these its logs and metrics are dropped.
-# bigquery.jobUser: `ml publish` runs its load jobs in the project (ML spec §16.3); the data rights are the dataset's.
+# bigquery.jobUser: `ml publish` and `mirror-metadata` run their load jobs in the project (ML spec §16.3); the data
+# rights are each dataset's.
 resource "google_project_iam_member" "pipeline_runtime" {
   for_each = toset(["roles/logging.logWriter", "roles/monitoring.metricWriter", "roles/bigquery.jobUser"])
 
@@ -137,6 +138,21 @@ resource "google_bigquery_table" "scores" {
 
 resource "google_bigquery_dataset_iam_member" "pipeline_scores" {
   dataset_id = google_bigquery_dataset.scores.dataset_id
+  role       = "roles/bigquery.dataEditor"
+  member     = "serviceAccount:${google_service_account.pipeline.email}"
+}
+
+# The read-only copy of the VM's metadata store (precursor_meta; data spec §0.6): `mirror-metadata` replaces every
+# table at the end of each DAG run, creating it if missing, so the tables and their schemas are the mirror's, not
+# Terraform's. A copy that the next run rebuilds, so no prevent_destroy. Load jobs only (jobUser above).
+resource "google_bigquery_dataset" "meta" {
+  dataset_id  = "precursorintelligence_meta"
+  location    = var.region
+  description = "Read-only copy of the precursor_meta database, replaced at the end of each DAG run (docs/DATA_PIPELINE_SPEC.md §0.6)"
+}
+
+resource "google_bigquery_dataset_iam_member" "pipeline_meta" {
+  dataset_id = google_bigquery_dataset.meta.dataset_id
   role       = "roles/bigquery.dataEditor"
   member     = "serviceAccount:${google_service_account.pipeline.email}"
 }

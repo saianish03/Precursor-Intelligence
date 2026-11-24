@@ -677,7 +677,7 @@ def test_ml_score_scores_with_a_mode(trained, monkeypatch, capsys):
 from precursorintelligence.common.config import BigQueryCfg  # noqa: E402
 from precursorintelligence.serving import bigquery as bq  # noqa: E402
 
-BQ = BigQueryCfg(project="proj", dataset="scores", location="us-central1")
+BQ = BigQueryCfg(project="proj", dataset="scores", meta_dataset="meta", location="us-central1")
 BQ_TYPES = {
     pl.String: "STRING",
     pl.Int64: "INTEGER",

@@ -1,12 +1,13 @@
 """The DAG imports, has no cycles, and wires the spec §15 task contract: every task a PipelineDockerOperator,
-one shared --run-id, the lock taken first and released last (a teardown, so a failed run still fails)."""
+one shared --run-id, the lock taken first and released last (a teardown, so a failed run still fails), the
+metadata store mirrored to BigQuery just before (a teardown too)."""
 
 from datetime import timedelta
 
 import pytest
 from airflow.models.dagbag import DagBag
 from airflow.task.trigger_rule import TriggerRule
-from utils.alerts import on_dag_failure, on_release_failure
+from utils.alerts import on_dag_failure, on_mirror_failure, on_release_failure
 from utils.pipeline_operator import HEAVY_POOL, PipelineDockerOperator
 
 DAG_ID = "cms_nh_pipeline"
@@ -22,6 +23,7 @@ CONTAINER_TASKS = {
     "silver.validate_silver",
     "gold.build_gold",
     "gold.validate_gold",
+    "mirror_metadata",
     "release_lock",
 }
 
@@ -76,11 +78,19 @@ def test_node_order_and_lock(dag):
     }
     assert upstream("gold.build_gold") == {"continue_after_silver"}
     assert upstream("gold.validate_gold") == {"gold.build_gold"}
-    assert upstream("release_lock") == {
+    # spec §15.3: the mirror is a teardown of acquire_lock too, after every other task and before release_lock, so a
+    # failed run is mirrored while the lock is still held
+    assert upstream("mirror_metadata") == {
         "gold.validate_gold",
         "ingestion.acquire_lock",
         "ingestion.alert_anomalies",
     }
+    mirror = tasks["mirror_metadata"]
+    assert mirror.is_teardown and mirror.trigger_rule == TriggerRule.ALL_DONE_SETUP_SUCCESS
+    assert not mirror.on_failure_fail_dagrun
+    assert mirror.command.startswith("precursor-pipeline mirror-metadata ")
+    # release_lock waits for the mirror whatever its state (its trigger rule): a failed mirror never keeps the lock
+    assert upstream("release_lock") == {"mirror_metadata", "ingestion.acquire_lock"}
     release = tasks["release_lock"]
     assert release.is_teardown and release.trigger_rule == TriggerRule.ALL_DONE_SETUP_SUCCESS
     assert "ingestion.acquire_lock" in release.upstream_task_ids  # its setup
@@ -115,6 +125,7 @@ def test_alerts_are_wired(dag):
     assert on_dag_failure in _callbacks(dag.on_failure_callback)  # once per failed run
     # a teardown never fails the run, so a failed release alerts on its own
     assert on_release_failure in _callbacks(tasks["release_lock"].on_failure_callback)
+    assert on_mirror_failure in _callbacks(tasks["mirror_metadata"].on_failure_callback)
     check = tasks["ingestion.check_anomalies"]
     assert " anomalies --severity error --new-only " in check.command and check.do_xcom_push
     # silver's last output line lists the partitions built without new CMS columns (spec §3.2)
@@ -130,6 +141,10 @@ def test_every_task_and_the_run_have_a_time_limit(dag):
     assert all(limits.values()), [k for k, v in limits.items() if not v]
     assert limits.pop("gold.build_gold") == timedelta(hours=2)
     assert limits.pop("release_lock") == timedelta(minutes=10)
+    # release_lock waits for the mirror: one retry and 5 min keep that wait short (2 x 5 min + 1 min)
+    assert limits.pop("mirror_metadata") == timedelta(minutes=5)
+    mirror = next(t for t in dag.tasks if t.task_id == "mirror_metadata")
+    assert (mirror.retries, mirror.retry_delay) == (1, timedelta(minutes=1))
     assert set(limits.values()) == {timedelta(minutes=60)}
     # the backstop outlasts any one task hanging on every try (gold: 3 x 2 h + 2 retry delays) plus the rest of a
     # full backfill (about 1 h on the VM, T25), so a hang fails as its own task

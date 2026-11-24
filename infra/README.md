@@ -20,6 +20,9 @@ idle shutdown).
 - the BigQuery dataset `precursorintelligence_scores` with its three monthly-partitioned score tables (schemas in
   `configs/bigquery/`; every query must filter on `score_month`), which `sa-pipeline` loads (`bigquery.dataEditor` on
   the dataset, `bigquery.jobUser` on the project);
+- the BigQuery dataset `precursorintelligence_meta`, the read-only copy of the VM's metadata store that
+  `mirror-metadata` replaces at the end of each DAG run (`sa-pipeline`: `bigquery.dataEditor` on the dataset; the
+  tables are the mirror's, not Terraform's);
 - the image repository `precursor` and `sa-deployer`, which only CD's runs on `dev` or `main` can act as (it pushes);
 - `sa-release`, only the Deploy workflow's runs on those branches ("Which workflow can act as which account"): sets `pi-release` on the VM (`compute.instanceAdmin.v1` on that
   instance, actAs `sa-pipeline`), reads the image repository and compute settings;
