@@ -3,7 +3,7 @@
 In order:
 
 1. **Input checks**: the raw input is validated against the agent's input model (``AgentInputError``, a 400).
-2. **Cache lookup** (D1): a hit returns at once. It is free, so the daily cap never blocks or counts it.
+2. **Cache lookup** (D1): a hit returns at once, stamped again from this run's ``DataVersion``. It is free, so the daily cap never blocks or counts it.
 3. **Daily cap** (D3): one run is reserved, or ``DailyCapReached`` (a 429). Nested runs reserve their own.
 4. **The conversation**, with a fresh evidence ledger and the D4 limits. An agent gets its evidence one of two ways,
    or both:
@@ -26,11 +26,14 @@ In order:
      a reply that already parses as the output model is taken as the answer. Otherwise one more call asks for
      the answer in the format, with no tools. A failed answer goes back to the tool phase, so the model can fetch
      what it was missing. An agent with no tools makes the format call straight away.
-5. **Validators**: the answer is parsed into the output model, then validator 1 (its evidence IDs are in the
+5. **Validators**: the answer is parsed into the output model and **stamped** (A5: on an ``AgentOutput``, the
+   agent's ``data_as_of`` (by default the score month), its output type's caveat and ``fallback=False``, which the
+   model never writes and never sees in its schema), then validator 1 (also reading IDs written in the text), the
+   month check (every cited record that carries a ``v`` is from the run's month; passages are skipped) (its evidence IDs are in the
    ledger), then the agent's own. A failure (``ModelRetry``) goes back to the model **in the same conversation**,
    once: the ledger and the limits carry over. A second failure ends the run (``OutputRejected``).
 6. **Fallback**: when the run fails (a second invalid answer, both models failing a call, a usage limit, a tool
-   timeout), the agent's template answers from the tool data alone, marked ``fallback=True``. It is never cached,
+   timeout), the agent's template answers from the tool data alone, stamped with ``fallback=True``. It is never cached,
    and its run is given back to the daily cap (its cost stays).
 7. **Cache store** of a validated answer that the primary model wrote, the **log line** and the **trace span**
    (hooks; C1 and C2 make them real).
@@ -61,8 +64,9 @@ from pydantic_core import CoreSchema, core_schema, to_json
 from .cache import AnswerCache, CacheKey
 from .counter import DailyCapReached, DailyCounter
 from .errors import AgentRunError, ModelRetry, OutputRejected, UsageLimitExceeded
-from .ledger import EvidenceLedger, check_evidence_ids
+from .ledger import EvidenceLedger, check_evidence_ids, check_evidence_months
 from .model import Bind, ModelAnswer, ModelPair
+from .outputs import AgentOutput
 from .prompts import Prompt, load_prompt
 from .settings import AgentsSettings
 from .tools.evidence import ToolInputError
@@ -121,6 +125,9 @@ class AgentDefinition(Generic[InT, OutT]):
         False  # Agent 2, and Agent 1 (it calls Agent 2): the corpus version joins the cache key
     )
     user_prompt: Callable[[InT], str] = lambda inp: inp.model_dump_json()
+    # where the answer's data_as_of comes from (A5), given the run's DataVersion and its tools object: by default
+    # the score month. Agent 2 dates its answers by its corpus instead
+    data_as_of: Callable[[DataVersion, Any], str] = lambda data, tools: data.v
 
     def __post_init__(self) -> None:
         if any(t.name == ANSWER_TOOL for t in self.tools):
@@ -490,7 +497,10 @@ def _validate(definition: AgentDefinition[Any, OutT], candidate: Any, deps: RunD
             output = definition.output_type.model_validate(candidate)
     except ValidationError as exc:
         raise ModelRetry(f"The answer doesn't match the output schema: {exc}") from exc
+    # stamped before the validators, so they see data_as_of
+    output = stamp(output, definition.data_as_of(deps.data, deps.tools), fallback=False)
     check_evidence_ids(output, deps.ledger)
+    check_evidence_months(output, deps.ledger, deps.data.v)
     for validator in definition.validators:
         validator(output, deps)
     return output
@@ -581,9 +591,17 @@ def _parse_cached(output_type: type[OutT], cached: dict[str, Any] | None) -> Out
         return None
 
 
-def _set_fallback_flag(output: OutT) -> OutT:
+def stamp(output: OutT, data_as_of: str, *, fallback: bool) -> OutT:
+    """Sets what the model never writes (A5). On an ``AgentOutput``: ``data_as_of``, the output type's own caveat
+    (its ``caveat`` default: ``CAVEAT`` unless the agent sets its own) and the fallback flag, over anything the model
+    put there. On any other output with a ``fallback`` field: that flag."""
+    if isinstance(output, AgentOutput):
+        caveat = type(output).model_fields["caveat"].default
+        return output.model_copy(
+            update={"data_as_of": data_as_of, "caveat": caveat, "fallback": fallback}
+        )
     if "fallback" in type(output).model_fields:
-        return output.model_copy(update={"fallback": True})
+        return output.model_copy(update={"fallback": fallback})
     return output
 
 
@@ -648,7 +666,7 @@ async def run_agent(
         if hit is not None:
             emit("cache_hit")
             return RunOutcome(
-                output=hit,
+                output=stamp(hit, definition.data_as_of(data, tools), fallback=False),
                 cache_key=digest,
                 cache_hit=True,
                 fallback=False,
@@ -686,7 +704,11 @@ async def run_agent(
                 # 6. fallback: the template answers from the tool data alone
                 error = f"{type(exc).__name__}: {exc}"
                 fallback = True
-                output = _set_fallback_flag(await definition.fallback(inp, deps))
+                output = stamp(
+                    await definition.fallback(inp, deps),
+                    definition.data_as_of(data, tools),
+                    fallback=True,
+                )
             if fallback:
                 await runtime.counter.release_run(day)
             elif (
