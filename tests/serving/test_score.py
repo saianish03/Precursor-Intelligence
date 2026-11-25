@@ -3,7 +3,7 @@
 import io
 import shutil
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
 import polars as pl
@@ -616,6 +616,32 @@ def test_score_drift_without_a_previous_month_flags_nothing(trained, monkeypatch
     score(trained, setup_champion(trained, 1))
     drift = score_drift_file(trained)
     assert drift["prev_month"] is None and drift["psi"] is None and drift["n_prev"] == 0
+
+
+def test_a_score_drift_failure_leaves_the_month_as_it_was(trained, monkeypatch):
+    reg = setup_champion(trained, 1)
+    score(trained, reg)
+    v = read_input_manifest(trained.store(), RunPaths.of(trained.cfg, trained.run_id)).v
+    out_dir = scores_dir(trained.cfg, v)
+    files = [SCORES_MANIFEST, "facility_scores.parquet"]
+    before = {f: trained.store().open_read(f"{out_dir}{f}").read() for f in files}
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("drift failed")
+
+    monkeypatch.setattr(score_mod, "score_drift", broken)
+    with pytest.raises(RuntimeError, match="drift failed"):
+        run_score(
+            trained.store(),
+            trained.meta(),
+            packages=trained.packages(),
+            ml_run_id=trained.run_id,
+            cfg=trained.cfg,
+            registry=reg,
+            now=NOW + timedelta(days=1),  # another clock: any write would change the bytes
+        )
+    assert {f: trained.store().open_read(f"{out_dir}{f}").read() for f in files} == before
+    publish(trained)
 
 
 def test_the_chain_file_rolls_up_the_facility_file(trained):
