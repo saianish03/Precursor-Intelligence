@@ -3,7 +3,7 @@
 import io
 import shutil
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
 import polars as pl
@@ -631,7 +631,15 @@ def test_a_score_drift_failure_leaves_the_month_as_it_was(trained, monkeypatch):
 
     monkeypatch.setattr(score_mod, "score_drift", broken)
     with pytest.raises(RuntimeError, match="drift failed"):
-        score(trained, reg)
+        run_score(
+            trained.store(),
+            trained.meta(),
+            packages=trained.packages(),
+            ml_run_id=trained.run_id,
+            cfg=trained.cfg,
+            registry=reg,
+            now=NOW + timedelta(days=1),  # another clock: any write would change the bytes
+        )
     assert {f: trained.store().open_read(f"{out_dir}{f}").read() for f in files} == before
     publish(trained)
 
