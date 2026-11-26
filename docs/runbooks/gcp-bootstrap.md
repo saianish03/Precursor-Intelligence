@@ -35,9 +35,18 @@ drops the colon.
 
 1. **APIs and budget**
    ```bash
-   gcloud services enable compute.googleapis.com storage.googleapis.com iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com cloudresourcemanager.googleapis.com iap.googleapis.com bigquery.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com billingbudgets.googleapis.com
+   gcloud services enable compute.googleapis.com storage.googleapis.com iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com cloudresourcemanager.googleapis.com iap.googleapis.com bigquery.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com billingbudgets.googleapis.com aiplatform.googleapis.com run.googleapis.com
    gcloud billing budgets create --billing-account=$BILLING --display-name=pi-trial-credit --budget-amount=300USD --threshold-rule=percent=0.0833 --threshold-rule=percent=0.1667 --threshold-rule=percent=0.3333 --threshold-rule=percent=0.5
    ```
+   The last two APIs were added for the agents (`AGENTS_PLAN.md` L4): Vertex AI, and Cloud Run for the API service
+   (L3). The project was bootstrapped without them and has only `aiplatform` on today, so the project owner runs
+   this once (enabling an API that is already on does nothing):
+   ```bash
+   gcloud services enable aiplatform.googleapis.com run.googleapis.com --project=$PROJECT
+   ```
+   Only if Model Garden asks for it when enabling a model, also enable `cloudcommerceconsumerprocurement.googleapis.com`;
+   #104's runs worked without it.
+   The rest of the Vertex setup is in `vertex-l4.md`.
 2. **Buckets**
    ```bash
    gcloud storage buckets create gs://$PROJECT-tfstate --location=$REGION --uniform-bucket-level-access --public-access-prevention
