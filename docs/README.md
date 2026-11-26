@@ -19,6 +19,6 @@
 | `adr/` | architecture decision records: `0001-ui-hosting-and-auth.md` (one Cloud Run service, the API under `/api/v1/`, Google sign-in) |
 | `data/` | data dictionary notes, footnote codes, schema-change log |
 | `reference/` | reference material, e.g. `column_lineage.xlsx` (raw CMS column → feature lineage) |
-| `runbooks/` | how to operate, backfill, recover, promote / roll back; `airflow-local.md` (run the stack), `vm.md` (operate the GCP VM: access, start and stop, deploy and roll back, moving `main`, runs, restore, alerts, costs, troubleshooting, production: the monthly CMS release), `airflow-e2e-simulation.md` (reproduce the end-to-end test runs, written for Claude Code); `gold-snapshot.md` (snapshot the published gold under DVC); `vertex-l4.md` (Vertex AI access for the agents and the gpt-oss smoke test) |
+| `runbooks/` | how to operate, backfill, recover, promote / roll back; `airflow-local.md` (run the stack), `vm.md` (operate the GCP VM: access, start and stop, deploy and roll back, moving `main`, runs, restore, alerts, costs, troubleshooting, production: the monthly CMS release), `airflow-e2e-simulation.md` (reproduce the end-to-end test runs, written for Claude Code); `gold-snapshot.md` (snapshot the published gold under DVC); `vertex-l4.md` (Vertex AI access for the agents: enabling gpt-oss, ADC on a laptop, running the L4 proof) |
 
 At the repo root, for the frontend: `PRODUCT.md` (the product brief: users, purpose, constraints and principles) and `DESIGN.md` (the visual system, "The Register": colours, type and components).
