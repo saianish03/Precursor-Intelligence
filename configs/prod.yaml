@@ -39,7 +39,11 @@ run_lock:
 # The month's scores, loaded by `ml publish` (ML spec §11 Phase 2); the dataset and its tables are Terraform's, with
 # the schemas in configs/bigquery/. Load jobs only: free, and no query runs here. No default, like the package store:
 # only the VM sets PI_BIGQUERY_DATASET (docker-compose.vm.yaml), so a laptop stack on ml-dev/ loads nothing into it.
+# meta_dataset: the read-only copy of this env's metadata store, replaced by `mirror-metadata` at the end of each DAG
+# run (data spec §0.6). It goes with the block, so a laptop stack or a trial prefix (dataset blank) mirrors nothing;
+# exporting PI_BIGQUERY_DATASET by hand on a laptop would mirror the laptop's database over the VM's copy.
 bigquery:
   project: precursor-intel-mlops
   dataset: ${PI_BIGQUERY_DATASET:-}
+  meta_dataset: precursorintelligence_meta
   location: us-central1

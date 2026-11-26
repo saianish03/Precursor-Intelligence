@@ -4,14 +4,19 @@ Signals (§12.1), on the run's pinned frames:
 - **feature drift:** PSI of each key feature, score month vs the previous month (``drift:<feature>``);
 - **training vs scoring skew:** PSI of the key, enforcement and regime-sensitive features, refit window vs score month
   (``skew:<feature>``), plus ``prepare``'s regime-coverage flags (``regime:<feature>``);
-- **stale champion:** the champion's ``v_labels`` more than ``champion_lag_months_max`` behind this gold's.
+- **stale champion:** the champion's ``v_labels`` more than ``champion_lag_months_max`` behind this gold's;
+- **score drift:** ``score``'s ``score_drift.json``, the champion's ``p`` on the previous month vs V: PSI over
+  ``score_psi_max`` (``score_drift:psi``), mean moving more than ``mean_shift_max`` (``score_drift:mean``);
+- **performance trend:** on a run that evaluated, each test month's ``pr_auc_lift`` vs the median lift of the earlier
+  test months that earlier evaluated runs recorded (the latest run counts per month); more than ``lift_drop_max``
+  under it is ``performance:lift_drop:<month>``.
 
 Key features are the champion version's fixed list that ``score`` recorded (``score/key_features.json``, from the
 version's ``key_features`` tag, §8.2), so a feature that drifts out of a month's top list stays watched; without scores this
-run (no champion yet) there is no drift signal. Score drift, the performance trend (an agreed exception) and realized performance
-are Phase 2 (§18.1 cut line).
+run (no champion yet) there is no drift signal, and the skew check covers only the enforcement and regime-sensitive
+features (``skew_scope`` says so, #73 B20). Realized performance waits for published scores to mature (20 months).
 
-A drift flag sets ``retune_requested`` on this run's ``ml_runs`` row (action ``monitor``) and in the email: a
+A feature-drift, score-drift or performance flag sets ``retune_requested`` on this run's ``ml_runs`` row (action ``monitor``) and in the email: a
 request for a human, who re-tunes with ``mode=retune``. Phase 1 never re-tunes on its own (§12.2), so a request
 can't loop. Skew and stale-champion flags only alert. The status file is written last; its fields
 and the headline metrics (test PR-AUC and Brier with their CIs, when this run evaluated a model) are the summary
@@ -22,6 +27,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import statistics
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -44,6 +51,8 @@ from .drift import psi
 log = logging.getLogger(__name__)
 
 HEADLINE = ("pr_auc", "brier")
+# the flags that ask a human for a re-tune (§12.2); skew and a stale champion only alert
+RETUNE_FLAGS = ("drift:", "score_drift:", "performance:")
 
 
 @dataclass
@@ -67,6 +76,52 @@ def _read(store: ObjectStore, key: str) -> bytes | None:
         return None
     with store.open_read(key) as f:
         return f.read()
+
+
+def _lift(entry: dict[str, Any]) -> float | None:
+    lift = entry.get("pr_auc_lift")
+    return None if lift is None or math.isnan(lift) else float(lift)
+
+
+def _performance_trend(
+    store: ObjectStore,
+    cfg: MlConfig,
+    rows: list[dict[str, Any]],
+    ml_run_id: str,
+    per_month: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Each of this run's test months: its lift vs the median lift of the earlier test months recorded by earlier
+    evaluated runs (their gate rows lead to their evaluation.json; the latest run counts per month). A development
+    month (the recipe was chosen on it, §3.2) never enters the median, and is reported but never flagged."""
+    first_row: dict[str, int] = {}
+    for r in rows:
+        if r.get("action") in GATE_ACTIONS and r["ml_run_id"] != ml_run_id:
+            first_row.setdefault(r["ml_run_id"], r["id"])
+    recorded: dict[str, float] = {}
+    for run in sorted(first_row, key=first_row.__getitem__):
+        raw = _read(store, RunPaths.of(cfg, run).evaluation)
+        for entry in json.loads(raw).get("per_month", []) if raw else []:
+            lift = _lift(entry)
+            if lift is not None and not entry.get("development"):
+                recorded[entry["month"]] = lift
+    trend: dict[str, dict[str, Any]] = {}
+    for entry in per_month:
+        lift = _lift(entry)
+        if lift is None:
+            continue
+        earlier = [v for month, v in recorded.items() if month < entry["month"]]
+        median = statistics.median(earlier) if earlier else None
+        development = bool(entry.get("development"))
+        trend[entry["month"]] = {
+            "lift": lift,
+            "n_earlier": len(earlier),
+            "median_earlier": median,
+            "development": development,
+            "flagged": not development
+            and median is not None
+            and lift < (1 - cfg.monitor.lift_drop_max) * median,
+        }
+    return trend
 
 
 def _psi_table(
@@ -137,21 +192,34 @@ def run_monitor(
         lag = _months(manifest.v_labels) - _months(trained_on)
         if lag > m.champion_lag_months_max:
             flags.append(f"stale_champion:{lag}_months")
-    retune = any(f.startswith("drift:") for f in flags)
+    drift_raw = _read(store, f"{score_report_dir(paths)}score_drift.json")
+    score_drift = json.loads(drift_raw) if drift_raw else None
+    if score_drift and score_drift["psi"] is not None and score_drift["psi"] > m.score_psi_max:
+        flags.append("score_drift:psi")
+    if (
+        score_drift
+        and score_drift["mean_shift"] is not None
+        and abs(score_drift["mean_shift"]) > m.mean_shift_max
+    ):
+        flags.append("score_drift:mean")
 
     candidate = None
     raw_train = _read(store, paths.train_result)
     if raw_train is not None:
         candidate = TrainResult.model_validate_json(raw_train).selected
     raw_eval = _read(store, paths.evaluation)
+    trend: dict[str, dict[str, Any]] | None = None
     if raw_eval is not None:
         report = EvaluationReport.model_validate_json(raw_eval)
+        trend = _performance_trend(store, cfg, rows, ml_run_id, report.per_month)
+        flags += [f"performance:lift_drop:{month}" for month, t in trend.items() if t["flagged"]]
         intervals = report.candidates[report.selected].intervals
         out.headline = {
             k: {"estimate": iv.estimate, "ci_low": iv.ci_low, "ci_high": iv.ci_high}
             for k, iv in intervals.items()
             if k in HEADLINE
         }
+    retune = any(f.startswith(RETUNE_FLAGS) for f in flags)
     gate_results = (
         json.loads(gate["gate_results_json"]) if gate and gate.get("gate_results_json") else {}
     )
@@ -173,6 +241,9 @@ def run_monitor(
         "n_facilities": scores.rows.get("facility_scores") if scores else 0,
         "flags": flags,
         "retune_requested": retune,
+        "score_drift": score_drift,
+        "performance_trend": trend,
+        "skew_scope": "full" if key else "partial: no key features (this run didn't score)",
         "ml_run_id": ml_run_id,
         "note": None if champion is not None else "no champion yet: awaiting Checkpoint ML-A",
     }

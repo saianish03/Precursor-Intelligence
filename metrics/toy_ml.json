@@ -38,7 +38,26 @@
     "model_version": 1,
     "n_facilities": 2000,
     "note": null,
+    "performance_trend": {
+      "2025-02": {
+        "development": true,
+        "flagged": false,
+        "lift": 1.6280763106597627,
+        "median_earlier": null,
+        "n_earlier": 0
+      }
+    },
     "retune_requested": false,
+    "score_drift": {
+      "mean": 0.2519959968166256,
+      "mean_prev": 0.2511179831060744,
+      "mean_shift": 0.0008780137105511843,
+      "n": 2000,
+      "n_prev": 2000,
+      "prev_month": "2026-09",
+      "psi": 0.0022
+    },
+    "skew_scope": "full",
     "stale_refresh": false,
     "v": "2026-10",
     "v_labels": "2026-10"

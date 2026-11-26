@@ -459,11 +459,24 @@ All four files go to `<prefix>scores/v=YYYY-MM/` with `scores_manifest.json` (mo
 
 **Built in Phase 1:** feature drift (on the champion version's fixed key features: `score` writes the version's `key_features` tag, §8.2, to `score/key_features.json`, so a feature that drifts out of a month's top list stays watched), training-vs-scoring skew (key, enforcement and regime-sensitive features, with `prepare`'s regime-coverage flags) and the stale champion (`monitoring/status.py`). Score drift moves to Phase 2 with realized performance (§18.1 cut line), and so does the performance trend: an **agreed exception** (team, 2026-11-15), since §18.1's list didn't include it. Feature drift is therefore Phase 1's only re-tune signal. PSI is computed in code (`monitoring/drift.py`, tested). Month over month is the trigger, not a fixed old reference: PR #38 found 22–35 features with PSI > 0.25 against 2022–2023, which would fire every month. An Evidently `DataDriftPreset` HTML report is an optional artifact (Phase 2).
 
+**Built in Phase 2 (#120):**
+- **Score drift:** `score` also predicts the `prev_score` frame with the champion and writes `score/score_drift.json`
+  (`prev_month`, `n_prev`, `n`, `psi`, `mean_prev`, `mean`, `mean_shift`); `monitor` flags `score_drift:psi` and
+  `score_drift:mean`. No previous month leaves them null, with no flag.
+- **The performance trend:** on a run that evaluated, each test month's `pr_auc_lift` against the median of the
+  earlier test months recorded by earlier evaluated runs (the latest run counts per month; from one earlier month on),
+  flagged `performance:lift_drop:<month>`. A development month (§3.2: the recipe was chosen on it, so its lift is
+  optimistic) never enters the median, and is reported but never flagged.
+- Both join feature drift as re-tune requests (§12.2).
+- **`skew_scope`** says when the skew check ran without the key features (a run that didn't score, #73 B20).
+- **Not yet:** realized performance, since published scores mature 20 months later (the VM's first month, 2026-10,
+  in 2028-06), and the Evidently report (not in the pipeline image; the lead's call).
+
 ### 12.2 Re-tune requests (ML-2, ML-19)
 A feature-drift, score-drift or performance flag sets `retune_requested = true` in this run's `ml_runs` row and emails. **Phase 1:** the request is for a human, who triggers `mode=retune`; that run's RETUNE runs `tune` alone (§13: the proposal, the trials and the sensitivity plots) and trains, gates and scores nothing, because `train` doesn't apply a proposal yet. `mode=auto` never re-tunes on its own, so a request can't loop (the same gold keeps the same PSI). **Phase 2:** the next `mode=auto` run re-tunes beside its normal path, `train` fits the proposal, and the tuned model is evaluated through the gates and registered as a **challenger only**, with a report. The tuned parameters become the recipe only through a human PR to `configs/ml.yaml` (CD → new image → new `recipe_hash` → RETRAIN → gates). Drift alone never promotes or demotes a model; the monthly refits already adapt to new data. Training-vs-scoring skew and stale-champion flags alert a human (they are not fixed by re-tuning).
 
 ### 12.3 Status file and notifications
-- **`<prefix>status/latest.json`** (written last by `monitor`): `{v, v_labels, scored_at, model_name, model_version, candidate, gold_run_id, gold_verified, stale_refresh, decision, gate_outcome, failed_gates, n_facilities, flags, retune_requested, ml_run_id}`. The API and UI read it (data spec §0.6).
+- **`<prefix>status/latest.json`** (written last by `monitor`): `{v, v_labels, scored_at, model_name, model_version, candidate, gold_run_id, gold_verified, stale_refresh, decision, gate_outcome, failed_gates, n_facilities, flags, retune_requested, score_drift, performance_trend, skew_scope, ml_run_id, note}`. The API and UI read it (data spec §0.6).
 - `monitor` also prints a summary JSON on its last stdout line; **`notify`** (a Python task in the Airflow image, which has no MLflow or GCS client) reads it via XCom and emails it with `precursorintelligence.alerts.send`: decision, gate outcome, champion version, headline metrics with CIs, flags. Failures email through `dags/utils/alerts.py: on_dag_failure`; holds and flags also email (course §7.5).
 
 ---
@@ -555,6 +568,7 @@ Branches use `@task.branch`; `score` and `monitor` use `trigger_rule="none_faile
 | `publish` | `ml publish` | §11; `outlets=[cms_nh_scores]` |
 | `monitor` | `ml monitor` | §12; writes `status/latest.json`; last stdout line: the summary JSON |
 | `notify` | Python | emails the summary (XCom from `monitor`, or `decide` on SKIP) |
+| `mirror_metadata` | `precursor-pipeline mirror-metadata` | the metadata store's copy in BigQuery (data spec §0.6, §15.3), `ml_runs` included; the teardown of a no-op setup `start` before `decide`, so a failed or skipped run is mirrored too and the mirror never decides the run's state |
 
 ### 15.4 Params and run modes
 | Param | Type | Default |

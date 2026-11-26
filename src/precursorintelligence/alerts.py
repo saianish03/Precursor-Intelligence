@@ -171,6 +171,27 @@ def ml_run_alert(dag_id: str, run_id: str, summary: dict[str, Any]) -> tuple[str
             if all(iv.get(k) is not None for k in ("estimate", "ci_low", "ci_high"))
             else f"Test {metric}: {iv}"
         )
+    drift = summary.get("score_drift")
+    if drift:
+        lines.append(
+            f"Score drift: {drift['prev_month']} -> {v}, PSI {drift['psi']:.4f}, mean p "
+            f"{drift['mean_prev']:.4f} -> {drift['mean']:.4f} ({drift['mean_shift']:+.4f})"
+            if drift.get("prev_month")
+            else "Score drift: no previous month to compare"
+        )
+    for month, t in (summary.get("performance_trend") or {}).items():
+        parts = [
+            f"vs median {t['median_earlier']:.2f} of {t['n_earlier']} earlier months"
+            if t["n_earlier"]
+            else "no earlier months"
+        ]
+        if t.get("development"):
+            parts.append("a development month, never flagged")
+        elif t["flagged"]:
+            parts.append("flagged")
+        lines.append(f"Performance trend {month}: lift {t['lift']:.2f}, {', '.join(parts)}")
+    if summary.get("skew_scope") not in (None, "full"):
+        lines.append(f"Skew check: {summary['skew_scope']}")
     lines.append(f"Flags: {', '.join(summary.get('flags') or []) or 'none'}")
     if summary.get("note"):
         lines.append(summary["note"])

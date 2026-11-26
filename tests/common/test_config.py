@@ -102,6 +102,9 @@ def test_only_prod_publishes_to_the_terraform_managed_bigquery_dataset(monkeypat
     main_tf = (project_root() / "infra" / "terraform" / "envs" / "prod" / "main.tf").read_text()
     assert f'dataset_id  = "{bq.dataset}"' in main_tf
     assert (bq.project, bq.location) == ("precursor-intel-mlops", "us-central1")
+    # the metadata store's copy (data spec §0.6) goes with the block: the dataset main.tf creates
+    assert bq.meta_dataset == "precursorintelligence_meta"
+    assert f'dataset_id  = "{bq.meta_dataset}"' in main_tf
 
 
 def test_registered_packages_go_to_the_mlflow_bucket(monkeypatch):

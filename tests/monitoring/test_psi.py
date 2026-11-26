@@ -4,7 +4,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from precursorintelligence.monitoring.drift import psi
+from precursorintelligence.monitoring.drift import psi, score_drift
 
 rng = np.random.default_rng(0)
 
@@ -79,3 +79,29 @@ def test_integer_counts_keep_their_quantile_bins():
 def test_a_one_value_column_that_moved_as_a_whole_drifts(ref, cur):
     # one value for every home (qm_age_months_* is one per month): the whole column moving is real drift
     assert psi(pl.Series([ref] * 1000), pl.Series([cur] * 1000)) > 0.25
+
+
+# --------------------------------------------------------------------------- score drift (§12.1)
+
+
+def test_score_drift_compares_the_same_model_on_two_months():
+    prev = pl.Series([0.1, 0.2, 0.3, 0.4] * 250)
+    cur = pl.Series([0.15, 0.25, 0.35, 0.45] * 250)
+    out = score_drift(prev, cur, "2026-09", bins=10)
+    assert out["prev_month"] == "2026-09" and (out["n_prev"], out["n"]) == (1000, 1000)
+    assert out["mean_prev"] == pytest.approx(0.25) and out["mean"] == pytest.approx(0.30)
+    assert out["mean_shift"] == pytest.approx(0.05)
+    assert out["psi"] == pytest.approx(round(psi(prev, cur, 10), 4))
+
+
+def test_score_drift_without_a_previous_month_has_nothing_to_compare():
+    out = score_drift(None, pl.Series([0.2, 0.4]), None, bins=10)
+    assert out == {
+        "prev_month": None,
+        "n_prev": 0,
+        "n": 2,
+        "psi": None,
+        "mean_prev": None,
+        "mean": pytest.approx(0.3),
+        "mean_shift": None,
+    }

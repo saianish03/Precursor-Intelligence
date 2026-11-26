@@ -1,8 +1,8 @@
 """cms_nh_ml: the ML pipeline as one DAG (docs/ML_PIPELINE_SPEC.md §15).
 
-Started by every `cms_nh_gold` event (a published, validated gold) or by hand. Every task except the branches and
-`notify` is one `precursor-pipeline ml <command>` in a `precursor-pipeline` container with the run's `--run-id`, so
-the run folder is `ml/runs/<run id>/`. No business logic here: `decide` (monitoring/decide.py) picks the path and
+Started by every `cms_nh_gold` event (a published, validated gold) or by hand. Every task except the branches,
+`notify`, `start` and `mirror_metadata` is one `precursor-pipeline ml <command>` in a `precursor-pipeline` container
+with the run's `--run-id`, so the run folder is `ml/runs/<run id>/`. No business logic here: `decide` (monitoring/decide.py) picks the path and
 prints it; the branches only read it.
 
     decide ─► go? ─► prepare ─► path ─┬─ RETUNE ─► tune ─────────────────────────────────────────────┐
@@ -24,6 +24,10 @@ prints it; the branches only read it.
   with a timeout a few times its measured time and no retry, so a hung fit alerts instead of holding the slot.
 - Alerts: a failed run emails through on_dag_failure; every finished run emails its summary (`notify`), which
   says when the gate held, a signal flagged or a re-tune was requested (course §7.5).
+- The run ends with `mirror_metadata` (data spec §0.6, §15.3), the metadata store's copy in BigQuery, so it has
+  this run's `ml_runs` rows. It is the teardown of `start`, a no-op setup before `decide`, so a failed or skipped
+  run is mirrored too and the mirror never decides the run's state (a failed mirror emails on its own). Only the
+  VM's stack mirrors (it has a bigquery block).
 
 Created paused: unpause it before the pipeline run whose gold should start it (Airflow keeps no asset events for a
 paused DAG).
@@ -40,13 +44,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.sdk import Asset, Param, dag, get_current_context, task
-from utils.alerts import on_dag_failure
+from utils.alerts import on_dag_failure, on_mirror_failure
 from utils.pipeline_operator import (
     HEAVY_POOL,
     PipelineDockerOperator,
     docker_kwargs,
     last_json_object,
+    mirror_metadata_task,
     pipeline_env,
 )
 
@@ -184,7 +190,13 @@ def cms_nh_ml():
     score >> is_scored >> publish
     # not after `scored`: a False short-circuit skips every task directly after it, monitor too (#73 B1)
     [publish, score] >> monitor
-    [decide, monitor, tune] >> notify()
+    summary = notify()
+    [decide, monitor, tune] >> summary
+    # a no-op setup and the mirror as its teardown: it runs once every task is done (failed, skipped or not) and,
+    # unlike a plain all_done leaf, never decides the run's state
+    start = EmptyOperator(task_id="start")
+    start >> decide
+    summary >> mirror_metadata_task(on_failure_callback=on_mirror_failure).as_teardown(setups=start)
 
 
 cms_nh_ml()

@@ -110,16 +110,10 @@ class Bm25Index:
     def __init__(
         self, corpus: Corpus, as_of: str | None = None, include_legacy: bool = False
     ) -> None:
-        if as_of is not None and not _VINTAGE.match(as_of):
-            raise ValueError(f"as_of must be YYYY-MM, got {as_of!r}")
         self.corpus_version = corpus.version
         self.as_of = as_of
         self.include_legacy = include_legacy
-        self.passages: tuple[Passage, ...] = tuple(
-            p for p in corpus.passages if _in_force(p, as_of) and (include_legacy or not p.legacy)
-        )
-        if not self.passages:
-            raise ValueError(f"no passages in force for as_of={as_of}")
+        self.passages = passages_in_force(corpus, as_of, include_legacy)
         docs = [passage_tokens(p) for p in self.passages]
         self._vocab = frozenset(t for d in docs for t in d)
         self._tag_tokens = [d[0] for d in docs]
@@ -188,13 +182,28 @@ class Bm25Index:
         return SearchResult(query, self.corpus_version, self.as_of, (), True, reason)
 
 
-def _in_force(p: Passage, as_of: str | None) -> bool:
+def in_force(p: Passage, as_of: str | None, include_legacy: bool = False) -> bool:
+    """Whether a search for ``as_of`` (None: the current wordings) can return this passage."""
+    if p.legacy and not include_legacy:
+        return False
     if as_of is None:
         return p.is_current
     if p.valid_from_vintage > as_of:
         return False
     # a vintage after the corpus's newest one is served by the current wordings
     return as_of <= p.valid_to_vintage or p.is_current
+
+
+def passages_in_force(
+    corpus: Corpus, as_of: str | None = None, include_legacy: bool = False
+) -> tuple[Passage, ...]:
+    """The passages a search for ``as_of`` covers; raises ValueError for a malformed vintage or one with none."""
+    if as_of is not None and not _VINTAGE.match(as_of):
+        raise ValueError(f"as_of must be YYYY-MM, got {as_of!r}")
+    ps = tuple(p for p in corpus.passages if in_force(p, as_of, include_legacy))
+    if not ps:
+        raise ValueError(f"no passages in force for as_of={as_of}")
+    return ps
 
 
 _lock = threading.Lock()
@@ -204,11 +213,7 @@ _by_passages: dict[tuple[str, frozenset[str]], Bm25Index] = {}
 
 
 def _in_force_ids(corpus: Corpus, as_of: str | None, include_legacy: bool) -> frozenset[str]:
-    return frozenset(
-        p.passage_id
-        for p in corpus.passages
-        if _in_force(p, as_of) and (include_legacy or not p.legacy)
-    )
+    return frozenset(p.passage_id for p in corpus.passages if in_force(p, as_of, include_legacy))
 
 
 def get_index(corpus: Corpus, as_of: str | None = None, include_legacy: bool = False) -> Bm25Index:

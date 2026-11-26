@@ -45,6 +45,7 @@ from ..common.io.object_store import ObjectStore
 from ..evaluation.packages import load_verified_package
 from ..evaluation.registry import Registry, check_champion_integrity
 from ..evaluation.sanity import SHAP_TOLERANCE
+from ..monitoring.drift import score_drift
 from ..training import MlInputError
 from ..training.contracts import Champion, InputManifest, Mode, RunPaths
 from ..training.data import (
@@ -361,6 +362,13 @@ def run_score(
         "shap_families.csv": _csv(families),
         "key_features.json": json.dumps(watch, indent=2).encode(),
     }
+    # score drift (§12.1): the same champion on the previous month too, so a change is the data's, not the model's
+    prev = read_frame(store, paths, "prev_score")
+    prev_p = None if prev.is_empty() else pl.Series(model.predict_frame(prev)["p"].to_numpy())
+    drift = score_drift(
+        prev_p, pl.Series(pred["p"].to_numpy()), windows.prev_score_month, cfg.monitor.psi_bins
+    )
+    report_files["score_drift.json"] = json.dumps(drift, indent=2).encode()
     plots: dict[str, Callable[[], bytes]] = {
         "shap_bar.png": lambda: explain.bar_chart(mean_abs, title="Champion, score month"),
         "shap_beeswarm.png": lambda: explain.beeswarm(contrib, model.model_frame(frame)),

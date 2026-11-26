@@ -200,6 +200,7 @@ Emails go to the `alert-email-to` secret's recipients, from the Gmail account in
 | `[cms_nh_pipeline] run failed: <tasks>` | the DAG's failure callback, once per run | open the log links; exit codes in `AIRFLOW_PIPELINE.md` §4 (137 = out of memory, section 10) |
 | `[cms_nh_pipeline] run failed: see the run`, body `Reason: timed_out` | the run hit its 8 h limit | the run lock stays held: free it (below) or let the next run take it over after 12 h |
 | `[cms_nh_pipeline] release_lock failed (the run may still show success)` | `release_lock`'s callback | free the lock (below) |
+| `[cms_nh_pipeline] mirror_metadata failed (the run may still show success)`, also `[cms_nh_ml] …` | `mirror_metadata`'s callback | only BigQuery's copy of `precursor_meta` is behind: the tables the log names as failed keep their last copy, the others were replaced (section 12); the next run mirrors again. Exit 1 was BigQuery (retried once); exit 2 means BigQuery holds other rows than the store: read the log |
 | `[cms_nh_pipeline] N new error anomalies` / `new CMS columns in N silver partitions` | the run, which goes on | read the listed lines (`ALERTS_HANDOFF.md` §6) |
 | `[cms_nh_ml] <DECISION> <V>`, e.g. `SKIP 2026-10`, `PROMOTE 2026-10: 2 flag(s)` | `notify`, after every ML run that doesn't fail | read it; a `held (…)`, `re-tune requested`, or a flag other than the two known skew flags (section 14) needs a look |
 | `[cms_nh_ml] run failed: <tasks>` | the DAG's failure callback | open the log links; a REFUSE is exit 2 and isn't retried (section 14) |
@@ -272,7 +273,7 @@ cases: `infra/README.md`, "Cost of the VM". The budget alerts never stop spendin
 - **An MLflow version bump** runs `mlflow db upgrade` at start, which can't be undone: `sudo pi-pg-backup` before
   deploying it, and a rollback below it needs the `mlflow` dump restored.
 
-## 12. BigQuery (the scores for SQL)
+## 12. BigQuery (the scores and the metadata copy, for SQL)
 - **What:** `ml publish` loads each scored month into `precursor-intel-mlops.precursorintelligence_scores`: tables
   `facility_scores`, `facility_reasons` and `chain_scores`, one monthly partition per `score_month`. A rerun of
   `publish` for the month replaces exactly that partition (`WRITE_TRUNCATE`). Only this stack loads (it sets
@@ -296,6 +297,26 @@ cases: `infra/README.md`, "Cost of the VM". The budget alerts never stop spendin
 - **Changing a schema** (`configs/bigquery/`): only add `NULLABLE` columns at the end, or relax a mode. Removing,
   renaming or retyping a column, or making one `REQUIRED`, replaces the table, which `deletion_protection` and CI's
   apply guard refuse. Let the Terraform apply finish before deploying the image that writes the new column.
+- **The metadata copy:** `precursor-intel-mlops.precursorintelligence_meta` holds every `precursor_meta` table but
+  `run_lock` (data spec §0.6), replaced whole, table by table, by `mirror_metadata` at the end of each
+  `cms_nh_pipeline` and `cms_nh_ml` run (only this stack mirrors; a trial prefix doesn't). Read-only: Postgres stays
+  the store, and the next run overwrites any change. It is as fresh as the last run's end: `vintage_registry`, which
+  the hourly release check writes, catches up at the next pipeline or ML run. A run that timed out isn't mirrored
+  (Airflow skips teardowns then); when an ML run starts during the pipeline's mirror, a table may keep the older
+  copy until the next run. For example the last ML runs (`at` is a reserved word, so it's quoted):
+  ```bash
+  bq query --project_id=precursor-intel-mlops --use_legacy_sql=false --maximum_bytes_billed=100000000 \
+    'SELECT ml_run_id, `at`, mode, decision, action FROM precursorintelligence_meta.ml_runs ORDER BY `at` DESC LIMIT 10'
+  ```
+  How fresh it is (each table's last load and rows):
+  ```bash
+  bq query --project_id=precursor-intel-mlops --use_legacy_sql=false --maximum_bytes_billed=100000000 \
+    'SELECT table_id, row_count, TIMESTAMP_MILLIS(last_modified_time) AS mirrored_at FROM precursorintelligence_meta.__TABLES__ ORDER BY table_id'
+  ```
+  A new column reaches BigQuery at the first mirror after Postgres has it, with no Terraform change. `ensure_schema`
+  creates missing tables but never adds a column to an existing one, so Postgres needs that first (until then the
+  mirror fails reading that table). Running it by hand on a laptop with `PI_BIGQUERY_DATASET` exported would mirror
+  the laptop's database over this copy: don't (the next VM run puts the VM's back).
 
 ## 13. Production: the monthly CMS release (T26)
 Decided 2026-11-22: production runs on `main` (section 3) and starts when the release check is unpaused, which then
@@ -390,3 +411,13 @@ next release is due 2026-12-02.
     0.233 in the refit window (2024-02 to 2025-02) to 0.214 in 2026-10. That is expected, since the labels lag about
     20 months, and it shrinks as retraining moves to newer months. It was accepted at Checkpoint ML-A.
   - `staffing_rating_fn` (PSI 0.405) isn't a model feature, so it can't move the scores.
+- **Score drift and the performance trend** (#120):
+  - `score_drift:psi` / `score_drift:mean`: the champion's scores moved between the previous month and V (PSI of `p`
+    over 0.1, or the mean `p` by more than 0.03), with the model unchanged. Read `status/latest.json`'s
+    `score_drift`, then the feature drift, to see which inputs moved.
+  - `performance:lift_drop:<month>`: on a retrain, a test month's lift is more than 15 % under the median of the
+    earlier recorded months. Development months (2025-02) are left out of the median and never flagged, so 2025-03,
+    the first honest month, is compared only with honest months.
+  - Both ask a human for a re-tune (`retune_requested`), as feature drift does; nothing re-tunes on its own.
+  - `skew_scope` in the status file and the email says when a run that didn't score checked skew without the key
+    features.

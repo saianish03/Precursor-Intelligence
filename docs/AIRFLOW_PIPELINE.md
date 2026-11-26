@@ -3,7 +3,7 @@
 - **What this covers:** how the CMS data pipeline runs as one Airflow DAG, what each task does, how the run lock and the exit codes work, what the metadata database holds (its schema), and where logs and run artifacts go.
 - **How to run it** on a laptop or on GCP: [`runbooks/airflow-local.md`](runbooks/airflow-local.md).
 - **Rules behind it:** `DATA_PIPELINE_SPEC.md` §15 (one DAG, five nodes) and §0.6–0.7 (storage and metadata).
-- **Status (2026-10-27):** ingestion → bronze → silver → gold implemented and run end to end on real CMS data, from download to a published gold dataset (runbook §8.2). `check_release` runs in its own hourly DAG, `cms_nh_release_check` (created paused; 2026-11-07). The ML pipeline is its own DAG, `cms_nh_ml`, started by `cms_nh_gold` (created paused; 2026-11-15; ML spec §15, runbook §3). `mirror_metadata` is a TODO slot in the DAG.
+- **Status (2026-10-27):** ingestion → bronze → silver → gold implemented and run end to end on real CMS data, from download to a published gold dataset (runbook §8.2). `check_release` runs in its own hourly DAG, `cms_nh_release_check` (created paused; 2026-11-07). The ML pipeline is its own DAG, `cms_nh_ml`, started by `cms_nh_gold` (created paused; 2026-11-15; ML spec §15, runbook §3). Both DAGs end with `mirror_metadata`, the metadata store's copy in BigQuery (§5; 2026-11-24).
 
 ---
 
@@ -26,6 +26,7 @@ you / hourly -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080     
                                                       v
                 ┌─ precursor-pipeline container (one per task) ──────────────────────────────────────┐
                 │ runs one command:  precursor-ingest ...  or  precursor-pipeline bronze|silver|gold │
+                │                    or  precursor-pipeline mirror-metadata                          │
                 │                    or  precursor-pipeline ml <step>  (cms_nh_ml)                   │
                 │ files      laptop: a host folder mounted at /app/data                              │
                 │            GCP:    gs://precursor-intel-mlops-data                                 │
@@ -83,7 +84,7 @@ you / hourly -> │ airflow-apiserver       UI + REST API on 127.0.0.1:8080     
 └──────────────────────────────────────────────────────────────┘
        |
        v
-[mirror_metadata] TODO (spec §15.3)
+mirror_metadata   teardown of acquire_lock too: the metadata store's copy in BigQuery (§5)
        |
        v
 release_lock      teardown of acquire_lock: runs whenever the lock was taken (§3)
@@ -104,6 +105,7 @@ release_lock      teardown of acquire_lock: runs whenever the lock was taken (§
 | `silver.validate_silver` | `precursor-pipeline validate --layer silver` (`--all-months` in a backfill) | Pandera schema checks, per-month statistics and drift against the previous month (`docs/VALIDATION.md`). A schema violation is exit 2: no retry, gold does not run |
 | `gold.validate_gold` | `precursor-pipeline validate --layer gold` | The same checks on every gold month, plus the label rules. Emits `cms_nh_gold`; it runs after the publish, so a failure holds back the asset but cannot unpublish |
 | `continue_after_*` | (Python) | `stop_after` short-circuit: skip the next node |
+| `mirror_metadata` | `precursor-pipeline mirror-metadata` | Replaces each `precursor_meta` table but `run_lock` in BigQuery `precursorintelligence_meta` (§5); a teardown of `acquire_lock` before `release_lock`, so a failed run is mirrored; does nothing without a `bigquery` block (only the VM has one) |
 | `release_lock` | `precursor-ingest lock release` | Releases the lock (§3) |
 
 **Params** (set when you trigger a run):
@@ -164,6 +166,9 @@ A task that fails makes the downstream tasks `upstream_failed`. The lock is stil
 - Created by `docker/airflow-local/init-db.sh` with its own login `pi_meta`.
 - The tables are created by the pipeline itself (`MetadataStore.ensure_schema`, from `src/precursorintelligence/common/io/schemas.py`).
 - Values are portable SQL types; dates and timestamps are ISO-8601 strings.
+- **A read-only copy in BigQuery,** `precursor-intel-mlops.precursorintelligence_meta` (spec §0.6): every table but
+  `run_lock`, replaced by `mirror_metadata` at the end of each `cms_nh_pipeline` and `cms_nh_ml` run, on the VM only.
+  For SQL from a laptop without the VM; Postgres stays the only store anything writes to (`runbooks/vm.md` §12).
 
 **How the tables connect:**
 
@@ -219,9 +224,6 @@ select task, entry_id, duration_s from run_log where run_id = :run order by dura
 ```
 
 **Known gaps** (spec §0.6, not built yet):
-- the BigQuery `meta` mirror (task `mirror_metadata`);
-- the `dq_results` table;
-- `status/latest.json`;
 - append-only writes with "latest" views (D5): `catalog`, `inventory`, `extracted_files` are still upserted.
 
 Also: `run_log` marks a step failed when it raises, or when it reports `n_failures` > 0 in its details (download, bronze, silver, gold; fixed for issue #10 in PR #12). Changing a column or type needs a migration: `create_all` never alters an existing table.
