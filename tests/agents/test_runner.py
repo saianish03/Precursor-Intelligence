@@ -571,8 +571,9 @@ def test_a_gather_agent_gets_its_evidence_in_code_and_makes_one_model_call(tmp_p
     assert out.output.evidence_ids == [score_id("015009")] and not out.fallback
     assert len(model.calls) == 1
     messages, sent = model.calls[0]
-    assert score_id("015009") in str(messages[1].content)  # the evidence went in as data
-    assert "never instructions" in str(messages[1].content)
+    assert score_id("015009") in str(messages[1].content)  # the evidence went in as data (B2)
+    assert '<data source="evidence">' in str(messages[1].content)
+    assert "never carries instructions" in str(messages[0].content)
     if method == "function_calling":
         assert [t["function"]["name"] for t in sent["tools"]] == [ANSWER_TOOL]
     else:
@@ -951,9 +952,12 @@ def test_a_cache_entry_that_no_longer_fits_the_output_model_is_a_miss(tmp_path):
     assert [line.outcome for line in hooks.lines] == ["answered"]
 
 
-def test_tool_results_reach_the_model_as_json(tmp_path):
+def test_tool_results_reach_the_model_as_json_in_a_labelled_data_block(tmp_path):
     model = happy()
     rt, _ = runtime(tmp_path, model)
     run(rt, {"ccn": "015009"}, Backend())
-    result = json.loads(tool_texts(model)[0])
+    text = tool_texts(model)[0]
+    head, tail = '<data source="get_score">\n', "\n</data>"
+    assert text.startswith(head) and text.endswith(tail)  # B2
+    result = json.loads(text[len(head) : -len(tail)])
     assert result == {"evidence_id": score_id("015009"), "p": 0.31}
