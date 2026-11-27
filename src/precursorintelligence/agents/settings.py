@@ -58,6 +58,13 @@ class LimitsCfg(_Strict):
     max_subagent_calls: int = Field(ge=0)  # k: Agent 2 calls per Agent 1 run
 
 
+class InputsCfg(_Strict):
+    """B1's input limits, checked before any model call (agents/guardrails.py)."""
+
+    question_max_chars: int = Field(ge=1)
+    portfolio_max_ccns: int = Field(ge=1)
+
+
 class ToolsCfg(_Strict):
     timeout_s: float = Field(gt=0)
     subagent_timeout_s: float = Field(gt=0)  # a tool marked with runner.subagent_tool
@@ -87,6 +94,7 @@ class AgentsSettings(_Strict):
     model: ModelCfg
     agents: dict[str, AgentCfg]
     limits: LimitsCfg
+    inputs: InputsCfg
     tools: ToolsCfg
     cost_control: CostControlCfg
     cache: CacheCfg

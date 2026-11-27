@@ -47,6 +47,11 @@ limits:
   tool_calls_limit: 20
   max_subagent_calls: 2            # k: Agent 2 calls per Agent 1 run
 
+# B1's input checks (agents/guardrails.py), before any model call: a bad input is a 400.
+inputs:
+  question_max_chars: 500          # as Agent 2's MAX_QUESTION_CHARS
+  portfolio_max_ccns: 500          # an insurer's book, Agent 4 (H2)
+
 tools:
   timeout_s: 10
   # A tool that runs another agent (Agent 2 from Agent 1, marked with subagent_tool) makes model calls of its own,

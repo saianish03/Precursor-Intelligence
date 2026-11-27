@@ -1,0 +1,43 @@
+# B8's language check (docs/AGENTS_PLAN.md B8). Loaded by agents/guardrails.py: load_language_rules, which refuses
+# unknown keys. run_agent checks every text field the model writes against it; quotes copied verbatim from a source
+# and fields that echo the user's input are skipped. A match goes back to the model with its `why`, using the run's
+# one retry.
+#
+# Each `pattern` is a case-insensitive regular expression, matched on whole words.
+version: 1
+
+banned:
+  - pattern: 'will\s+be\s+cited'
+    why: The score is a probability, not a forecast that a citation will happen.
+  - pattern: 'guarantee[sd]?|guaranteeing'
+    why: Nothing in a risk summary is guaranteed.
+  - pattern: 'approv(?:e|es|ed|ing|al|als)'
+    why: This is a regulatory risk summary, not an underwriting decision; don't advise approving or declining.
+  - pattern: 'declin(?:e|es|ed|ing)'
+    why: >-
+      This is a regulatory risk summary, not an underwriting decision; don't advise approving or declining. For a
+      trend, say "fell" or "dropped".
+  - pattern: 'adverse\s+outcomes?'
+    why: >-
+      The score is the chance of a serious (scope and severity G or higher) health citation within 12 months, not of
+      adverse outcomes for residents. Say it that way.
+
+# Risk bands are undecided (PRODUCT.md): until `bands` below is switched on, risk is described only by decile and
+# percentile, and any band word fails ("moderate risk", "high-risk", "a moderate level of risk", "risk is high").
+band_words:
+  pattern: >-
+    (?:very\s+)?(?:low|moderate|medium|high|elevated|severe|minimal|average|typical)(?:\s+|-)(?:level\s+of\s+)?risk|risk\s+(?:is|level\s+is|level:)\s+(?:low|moderate|medium|high|elevated)
+  why: >-
+    Describe risk only by decile and percentile, e.g. "in the riskiest tenth of facilities this month, at the 96th
+    percentile". Risk bands aren't defined yet.
+
+# A DRAFT band-to-action table: switched off until the band names are agreed with the frontend owner. The PR that
+# switches it on also updates PRODUCT.md. While it is on, the band names below are allowed in the text (other band
+# words still fail), and agents take a facility's band and action sentence from it (guardrails.BandTable), so the
+# model never writes the action wording itself.
+bands:
+  enabled: false
+  rules:
+    - {deciles: [1], name: Highest risk, action: Prioritize for review this month.}
+    - {deciles: [2, 3], name: Elevated risk, action: Review at the next scheduled check.}
+    - {deciles: [4, 5, 6, 7, 8, 9, 10], name: Typical risk, action: Routine monitoring.}

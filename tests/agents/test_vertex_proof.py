@@ -63,8 +63,9 @@ def fake_vertex(request: httpx2.Request) -> httpx2.Response:
         message = "Forced tool calling is not supported for this model."
         return httpx2.Response(400, json=[{"error": {"code": 400, "message": message}}])
     offered = [t["function"]["name"] for t in body.get("tools", [])]
-    if "get_score" in offered and not any(m["role"] == "tool" for m in body["messages"]):
-        reply = _tool_call("get_score", {"ccn": "015009"})
+    score_tool = next((n for n in offered if n.startswith("get_score")), None)
+    if score_tool and not any(m["role"] == "tool" for m in body["messages"]):
+        reply = _tool_call(score_tool, {"ccn": "015009"})
     elif "final_answer" in offered:
         reply = _tool_call("final_answer", ANSWER)
     elif "response_format" in body:
@@ -74,7 +75,7 @@ def fake_vertex(request: httpx2.Request) -> httpx2.Response:
     return httpx2.Response(200, json=_completion("gpt-oss-120b", reply))
 
 
-def test_the_proof_tries_both_methods_and_prints_the_reported_model_name(monkeypatch, capsys):
+def _offline(monkeypatch: Any) -> Any:
     real_build = model_module.build_models
 
     def offline_build(settings: Any, **kw: Any) -> Any:
@@ -87,6 +88,22 @@ def test_the_proof_tries_both_methods_and_prints_the_reported_model_name(monkeyp
 
     script = _load_script()
     monkeypatch.setattr(script, "build_models", offline_build)
+    return script
+
+
+def test_the_injection_case_runs_only_when_named_and_reports_whether_it_was_followed(
+    monkeypatch, capsys
+):
+    script = _offline(monkeypatch)
+    assert "injection" not in script.AGENTS
+    assert asyncio.run(script.prove(["json_schema"], None, ["injection"])) == 0
+    out = capsys.readouterr().out
+    assert "== json_schema, injection ==" in out
+    assert "injection: followed the planted text: no" in out
+
+
+def test_the_proof_tries_both_methods_and_prints_the_reported_model_name(monkeypatch, capsys):
+    script = _offline(monkeypatch)
     assert asyncio.run(script.prove(list(script.METHODS), None)) == 0
     out = capsys.readouterr().out
     primary = load_agents_settings().model.primary
